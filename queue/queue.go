@@ -8,6 +8,7 @@ package queue
 import (
 	"context"
 
+	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -40,6 +41,13 @@ func MaxConcurrentProcessors(n int) Option {
 func Pipe[T any](c Consumer[T], p Processor[T]) Option {
 	return func(r *Runtime) {
 		r.qps = append(r.qps, pipe(c, p))
+	}
+}
+
+// Sequential
+func Sequential[T any](c Consumer[T], p Processor[T]) Option {
+	return func(r *Runtime) {
+
 	}
 }
 
@@ -100,8 +108,11 @@ func consumeQueue[T any](ctx context.Context, itemCh chan<- *Item[T], c Consumer
 }
 
 func consume[T any](ctx context.Context, c Consumer[T]) (item *Item[T], err error) {
+	spanCtx, span := otel.Tracer("queue").Start(ctx, "consume")
+	defer span.End()
+
 	defer errRecover(&err)
-	item, err = c.Consume(ctx)
+	item, err = c.Consume(spanCtx)
 	return
 }
 
@@ -130,8 +141,11 @@ func processItems[T any](ctx context.Context, itemCh <-chan *Item[T], p Processo
 }
 
 func process[T any](ctx context.Context, p Processor[T], item *Item[T]) (err error) {
+	spanCtx, span := otel.Tracer("queue").Start(ctx, "process")
+	defer span.End()
+
 	defer errRecover(&err)
-	err = p.Process(ctx, item.Value)
+	err = p.Process(spanCtx, item.Value)
 	return
 }
 

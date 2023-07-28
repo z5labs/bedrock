@@ -11,6 +11,7 @@ import (
 	"os/signal"
 
 	"github.com/z5labs/app/config"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/spf13/cobra"
 )
@@ -48,21 +49,33 @@ func Name(name string) Option {
 	}
 }
 
+// WithRuntime
+func WithRuntime(rb RuntimeBuilder) Option {
+	return func(a *App) {
+		a.rbs = append(a.rbs, rb)
+	}
+}
+
+func WithRuntimeBuilderFunc(f func(BuildContext) (Runtime, error)) Option {
+	return func(a *App) {
+		a.rbs = append(a.rbs, RuntimeBuilderFunc(f))
+	}
+}
+
 // App
 type App struct {
 	name string
-	rb   RuntimeBuilder
+	rbs  []RuntimeBuilder
 }
 
 // New
-func New(rb RuntimeBuilder, opts ...Option) *App {
+func New(opts ...Option) *App {
 	var name string
 	if len(os.Args) > 0 {
 		name = os.Args[0]
 	}
 	app := &App{
 		name: name,
-		rb:   rb,
 	}
 	for _, opt := range opts {
 		opt(app)
@@ -82,19 +95,45 @@ func (app *App) Run(args ...string) error {
 }
 
 func buildCmd(app *App) *cobra.Command {
+	rs := make([]Runtime, len(app.rbs))
 	return &cobra.Command{
-		Use: "",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			for i, rb := range app.rbs {
+				r, err := rb.Build(BuildContext{})
+				if err != nil {
+					return err
+				}
+				rs[i] = r
+			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
 
-			r, err := app.rb.Build(BuildContext{})
-			if err != nil {
-				return err
+			if len(app.rbs) == 0 {
+				return
 			}
-			return r.Run(cmd.Context())
+			if len(app.rbs) == 1 {
+				rb := app.rbs[0]
+				r, err := rb.Build(BuildContext{})
+				if err != nil {
+					return err
+				}
+				return r.Run(cmd.Context())
+			}
+
+			g, gctx := errgroup.WithContext(cmd.Context())
+			for _, rb := range app.rbs {
+				rb := rb
+				g.Go(func() error {
+					r, err := rb.Build(BuildContext{})
+					if err != nil {
+						return err
+					}
+					return r.Run(gctx)
+				})
+			}
+			return g.Wait()
 		},
 	}
 }

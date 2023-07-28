@@ -7,10 +7,12 @@ package queue
 
 import "context"
 
+// BatchResult
 type BatchResult struct {
 	Err error
 }
 
+// BatchProcessor
 type BatchProcessor[T any] interface {
 	ProcessBatch(context.Context, []T) []BatchResult
 }

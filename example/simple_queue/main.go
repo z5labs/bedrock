@@ -36,16 +36,17 @@ func (p evenOrOdd) Process(ctx context.Context, n int) error {
 	return nil
 }
 
+func initRuntime(bc app.BuildContext) (app.Runtime, error) {
+	consumer := &intGenerator{n: 0}
+	processor := evenOrOdd{}
+	rt := queue.NewRuntime(
+		queue.Pipe[int](consumer, processor),
+	)
+	return rt, nil
+}
+
 func main() {
 	app.New(
-		app.RuntimeBuilderFunc(func(bc app.BuildContext) (app.Runtime, error) {
-			rt := queue.NewRuntime(
-				queue.Pipe[int](
-					&intGenerator{n: 0},
-					evenOrOdd{},
-				),
-			)
-			return rt, nil
-		}),
+		app.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

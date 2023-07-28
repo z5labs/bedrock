@@ -12,6 +12,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/viper"
 )
 
@@ -56,6 +57,18 @@ func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
 	}
 
 	return rd.read(r)
+}
+
+// Unmarshal
+func (m Manager) Unmarshal(v interface{}) error {
+	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		TagName: "config",
+		Result:  v,
+	})
+	if err != nil {
+		return err
+	}
+	return dec.Decode(m.AllSettings())
 }
 
 type Context struct {
