@@ -6,14 +6,17 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"os"
 	"os/signal"
 
 	"github.com/z5labs/app/config"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 // Runtime
@@ -62,10 +65,17 @@ func WithRuntimeBuilderFunc(f func(BuildContext) (Runtime, error)) Option {
 	}
 }
 
+func Config(r io.Reader) Option {
+	return func(a *App) {
+		a.cfgSrc = r
+	}
+}
+
 // App
 type App struct {
-	name string
-	rbs  []RuntimeBuilder
+	name   string
+	cfgSrc io.Reader
+	rbs    []RuntimeBuilder
 }
 
 // New
@@ -97,11 +107,26 @@ func (app *App) Run(args ...string) error {
 func buildCmd(app *App) *cobra.Command {
 	rs := make([]Runtime, len(app.rbs))
 	return &cobra.Command{
-		PreRunE: func(cmd *cobra.Command, args []string) error {
+		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
+			defer errRecover(&err)
+
+			b, err := readAllAndTryClose(app.cfgSrc)
+			if err != nil {
+				return err
+			}
+
+			m, err := config.Read(bytes.NewReader(b), config.Language(config.YAML))
+			if err != nil {
+				return err
+			}
+
 			for i, rb := range app.rbs {
-				r, err := rb.Build(BuildContext{})
+				r, err := rb.Build(BuildContext{Config: m})
 				if err != nil {
 					return err
+				}
+				if r == nil {
+					return errors.New("nil runtime")
 				}
 				rs[i] = r
 			}
@@ -110,32 +135,35 @@ func buildCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
 
-			if len(app.rbs) == 0 {
+			if len(rs) == 0 {
 				return
 			}
-			if len(app.rbs) == 1 {
-				rb := app.rbs[0]
-				r, err := rb.Build(BuildContext{})
-				if err != nil {
-					return err
-				}
-				return r.Run(cmd.Context())
+			if len(rs) == 1 {
+				return rs[0].Run(cmd.Context())
 			}
 
 			g, gctx := errgroup.WithContext(cmd.Context())
-			for _, rb := range app.rbs {
-				rb := rb
-				g.Go(func() error {
-					r, err := rb.Build(BuildContext{})
-					if err != nil {
-						return err
-					}
-					return r.Run(gctx)
+			for _, rt := range rs {
+				rt := rt
+				g.Go(func() (e error) {
+					defer errRecover(&e)
+					return rt.Run(gctx)
 				})
 			}
 			return g.Wait()
 		},
 	}
+}
+
+func readAllAndTryClose(r io.Reader) ([]byte, error) {
+	defer func() {
+		rc, ok := r.(io.ReadCloser)
+		if !ok {
+			return
+		}
+		rc.Close()
+	}()
+	return io.ReadAll(r)
 }
 
 func errRecover(err *error) {
