@@ -9,8 +9,10 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/viper"
@@ -64,11 +66,31 @@ func (m Manager) Unmarshal(v interface{}) error {
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		TagName: "config",
 		Result:  v,
+		DecodeHook: mapstructure.ComposeDecodeHookFunc(
+			decodeTimeDuration(),
+		),
 	})
 	if err != nil {
 		return err
 	}
 	return dec.Decode(m.AllSettings())
+}
+
+func decodeTimeDuration() mapstructure.DecodeHookFunc {
+	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
+		if t != reflect.TypeOf(time.Duration(0)) {
+			return data, nil
+		}
+
+		switch f.Kind() {
+		case reflect.String:
+			return time.ParseDuration(data.(string))
+		case reflect.Int64:
+			return time.Duration(data.(int64)), nil
+		default:
+			return data, nil
+		}
+	}
 }
 
 type Context struct {
