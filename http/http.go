@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -28,13 +29,13 @@ func NewRuntime(h http.Handler, opts ...RuntimeOption) *Runtime {
 }
 
 func (rt *Runtime) Run(ctx context.Context) error {
-	ls, err := net.Listen("http", ":8080")
+	ls, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		return err
 	}
 
 	srv := &http.Server{
-		Handler: rt.h,
+		Handler: otelhttp.NewHandler(rt.h, "server"),
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
