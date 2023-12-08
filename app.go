@@ -13,7 +13,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/z5labs/app/config"
+	"github.com/z5labs/app/pkg/config"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
