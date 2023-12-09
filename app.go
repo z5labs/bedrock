@@ -110,6 +110,20 @@ func buildCmd(app *App) *cobra.Command {
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
 
+			if app.cfgSrc == nil {
+				for i, rb := range app.rbs {
+					r, err := rb.Build(BuildContext{})
+					if err != nil {
+						return err
+					}
+					if r == nil {
+						return errors.New("nil runtime")
+					}
+					rs[i] = r
+				}
+				return nil
+			}
+
 			b, err := readAllAndTryClose(app.cfgSrc)
 			if err != nil {
 				return err

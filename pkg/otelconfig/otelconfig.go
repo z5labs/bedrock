@@ -8,6 +8,8 @@ package otelconfig
 
 import (
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -21,6 +23,23 @@ var Noop = noopConfiger{}
 
 type noopConfiger struct{}
 
-func (c noopConfiger) Init() (trace.TracerProvider, error) {
+func (noopConfiger) Init() (trace.TracerProvider, error) {
 	return otel.GetTracerProvider(), nil
+}
+
+// Stdout initializes a TracerProvider which exports to STDOUT.
+var Stdout = stdoutIniter{}
+
+type stdoutIniter struct{}
+
+func (stdoutIniter) Init() (trace.TracerProvider, error) {
+	exporter, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
+	if err != nil {
+		return nil, err
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+	)
+	return tp, nil
 }
