@@ -85,7 +85,7 @@ type Runtime struct {
 }
 
 // NewRuntime
-func NewRuntime(h http.Handler, opts ...RuntimeOption) *Runtime {
+func NewRuntime(opts ...RuntimeOption) *Runtime {
 	ros := &runtimeOptions{
 		port:       8080,
 		mux:        http.NewServeMux(),
