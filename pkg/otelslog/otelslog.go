@@ -27,6 +27,11 @@ func NewHandler(h slog.Handler) *Handler {
 	return &Handler{slog: h}
 }
 
+// New provides a simple wrapper for slog.New(NewHandler(logger.Handler())).
+func New(logger *slog.Logger) *slog.Logger {
+	return slog.New(NewHandler(logger.Handler()))
+}
+
 // Enabled
 func (h *Handler) Enabled(ctx context.Context, lvl slog.Level) bool {
 	return h.slog.Enabled(ctx, lvl)
