@@ -41,7 +41,7 @@ func Language(lang LanguageType) ReadOption {
 
 type reader struct {
 	lang LanguageType
-	ctx  Context
+	env  map[string]string
 }
 
 // Read
@@ -50,9 +50,7 @@ func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
 
 	rd := reader{
 		lang: YAML,
-		ctx: Context{
-			Env: env,
-		},
+		env:  env,
 	}
 	for _, opt := range opts {
 		opt(&rd)
@@ -93,10 +91,6 @@ func decodeTimeDuration() mapstructure.DecodeHookFunc {
 	}
 }
 
-type Context struct {
-	Env map[string]string
-}
-
 func (rd reader) read(r io.Reader) (Manager, error) {
 	var sb strings.Builder
 	_, err := io.Copy(&sb, r)
@@ -105,13 +99,25 @@ func (rd reader) read(r io.Reader) (Manager, error) {
 	}
 	s := sb.String()
 
-	tmpl, err := template.New("config").Parse(s)
+	funcs := template.FuncMap{
+		"env": func(key string) string {
+			return rd.env[key]
+		},
+		"default": func(def any, v string) any {
+			if len(v) == 0 {
+				return def
+			}
+			return v
+		},
+	}
+
+	tmpl, err := template.New("config").Funcs(funcs).Parse(s)
 	if err != nil {
 		return Manager{}, err
 	}
 
 	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, rd.ctx)
+	err = tmpl.Execute(&buf, struct{}{})
 	if err != nil {
 		return Manager{}, err
 	}
