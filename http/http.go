@@ -16,6 +16,7 @@ import (
 
 	"github.com/z5labs/app/http/httpvalidate"
 	"github.com/z5labs/app/pkg/otelconfig"
+	"github.com/z5labs/app/pkg/slogfield"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -134,16 +135,17 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 
 // Run implements app.Runtime interface.
 func (rt *Runtime) Run(ctx context.Context) error {
-	ls, err := rt.listen("tcp", fmt.Sprintf(":%d", rt.port))
-	if err != nil {
-		return err
-	}
-
 	tp, err := rt.otelIniter.Init()
 	if err != nil {
 		return err
 	}
 	otel.SetTracerProvider(tp)
+
+	ls, err := rt.listen("tcp", fmt.Sprintf(":%d", rt.port))
+	if err != nil {
+		rt.log.Error("failed to listen for connections", slogfield.Error(err))
+		return err
+	}
 
 	s := &http.Server{
 		Handler: otelhttp.NewHandler(
@@ -164,13 +166,15 @@ func (rt *Runtime) Run(ctx context.Context) error {
 			if !ok {
 				return
 			}
+			rt.log.Info("shutting down tracer provider")
 			stp.Shutdown(context.Background())
 		}()
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		defer rt.log.Info("stopped service")
+		defer rt.log.Info("shut down service")
 
+		rt.log.Info("shutting down service")
 		return s.Shutdown(ctx)
 	})
 	g.Go(func() error {
@@ -185,6 +189,7 @@ func (rt *Runtime) Run(ctx context.Context) error {
 	if err == http.ErrServerClosed {
 		return nil
 	}
+	rt.log.Error("service encountered unexpected error", slogfield.Error(err))
 	return err
 }
 
