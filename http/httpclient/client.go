@@ -242,7 +242,7 @@ func RetryAttemptLogger(logger *zap.Logger) RetryOption {
 }
 
 // RetryRequests configures adds request retry logic to an http.Client.
-func RetryRequests(opts ...RetryOption) ClientOption {
+func RetryRequests(opts ...RetryOption) Option {
 	return func(co *clientOptions) {
 		ro := &retryOptions{
 			logger:     zap.NewNop(),
@@ -263,21 +263,21 @@ type clientOptions struct {
 	retryOptions *retryOptions
 }
 
-type ClientOption func(*clientOptions)
+type Option func(*clientOptions)
 
-func ClientTimeout(timeout time.Duration) ClientOption {
+func Timeout(timeout time.Duration) Option {
 	return func(co *clientOptions) {
 		co.timeout = timeout
 	}
 }
 
-func WithTransport(transport http.RoundTripper) ClientOption {
+func WithTransport(transport http.RoundTripper) Option {
 	return func(co *clientOptions) {
 		co.transport = transport
 	}
 }
 
-func NewClient(opts ...ClientOption) *http.Client {
+func New(opts ...Option) *http.Client {
 	co := &clientOptions{
 		transport: http.DefaultTransport,
 	}
