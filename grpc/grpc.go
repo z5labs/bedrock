@@ -13,10 +13,8 @@ import (
 	"net"
 	"sync/atomic"
 
-	"github.com/z5labs/app/pkg/otelconfig"
 	"github.com/z5labs/app/pkg/slogfield"
 
-	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -24,7 +22,6 @@ import (
 
 type runtimeOptions struct {
 	port          uint
-	otelIniter    otelconfig.Initializer
 	logHandler    slog.Handler
 	registerFuncs []func(*grpc.Server)
 }
@@ -48,13 +45,6 @@ func LogHandler(h slog.Handler) RuntimeOption {
 	}
 }
 
-// TracerProvider provides an implementation for initializing a trace.TracerProvider.
-func TracerProvider(initializer otelconfig.Initializer) RuntimeOption {
-	return func(ro *runtimeOptions) {
-		ro.otelIniter = initializer
-	}
-}
-
 // Register a gRPC service with the underlying gRPC server.
 func Register(f func(*grpc.Server)) RuntimeOption {
 	return func(ro *runtimeOptions) {
@@ -67,8 +57,7 @@ type Runtime struct {
 	port   uint
 	listen func(string, string) (net.Listener, error)
 
-	log        *slog.Logger
-	otelIniter otelconfig.Initializer
+	log *slog.Logger
 
 	started atomic.Bool
 	healthy atomic.Bool
@@ -81,7 +70,6 @@ type Runtime struct {
 func NewRuntime(opts ...RuntimeOption) *Runtime {
 	ro := &runtimeOptions{
 		port:       8090,
-		otelIniter: otelconfig.Noop,
 		logHandler: noopLogHandler{},
 	}
 	for _, opt := range opts {
@@ -94,23 +82,16 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 	}
 
 	rt := &Runtime{
-		port:       ro.port,
-		listen:     net.Listen,
-		otelIniter: ro.otelIniter,
-		log:        slog.New(ro.logHandler),
-		grpc:       s,
+		port:   ro.port,
+		listen: net.Listen,
+		log:    slog.New(ro.logHandler),
+		grpc:   s,
 	}
 	return rt
 }
 
 // Run implements the app.Runtime interface.
 func (rt *Runtime) Run(ctx context.Context) error {
-	tp, err := rt.otelIniter.Init()
-	if err != nil {
-		return err
-	}
-	otel.SetTracerProvider(tp)
-
 	ls, err := rt.listen("tcp", fmt.Sprintf(":%d", rt.port))
 	if err != nil {
 		rt.log.Error("failed to listen for connections", slogfield.Error(err))
@@ -120,17 +101,6 @@ func (rt *Runtime) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		<-gctx.Done()
-		defer func() {
-			tp := otel.GetTracerProvider()
-			stp, ok := tp.(interface {
-				Shutdown(context.Context) error
-			})
-			if !ok {
-				return
-			}
-			rt.log.Info("shutting down tracer provider")
-			_ = stp.Shutdown(context.Background())
-		}()
 
 		rt.log.Info("shutting down service")
 		rt.grpc.GracefulStop()
