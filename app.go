@@ -14,6 +14,8 @@ import (
 	"os/signal"
 
 	"github.com/z5labs/app/pkg/config"
+	"github.com/z5labs/app/pkg/otelconfig"
+	"go.opentelemetry.io/otel"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -71,11 +73,19 @@ func Config(r io.Reader) Option {
 	}
 }
 
+// InitTracerProvider
+func InitTracerProvider(initer otelconfig.Initializer) Option {
+	return func(a *App) {
+		a.otelIniter = initer
+	}
+}
+
 // App
 type App struct {
-	name   string
-	cfgSrc io.Reader
-	rbs    []RuntimeBuilder
+	name       string
+	cfgSrc     io.Reader
+	otelIniter otelconfig.Initializer
+	rbs        []RuntimeBuilder
 }
 
 // New
@@ -85,7 +95,8 @@ func New(opts ...Option) *App {
 		name = os.Args[0]
 	}
 	app := &App{
-		name: name,
+		name:       name,
+		otelIniter: otelconfig.Noop,
 	}
 	for _, opt := range opts {
 		opt(app)
@@ -109,6 +120,12 @@ func buildCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
+
+			tp, err := app.otelIniter.Init()
+			if err != nil {
+				return err
+			}
+			otel.SetTracerProvider(tp)
 
 			if app.cfgSrc == nil {
 				for i, rb := range app.rbs {
@@ -165,6 +182,16 @@ func buildCmd(app *App) *cobra.Command {
 				})
 			}
 			return g.Wait()
+		},
+		PostRunE: func(cmd *cobra.Command, args []string) error {
+			tp := otel.GetTracerProvider()
+			stp, ok := tp.(interface {
+				Shutdown(context.Context) error
+			})
+			if !ok {
+				return nil
+			}
+			return stp.Shutdown(context.Background())
 		},
 	}
 }
