@@ -8,121 +8,98 @@ package queue
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
-	"time"
+	"sync/atomic"
 )
 
-func ExamplePipe() {
-	var i int
-	c := ConsumerFunc[int](func(ctx context.Context) (*Item[int], error) {
-		i += 1
-		if i == 5 {
-			return nil, ErrEndOfItems
-		}
-		item := &Item[int]{
-			Value: i,
-		}
-		return item, nil
-	})
+type consumerFunc[T any] func(context.Context) (T, error)
 
-	var mu sync.Mutex
-	var ints []int
-	p := ProcessorFunc[int](func(ctx context.Context, item int) error {
-		mu.Lock()
-		defer mu.Unlock()
-		ints = append(ints, item)
-		return nil
-	})
-
-	rt := NewRuntime(Pipe[int](c, p))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := rt.Run(ctx)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	is := sort.IntSlice(ints)
-	sort.Sort(is)
-	fmt.Println(is)
-	//Output: [1 2 3 4]
+func (f consumerFunc[T]) Consume(ctx context.Context) (T, error) {
+	return f(ctx)
 }
 
-func ExamplePipe_maxConcurrentProcessors() {
-	var i int
-	c := ConsumerFunc[int](func(ctx context.Context) (*Item[int], error) {
-		i += 1
-		if i == 5 {
-			return nil, ErrEndOfItems
-		}
-		item := &Item[int]{
-			Value: i,
-		}
-		return item, nil
-	})
+type processorFunc[T any] func(context.Context, T) error
 
-	var mu sync.Mutex
-	var ints []int
-	p := ProcessorFunc[int](func(ctx context.Context, item int) error {
-		mu.Lock()
-		defer mu.Unlock()
-		ints = append(ints, item)
+func (f processorFunc[T]) Process(ctx context.Context, t T) error {
+	return f(ctx, t)
+}
+
+func ExampleSequential() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var n int
+	c := consumerFunc[int](func(_ context.Context) (int, error) {
+		n += 1
+		return n, nil
+	})
+	p := processorFunc[int](func(_ context.Context, n int) error {
+		if n > 5 {
+			cancel()
+			return nil
+		}
+		// items are processed sequentially in this case so we can
+		// compare based on the printed lines
+		fmt.Println(n)
 		return nil
 	})
 
 	rt := NewRuntime(
-		Pipe[int](c, p),
-		MaxConcurrentProcessors(1),
+		Sequential[int](c, p),
 	)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	err := rt.Run(ctx)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	is := sort.IntSlice(ints)
-	sort.Sort(is)
-	fmt.Println(is)
-	//Output: [1 2 3 4]
+
+	//Output: 1
+	// 2
+	// 3
+	// 4
+	// 5
 }
 
-func ExampleSequential() {
-	var i int
-	c := ConsumerFunc[int](func(ctx context.Context) (*Item[int], error) {
-		i += 1
-		if i == 5 {
-			return nil, ErrEndOfItems
-		}
-		item := &Item[int]{
-			Value: i,
-		}
-		return item, nil
+func ExamplePipe() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var n int
+	c := consumerFunc[int](func(_ context.Context) (int, error) {
+		n += 1
+		return n, nil
 	})
 
-	var ints []int
-	p := ProcessorFunc[int](func(ctx context.Context, item int) error {
-		ints = append(ints, item)
+	var processed atomic.Int64
+	var mu sync.Mutex
+	var nums []int
+	p := processorFunc[int](func(_ context.Context, n int) error {
+		processed.Add(1)
+		if processed.Load() > 5 {
+			cancel()
+			return nil
+		}
+		// items are processed concurrently so we can print them here
+		// since the order is not gauranteed
+		mu.Lock()
+		nums = append(nums, n)
+		mu.Unlock()
 		return nil
 	})
 
-	rt := NewRuntime(Sequential[int](c, p))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	rt := NewRuntime(
+		Sequential[int](c, p),
+	)
 
 	err := rt.Run(ctx)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	is := sort.IntSlice(ints)
-	sort.Sort(is)
-	fmt.Println(is)
-	//Output: [1 2 3 4]
+
+	slices.Sort(nums)
+	fmt.Println(nums)
+	//Output: [1 2 3 4 5]
 }
