@@ -129,7 +129,7 @@ func (rt *Runtime) Run(ctx context.Context) error {
 				return
 			}
 			rt.log.Info("shutting down tracer provider")
-			stp.Shutdown(context.Background())
+			_ = stp.Shutdown(context.Background())
 		}()
 
 		rt.log.Info("shutting down service")
