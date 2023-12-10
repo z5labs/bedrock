@@ -3,40 +3,24 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+// Package queue provides multiple patterns which implements the app.Runtime interface.
 package queue
 
 import (
 	"context"
 	"errors"
-	"math"
+	"log/slog"
 
-	"github.com/uptrace/opentelemetry-go-extra/otelzap"
+	"github.com/z5labs/app/pkg/slogfield"
+
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/otel/propagation"
 	"golang.org/x/sync/errgroup"
 )
 
-// ErrEndOfItems
-var ErrEndOfItems = errors.New("queue: end of items")
-
-// Item
-type Item[T any] struct {
-	Value T
-}
-
 // Consumer
 type Consumer[T any] interface {
-	Consume(context.Context) (*Item[T], error)
-}
-
-// ConsumerFunc
-type ConsumerFunc[T any] func(context.Context) (*Item[T], error)
-
-// Consume implements the Consumer interface.
-func (f ConsumerFunc[T]) Consume(ctx context.Context) (*Item[T], error) {
-	return f(ctx)
+	Consume(context.Context) (T, error)
 }
 
 // Processor
@@ -44,262 +28,264 @@ type Processor[T any] interface {
 	Process(context.Context, T) error
 }
 
-// ProcessorFunc
-type ProcessorFunc[T any] func(context.Context, T) error
-
-// Process implements the Processor interface.
-func (f ProcessorFunc[T]) Process(ctx context.Context, t T) error {
-	return f(ctx, t)
+type sequentialOptions struct {
+	commonOptions
 }
 
-type config struct {
-	log                     *zap.Logger
-	maxConcurrentProcessors int
-	qps                     []func(context.Context, *Runtime) error
+// SequentialOption
+type SequentialOption interface {
+	Option
+	applySequential(*sequentialOptions)
 }
 
-// Option
-type Option func(*config)
-
-// Logger
-func Logger(logger *zap.Logger) Option {
-	return func(cfg *config) {
-		cfg.log = logger
-	}
+func (f commonOptionFunc) applySequential(so *sequentialOptions) {
+	f(&so.commonOptions)
 }
 
-// MaxConcurrentProcessors
-func MaxConcurrentProcessors(n int) Option {
-	return func(cfg *config) {
-		cfg.maxConcurrentProcessors = n
-	}
-}
-
-// Pipe registers a consumer/processor pair with the queue runtime.
-func Pipe[T any](c Consumer[T], p Processor[T]) Option {
-	return func(cfg *config) {
-		cfg.qps = append(cfg.qps, pipe(c, p))
-	}
+// SequentialRuntime
+type SequentialRuntime[T any] struct {
+	log *slog.Logger
+	c   Consumer[T]
+	p   Processor[T]
 }
 
 // Sequential
-func Sequential[T any](c Consumer[T], p Processor[T]) Option {
-	return func(cfg *config) {
-		cfg.qps = append(cfg.qps, sequential(c, p))
-	}
-}
-
-func queueProcessor(f func(context.Context, *Runtime) error) Option {
-	return func(cfg *config) {
-		cfg.qps = append(cfg.qps, f)
-	}
-}
-
-// Runtime
-type Runtime struct {
-	log                     *otelzap.Logger
-	qps                     []func(context.Context, *Runtime) error
-	maxConcurrentProcessors int
-}
-
-// NewRuntime
-func NewRuntime(opts ...Option) *Runtime {
-	cfg := &config{
-		log:                     zap.NewNop(),
-		maxConcurrentProcessors: -1,
+func Sequential[T any](c Consumer[T], p Processor[T], opts ...Option) *SequentialRuntime[T] {
+	so := &sequentialOptions{
+		commonOptions: commonOptions{
+			logHandler: noopLogHandler{},
+		},
 	}
 	for _, opt := range opts {
-		opt(cfg)
+		switch x := opt.(type) {
+		case SequentialOption:
+			x.applySequential(so)
+		default:
+			x.apply(so)
+		}
 	}
-	r := &Runtime{
-		log:                     otelzap.New(cfg.log),
-		maxConcurrentProcessors: cfg.maxConcurrentProcessors,
-		qps:                     cfg.qps,
+
+	return &SequentialRuntime[T]{
+		log: slog.New(so.logHandler),
+		c:   c,
+		p:   p,
 	}
-	return r
 }
 
 // Run implements the app.Runtime interface.
-func (r *Runtime) Run(ctx context.Context) error {
-	g, gctx := errgroup.WithContext(ctx)
-	for _, qp := range r.qps {
-		qp := qp
-		g.Go(func() error {
-			return qp(gctx, r)
-		})
+func (rt *SequentialRuntime[T]) Run(ctx context.Context) error {
+	tracer := otel.Tracer("queue")
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		spanCtx, span := tracer.Start(ctx, "SequentialRuntime.Run")
+		item, err := consume(spanCtx, rt.c)
+		if err != nil {
+			rt.log.ErrorContext(spanCtx, "failed to consume", slogfield.Error(err))
+			span.End()
+			continue
+		}
+
+		select {
+		case <-ctx.Done():
+			span.End()
+			return nil
+		default:
+		}
+
+		err = process(spanCtx, rt.p, item.value)
+		if err != nil {
+			rt.log.ErrorContext(spanCtx, "failed to process", slogfield.Error(err))
+		}
+		span.End()
 	}
+}
+
+type pipeOptions struct {
+	commonOptions
+
+	maxConcurrentProcessors int
+}
+
+// PipeOption
+type PipeOption interface {
+	Option
+	applyPipe(*pipeOptions)
+}
+
+type pipeOptionFunc func(*pipeOptions)
+
+func (f pipeOptionFunc) apply(v any) {
+	po := v.(*pipeOptions)
+	f(po)
+}
+
+func (f pipeOptionFunc) applyPipe(po *pipeOptions) {
+	f(po)
+}
+
+func (f commonOptionFunc) applyPipe(po *pipeOptions) {
+	f(&po.commonOptions)
+}
+
+// MaxConcurrentProcessors
+func MaxConcurrentProcessors(n uint) PipeOption {
+	return pipeOptionFunc(func(po *pipeOptions) {
+		if n == 0 {
+			return
+		}
+		po.maxConcurrentProcessors = int(n)
+	})
+}
+
+// PipeRuntime
+type PipeRuntime[T any] struct {
+	log *slog.Logger
+	c   Consumer[T]
+	p   Processor[T]
+
+	propagator              propagation.TextMapPropagator
+	maxConcurrentProcessors int
+}
+
+// Pipe
+func Pipe[T any](c Consumer[T], p Processor[T], opts ...Option) *PipeRuntime[T] {
+	po := &pipeOptions{
+		commonOptions: commonOptions{
+			logHandler: noopLogHandler{},
+		},
+		maxConcurrentProcessors: -1,
+	}
+	for _, opt := range opts {
+		switch x := opt.(type) {
+		case PipeOption:
+			x.applyPipe(po)
+		default:
+			x.apply(po)
+		}
+	}
+
+	return &PipeRuntime[T]{
+		log:                     slog.New(po.logHandler),
+		c:                       c,
+		p:                       p,
+		propagator:              propagation.Baggage{},
+		maxConcurrentProcessors: po.maxConcurrentProcessors,
+	}
+}
+
+// Run implements the app.Runtime interface
+func (rt *PipeRuntime[T]) Run(ctx context.Context) error {
+	itemCh := make(chan *item[T])
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(rt.consumeItems(gctx, itemCh))
+	g.Go(rt.processItems(gctx, itemCh))
 	return g.Wait()
 }
 
-type itemWithId[T any] struct {
-	id   int64
-	item *Item[T]
+type item[T any] struct {
+	value T
+
+	// for concurrent Consumer-Processor implemetations
+	// the otel context needs to be propagated between goroutines
+	carrier propagation.TextMapCarrier
 }
 
-func pipe[T any](c Consumer[T], p Processor[T]) func(context.Context, *Runtime) error {
-	return func(ctx context.Context, rt *Runtime) error {
-		itemCh := make(chan *itemWithId[T])
-		g, gctx := errgroup.WithContext(ctx)
-		g.Go(consumeQueue(gctx, rt, itemCh, c))
-		g.Go(processItems(gctx, rt, itemCh, p))
-		return g.Wait()
-	}
-}
-
-func consumeQueue[T any](ctx context.Context, rt *Runtime, itemCh chan<- *itemWithId[T], c Consumer[T]) func() error {
+func (rt *PipeRuntime[T]) consumeItems(ctx context.Context, itemCh chan<- *item[T]) func() error {
 	return func() error {
 		defer close(itemCh)
 
-		var itemIdx int64 = math.MinInt64
 		tracer := otel.Tracer("queue")
 		for {
-			itemIdx += 1
-			if itemIdx == math.MaxInt64 {
-				itemIdx = math.MinInt64
-			}
-			spanCtx, span := tracer.Start(ctx, "consumeQueue", trace.WithAttributes(attribute.Int64("queue.item.index", itemIdx)))
+			spanCtx, span := tracer.Start(ctx, "PipeRuntime.consumeItems")
+
 			select {
 			case <-spanCtx.Done():
-				rt.log.Ctx(spanCtx).Info("context cancelled before item could be consumed")
+				span.End()
 				return nil
 			default:
 			}
 
-			item, err := consume[T](spanCtx, c)
-			if err == ErrEndOfItems {
-				rt.log.Ctx(spanCtx).Info("end of queue")
-				span.End()
-				return nil
-			}
+			item, err := consume(spanCtx, rt.c)
 			if err != nil {
-				rt.log.Ctx(spanCtx).Error("encountered error when consuming item from queue", zap.Error(err))
+				rt.log.ErrorContext(spanCtx, "failed to consume", slogfield.Error(err))
 				span.End()
 				continue
 			}
-			if item == nil {
-				rt.log.Ctx(spanCtx).Info("queue returned a nil item")
-				span.End()
-				continue
-			}
-			it := &itemWithId[T]{
-				id:   itemIdx,
-				item: item,
-			}
+
+			item.carrier = make(propagation.MapCarrier)
+			rt.propagator.Inject(spanCtx, item.carrier)
+
 			select {
 			case <-spanCtx.Done():
-				rt.log.Ctx(spanCtx).Warn("context was cancelled before item could be processed")
 				span.End()
 				return nil
-			case itemCh <- it:
-				rt.log.Ctx(spanCtx).Debug("sent item to processing goroutine")
+			case itemCh <- item:
 				span.End()
 			}
 		}
 	}
 }
 
-func consume[T any](ctx context.Context, c Consumer[T]) (item *Item[T], err error) {
-	spanCtx, span := otel.Tracer("queue").Start(ctx, "consume")
-	defer span.End()
-
-	defer errRecover(&err)
-	item, err = c.Consume(spanCtx)
-	return
-}
-
-func processItems[T any](ctx context.Context, rt *Runtime, itemCh <-chan *itemWithId[T], p Processor[T]) func() error {
+func (rt *PipeRuntime[T]) processItems(ctx context.Context, itemCh <-chan *item[T]) func() error {
 	return func() error {
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(rt.maxConcurrentProcessors)
 
-		tracer := otel.Tracer("queue")
 		for {
-			spanCtx, span := tracer.Start(ctx, "processItems", trace.WithAttributes(attribute.Int("queue.max_concurrent_processors", rt.maxConcurrentProcessors)))
-
+			var i *item[T]
 			select {
 			case <-gctx.Done():
-				rt.log.Ctx(spanCtx).Warn("context cancelled")
-				span.End()
 				return g.Wait()
-			case itemWithId := <-itemCh:
-				if itemWithId == nil {
-					rt.log.Ctx(spanCtx).Info("item channel was closed")
-					return g.Wait()
-				}
-				id := itemWithId.id
-				item := itemWithId.item
-				span.SetAttributes(attribute.Int64("queue.item.index", id))
-				g.Go(func() error {
-					defer span.End()
-
-					err := process[T](spanCtx, p, item.Value)
-					if err != nil {
-						rt.log.Ctx(spanCtx).Error("failed to process item", zap.Error(err))
-					}
-					return nil
-				})
+			case i = <-itemCh:
 			}
+			if i == nil {
+				rt.log.Debug("stopping item processing since item channel was closed")
+				return g.Wait()
+			}
+
+			propCtx := rt.propagator.Extract(gctx, i.carrier)
+			g.Go(rt.processItem(propCtx, i))
 		}
 	}
+}
+
+func (rt *PipeRuntime[T]) processItem(ctx context.Context, i *item[T]) func() error {
+	return func() error {
+		spanCtx, span := otel.Tracer("queue").Start(ctx, "processItem")
+		defer span.End()
+
+		err := process(spanCtx, rt.p, i.value)
+		if err != nil {
+			rt.log.ErrorContext(spanCtx, "failed to process", slogfield.Error(err))
+		}
+		return nil
+	}
+}
+
+func consume[T any](ctx context.Context, c Consumer[T]) (i *item[T], err error) {
+	spanCtx, span := otel.Tracer("queue").Start(ctx, "consume")
+	defer span.End()
+	defer errRecover(&err)
+
+	v, err := c.Consume(spanCtx)
+	if err != nil {
+		return nil, err
+	}
+	return &item[T]{value: v}, nil
 }
 
 func process[T any](ctx context.Context, p Processor[T], value T) (err error) {
 	spanCtx, span := otel.Tracer("queue").Start(ctx, "process")
 	defer span.End()
-
 	defer errRecover(&err)
-	err = p.Process(spanCtx, value)
-	return
-}
 
-func sequential[T any](c Consumer[T], p Processor[T]) func(context.Context, *Runtime) error {
-	return func(ctx context.Context, rt *Runtime) error {
-		var itemIdx int64 = math.MinInt64
-		tracer := otel.Tracer("queue")
-		for {
-			itemIdx += 1
-			if itemIdx == math.MaxInt64 {
-				itemIdx = math.MinInt64
-			}
-			spanCtx, span := tracer.Start(ctx, "sequential", trace.WithAttributes(attribute.Int64("queue.item.index", itemIdx)))
-			select {
-			case <-spanCtx.Done():
-				rt.log.Ctx(spanCtx).Warn("context cancelled before item could be consumed")
-				return nil
-			default:
-			}
-
-			item, err := consume(spanCtx, c)
-			if err == ErrEndOfItems {
-				rt.log.Ctx(spanCtx).Info("end of queue")
-				return nil
-			}
-			if err != nil {
-				rt.log.Ctx(spanCtx).Error("failed to consume item from queue", zap.Error(err))
-				span.End()
-				continue
-			}
-			if item == nil {
-				rt.log.Ctx(spanCtx).Info("received a nil item from the queue")
-				span.End()
-				continue
-			}
-			select {
-			case <-spanCtx.Done():
-				rt.log.Ctx(spanCtx).Warn("context cancelled before item could be processed")
-				return nil
-			default:
-			}
-
-			err = process[T](spanCtx, p, item.Value)
-			if err != nil {
-				rt.log.Ctx(spanCtx).Error("failed to process item from queue", zap.Error(err))
-				span.End()
-				continue
-			}
-			span.End()
-		}
-	}
+	return p.Process(spanCtx, value)
 }
 
 func errRecover(err *error) {
@@ -309,8 +295,15 @@ func errRecover(err *error) {
 	}
 	rerr, ok := r.(error)
 	if !ok {
-		// TODO
+		*err = errors.New("recovered from consumer panic")
 		return
 	}
 	*err = rerr
 }
+
+type noopLogHandler struct{}
+
+func (noopLogHandler) Enabled(_ context.Context, _ slog.Level) bool  { return true }
+func (noopLogHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
+func (h noopLogHandler) WithAttrs(_ []slog.Attr) slog.Handler        { return h }
+func (h noopLogHandler) WithGroup(name string) slog.Handler          { return h }

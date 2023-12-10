@@ -8,8 +8,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 
 	"github.com/z5labs/app"
+	"github.com/z5labs/app/pkg/otelconfig"
 	"github.com/z5labs/app/queue"
 )
 
@@ -17,12 +20,9 @@ type intGenerator struct {
 	n int
 }
 
-func (g *intGenerator) Consume(ctx context.Context) (*queue.Item[int], error) {
-	item := &queue.Item[int]{
-		Value: g.n,
-	}
+func (g *intGenerator) Consume(ctx context.Context) (int, error) {
 	g.n += 1
-	return item, nil
+	return g.n, nil
 }
 
 type evenOrOdd struct{}
@@ -37,16 +37,23 @@ func (p evenOrOdd) Process(ctx context.Context, n int) error {
 }
 
 func initRuntime(bc app.BuildContext) (app.Runtime, error) {
+	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
+
 	consumer := &intGenerator{n: 0}
+
 	processor := evenOrOdd{}
-	rt := queue.NewRuntime(
-		queue.Pipe[int](consumer, processor),
+
+	rt := queue.Sequential[int](
+		consumer,
+		processor,
+		queue.LogHandler(logHandler),
 	)
 	return rt, nil
 }
 
 func main() {
 	app.New(
+		app.InitTracerProvider(otelconfig.Stdout),
 		app.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

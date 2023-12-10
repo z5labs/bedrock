@@ -22,7 +22,6 @@ func initRuntime(bc app.BuildContext) (app.Runtime, error) {
 	rt := apphttp.NewRuntime(
 		apphttp.ListenOnPort(8080),
 		apphttp.LogHandler(logHandler),
-		apphttp.TracerProvider(otelconfig.Stdout),
 		apphttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, "Hello, world")
 		}),
@@ -32,6 +31,7 @@ func initRuntime(bc app.BuildContext) (app.Runtime, error) {
 
 func main() {
 	app.New(
+		app.InitTracerProvider(otelconfig.Stdout),
 		app.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

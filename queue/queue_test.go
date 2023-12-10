@@ -8,212 +8,331 @@ package queue
 import (
 	"context"
 	"errors"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
-func TestRuntime_Run(t *testing.T) {
-	t.Run("will return an error", func(t *testing.T) {
-		t.Run("if one of the queue processors returns an error", func(t *testing.T) {
-			qpErr := errors.New("qp error")
-			qp := func(ctx context.Context, rt *Runtime) error {
-				return qpErr
+func TestSequentialRuntime_Run(t *testing.T) {
+	t.Run("will stop", func(t *testing.T) {
+		t.Run("if the context is cancelled before consuming", func(t *testing.T) {
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				return 0, nil
+			})
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				return nil
+			})
+
+			rt := Sequential[int](c, p)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			cancel()
+			err := rt.Run(ctx)
+			if !assert.Nil(t, err) {
+				return
 			}
+		})
 
-			rt := NewRuntime(Logger(zap.NewExample()), queueProcessor(qp))
-
+		t.Run("if the context is cancelled before processing", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				cancel()
+				return 0, nil
+			})
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				return nil
+			})
+
+			rt := Sequential[int](c, p)
+
 			err := rt.Run(ctx)
-			if !assert.Equal(t, qpErr, err) {
+			if !assert.Nil(t, err) {
 				return
 			}
 		})
 	})
 
-	t.Run("will not return an error", func(t *testing.T) {
-		t.Run("if all queue processors complete", func(t *testing.T) {
-			qp := func(ctx context.Context, rt *Runtime) error {
-				return nil
-			}
-
-			rt := NewRuntime(Logger(zap.NewExample()), queueProcessor(qp), queueProcessor(qp))
-
+	t.Run("will continue", func(t *testing.T) {
+		t.Run("if it fails to consume", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
+			var count atomic.Uint64
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				count.Add(1)
+				if count.Load() > 5 {
+					cancel()
+				}
+				return 0, errors.New("failed to consume")
+			})
+
+			called := false
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				called = true
+				return nil
+			})
+
+			rt := Sequential[int](c, p)
+
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.False(t, called) {
+				return
+			}
+		})
+
+		t.Run("if it fails to process", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				return 0, nil
+			})
+
+			var count atomic.Uint64
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				count.Add(1)
+				if count.Load() > 5 {
+					cancel()
+				}
+				return errors.New("failed to process")
+			})
+
+			rt := Sequential[int](c, p)
+
+			err := rt.Run(ctx)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Greater(t, count.Load(), uint64(1)) {
 				return
 			}
 		})
 	})
 }
 
-func TestPipe(t *testing.T) {
-	t.Run("will not return an error", func(t *testing.T) {
-		t.Run("if the consumer returns a non-EOI error", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-
-			consumeErr := errors.New("consumer failed")
-			c := ConsumerFunc[int](func(ctx context.Context) (*Item[int], error) {
-				defer cancel()
-				return nil, consumeErr
+func TestPipeRuntime_Run(t *testing.T) {
+	t.Run("will stop", func(t *testing.T) {
+		t.Run("if the context is cancelled before consuming", func(t *testing.T) {
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				return 0, nil
 			})
-
-			var mu sync.Mutex
-			var triggered bool
-			p := ProcessorFunc[int](func(ctx context.Context, item int) error {
-				mu.Lock()
-				defer mu.Unlock()
-				triggered = true
+			p := processorFunc[int](func(ctx context.Context, i int) error {
 				return nil
 			})
 
-			rt := NewRuntime(Pipe[int](c, p))
+			rt := Pipe[int](c, p)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			cancel()
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
-				return
-			}
-			if !assert.False(t, triggered) {
 				return
 			}
 		})
 
-		t.Run("if the consumer returns a nil item", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+		t.Run("if the context is cancelled before processing", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-			c := ConsumerFunc[int](func(ctx context.Context) (*Item[int], error) {
-				defer cancel()
-				return nil, nil
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				cancel()
+				return 0, nil
 			})
-
-			var mu sync.Mutex
-			var triggered bool
-			p := ProcessorFunc[int](func(ctx context.Context, item int) error {
-				mu.Lock()
-				defer mu.Unlock()
-				triggered = true
+			p := processorFunc[int](func(ctx context.Context, i int) error {
 				return nil
 			})
 
-			rt := NewRuntime(Pipe[int](c, p))
+			rt := Pipe[int](c, p)
+
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
-				return
-			}
-			if !assert.False(t, triggered) {
-				return
-			}
-		})
-
-		t.Run("if the processor returns an error", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-
-			c := ConsumerFunc[int](func(ctx context.Context) (*Item[int], error) {
-				return &Item[int]{Value: 1}, nil
-			})
-
-			var mu sync.Mutex
-			var triggered bool
-			processorErr := errors.New("processor failed")
-			p := ProcessorFunc[int](func(ctx context.Context, item int) error {
-				defer cancel()
-				mu.Lock()
-				defer mu.Unlock()
-				triggered = true
-				return processorErr
-			})
-
-			rt := NewRuntime(Pipe[int](c, p))
-			err := rt.Run(ctx)
-			if !assert.Nil(t, err) {
-				return
-			}
-			if !assert.True(t, triggered) {
 				return
 			}
 		})
 	})
-}
 
-func TestSequential(t *testing.T) {
-	t.Run("will not return an error", func(t *testing.T) {
-		t.Run("if the consumer returns a non-EOI error", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+	t.Run("will continue", func(t *testing.T) {
+		t.Run("if it fails to consume", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-			consumeErr := errors.New("consumer failed")
-			c := ConsumerFunc[int](func(ctx context.Context) (*Item[int], error) {
-				defer cancel()
-				return nil, consumeErr
+			var count atomic.Uint64
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				count.Add(1)
+				if count.Load() > 5 {
+					cancel()
+				}
+				return 0, errors.New("failed to consume")
 			})
 
-			var triggered bool
-			p := ProcessorFunc[int](func(ctx context.Context, item int) error {
-				triggered = true
+			called := false
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				called = true
 				return nil
 			})
 
-			rt := NewRuntime(Sequential[int](c, p))
+			rt := Pipe[int](c, p)
+
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
 				return
 			}
-			if !assert.False(t, triggered) {
+			if !assert.False(t, called) {
 				return
 			}
 		})
 
-		t.Run("if the consumer returns a nil item", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+		t.Run("if it panics while consuming with a non-error", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-			c := ConsumerFunc[int](func(ctx context.Context) (*Item[int], error) {
-				defer cancel()
-				return nil, nil
+			var count atomic.Uint64
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				count.Add(1)
+				if count.Load() > 5 {
+					cancel()
+				}
+				panic("panic while consuming")
+				return 0, nil
 			})
 
-			var triggered bool
-			p := ProcessorFunc[int](func(ctx context.Context, item int) error {
-				triggered = true
+			called := false
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				called = true
 				return nil
 			})
 
-			rt := NewRuntime(Sequential[int](c, p))
+			rt := Pipe[int](c, p)
+
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
 				return
 			}
-			if !assert.False(t, triggered) {
+			if !assert.False(t, called) {
 				return
 			}
 		})
 
-		t.Run("if the processor returns an error", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+		t.Run("if it panics while consuming with a error", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-			c := ConsumerFunc[int](func(ctx context.Context) (*Item[int], error) {
-				return &Item[int]{Value: 1}, nil
+			var count atomic.Uint64
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				count.Add(1)
+				if count.Load() > 5 {
+					cancel()
+				}
+				panic(errors.New("panic while consuming"))
+				return 0, nil
 			})
 
-			var triggered bool
-			processorErr := errors.New("processor failed")
-			p := ProcessorFunc[int](func(ctx context.Context, item int) error {
-				defer cancel()
-				triggered = true
-				return processorErr
+			called := false
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				called = true
+				return nil
 			})
 
-			rt := NewRuntime(Sequential[int](c, p))
+			rt := Pipe[int](c, p)
+
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
 				return
 			}
-			if !assert.True(t, triggered) {
+			if !assert.False(t, called) {
+				return
+			}
+		})
+
+		t.Run("if it fails to process", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				return 0, nil
+			})
+
+			var count atomic.Uint64
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				count.Add(1)
+				if count.Load() > 5 {
+					cancel()
+				}
+				return errors.New("failed to process")
+			})
+
+			rt := Pipe[int](c, p)
+
+			err := rt.Run(ctx)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Greater(t, count.Load(), uint64(1)) {
+				return
+			}
+		})
+
+		t.Run("if it panics while processing with a non-error", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				return 0, nil
+			})
+
+			var count atomic.Uint64
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				count.Add(1)
+				if count.Load() > 5 {
+					cancel()
+				}
+				panic("panic while processing")
+				return nil
+			})
+
+			rt := Pipe[int](c, p)
+
+			err := rt.Run(ctx)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Greater(t, count.Load(), uint64(1)) {
+				return
+			}
+		})
+
+		t.Run("if it panics while processing with a error", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			c := consumerFunc[int](func(ctx context.Context) (int, error) {
+				return 0, nil
+			})
+
+			var count atomic.Uint64
+			p := processorFunc[int](func(ctx context.Context, i int) error {
+				count.Add(1)
+				if count.Load() > 5 {
+					cancel()
+				}
+				panic(errors.New("panic while processing"))
+				return nil
+			})
+
+			rt := Pipe[int](c, p)
+
+			err := rt.Run(ctx)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Greater(t, count.Load(), uint64(1)) {
 				return
 			}
 		})
