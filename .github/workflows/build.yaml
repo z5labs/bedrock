@@ -13,6 +13,10 @@ jobs:
         - name: Checkout
           uses: actions/checkout@v4
 
+        - uses: actions/setup-go@v4
+          with:
+            go-version: '1.21'
+
         - name: Lint Go Code
           uses: golangci/golangci-lint-action@v3
           with:
@@ -21,10 +25,6 @@ jobs:
             skip-pkg-cache: false
             skip-build-cache: false
             args: --timeout 3m --verbose --print-issued-lines=true
-
-        - uses: actions/setup-go@v4
-          with:
-            go-version: '1.21'
 
         - name: Build
           run: go build ./...
