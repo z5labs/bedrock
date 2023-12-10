@@ -43,16 +43,17 @@ func initRuntime(bc app.BuildContext) (app.Runtime, error) {
 
 	processor := evenOrOdd{}
 
-	rt := queue.NewRuntime(
+	rt := queue.Sequential[int](
+		consumer,
+		processor,
 		queue.LogHandler(logHandler),
-		queue.InitTracerProvider(otelconfig.Stdout),
-		queue.Pipe[int](consumer, processor),
 	)
 	return rt, nil
 }
 
 func main() {
 	app.New(
+		app.InitTracerProvider(otelconfig.Stdout),
 		app.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

@@ -8,6 +8,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -45,9 +46,7 @@ func ExampleSequential() {
 		return nil
 	})
 
-	rt := NewRuntime(
-		Sequential[int](c, p),
-	)
+	rt := Sequential[int](c, p, LogHandler(slog.Default().Handler()))
 
 	err := rt.Run(ctx)
 	if err != nil {
@@ -89,8 +88,53 @@ func ExamplePipe() {
 		return nil
 	})
 
-	rt := NewRuntime(
-		Sequential[int](c, p),
+	rt := Pipe[int](c, p, LogHandler(slog.Default().Handler()))
+
+	err := rt.Run(ctx)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// since the numbers are processed concurrently
+	// there's no gaurantee that the list only contains
+	// 1, 2, 3, 4, 5.
+	fmt.Println(sum(nums) >= 15)
+	//Output: true
+}
+
+func ExamplePipe_maxConcurrentProcessors() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var n int
+	c := consumerFunc[int](func(_ context.Context) (int, error) {
+		n += 1
+		return n, nil
+	})
+
+	var processed atomic.Int64
+	var mu sync.Mutex
+	var nums []int
+	p := processorFunc[int](func(_ context.Context, n int) error {
+		processed.Add(1)
+		if processed.Load() > 5 {
+			cancel()
+			return nil
+		}
+		// items are processed concurrently so we can print them here
+		// since the order is not gauranteed
+		mu.Lock()
+		nums = append(nums, n)
+		mu.Unlock()
+		return nil
+	})
+
+	rt := Pipe[int](
+		c,
+		p,
+		LogHandler(slog.Default().Handler()),
+		MaxConcurrentProcessors(1),
 	)
 
 	err := rt.Run(ctx)
@@ -99,7 +143,18 @@ func ExamplePipe() {
 		return
 	}
 
+	// Since there's only 1 processor goroutine and the
+	// nums are consumed sequentially the nums slice
+	// should be gauranteed to be 1 thru 5.
 	slices.Sort(nums)
 	fmt.Println(nums)
 	//Output: [1 2 3 4 5]
+}
+
+func sum[T int | float64](xs []T) T {
+	var total T = 0
+	for _, x := range xs {
+		total += x
+	}
+	return total
 }
