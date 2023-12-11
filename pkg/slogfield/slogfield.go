@@ -36,6 +36,11 @@ func String(key, value string) slog.Attr {
 	return slog.String(key, value)
 }
 
+// Int
+func Int(key string, n int) slog.Attr {
+	return slog.Int(key, n)
+}
+
 // Int8
 func Int8(key string, n int8) slog.Attr {
 	return slog.Int64(key, int64(n))
@@ -54,6 +59,11 @@ func Int32(key string, n int32) slog.Attr {
 // Int64
 func Int64(key string, n int64) slog.Attr {
 	return slog.Int64(key, n)
+}
+
+// Uint
+func Uint(key string, n uint) slog.Attr {
+	return slog.Uint64(key, uint64(n))
 }
 
 // Uint8

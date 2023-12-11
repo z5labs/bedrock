@@ -27,9 +27,9 @@ func NewHandler(h slog.Handler) *Handler {
 	return &Handler{slog: h}
 }
 
-// New provides a simple wrapper for slog.New(NewHandler(logger.Handler())).
-func New(logger *slog.Logger) *slog.Logger {
-	return slog.New(NewHandler(logger.Handler()))
+// New provides a simple wrapper for slog.New(NewHandler(h)).
+func New(h slog.Handler) *slog.Logger {
+	return slog.New(NewHandler(h))
 }
 
 // Enabled
