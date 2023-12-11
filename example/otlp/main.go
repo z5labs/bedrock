@@ -119,10 +119,13 @@ func initQueueRuntime(bc app.BuildContext) (app.Runtime, error) {
 
 func main() {
 	app.New(
-		app.InitTracerProvider(otelconfig.OTLP(
-			otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
-			otelconfig.ServiceName("otlp"),
-		)),
+		app.InitTracerProvider(func(_ app.BuildContext) (otelconfig.Initializer, error) {
+			// TODO: move target address to config
+			return otelconfig.OTLP(
+				otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
+				otelconfig.ServiceName("otlp"),
+			), nil
+		}),
 		app.WithRuntimeBuilderFunc(initHttpRuntime),
 		app.WithRuntimeBuilderFunc(initQueueRuntime),
 	).Run()

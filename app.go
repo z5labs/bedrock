@@ -74,18 +74,18 @@ func Config(r io.Reader) Option {
 }
 
 // InitTracerProvider
-func InitTracerProvider(initer otelconfig.Initializer) Option {
+func InitTracerProvider(f func(BuildContext) (otelconfig.Initializer, error)) Option {
 	return func(a *App) {
-		a.otelIniter = initer
+		a.otelIniterFunc = f
 	}
 }
 
 // App
 type App struct {
-	name       string
-	cfgSrc     io.Reader
-	otelIniter otelconfig.Initializer
-	rbs        []RuntimeBuilder
+	name           string
+	cfgSrc         io.Reader
+	otelIniterFunc func(BuildContext) (otelconfig.Initializer, error)
+	rbs            []RuntimeBuilder
 }
 
 // New
@@ -95,8 +95,10 @@ func New(opts ...Option) *App {
 		name = os.Args[0]
 	}
 	app := &App{
-		name:       name,
-		otelIniter: otelconfig.Noop,
+		name: name,
+		otelIniterFunc: func(_ BuildContext) (otelconfig.Initializer, error) {
+			return otelconfig.Noop, nil
+		},
 	}
 	for _, opt := range opts {
 		opt(app)
@@ -121,13 +123,17 @@ func buildCmd(app *App) *cobra.Command {
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
 
-			tp, err := app.otelIniter.Init()
-			if err != nil {
-				return err
-			}
-			otel.SetTracerProvider(tp)
-
 			if app.cfgSrc == nil {
+				otelIniter, err := app.otelIniterFunc(BuildContext{})
+				if err != nil {
+					return err
+				}
+				tp, err := otelIniter.Init()
+				if err != nil {
+					return err
+				}
+				otel.SetTracerProvider(tp)
+
 				for i, rb := range app.rbs {
 					r, err := rb.Build(BuildContext{})
 					if err != nil {
@@ -150,9 +156,20 @@ func buildCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			bc := BuildContext{Config: m}
+
+			otelIniter, err := app.otelIniterFunc(BuildContext{})
+			if err != nil {
+				return err
+			}
+			tp, err := otelIniter.Init()
+			if err != nil {
+				return err
+			}
+			otel.SetTracerProvider(tp)
 
 			for i, rb := range app.rbs {
-				r, err := rb.Build(BuildContext{Config: m})
+				r, err := rb.Build(bc)
 				if err != nil {
 					return err
 				}
