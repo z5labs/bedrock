@@ -10,6 +10,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/z5labs/app/pkg/noop"
 	"github.com/z5labs/app/pkg/otelslog"
 	"github.com/z5labs/app/pkg/slogfield"
 	"github.com/z5labs/app/queue"
@@ -17,6 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -78,7 +81,7 @@ type Consumer struct {
 func NewConsumer(opts ...ConsumerOption) *Consumer {
 	co := &consumerOptions{
 		commonOptions: commonOptions{
-			logHandler: noopLogHandler{},
+			logHandler: noop.LogHandler{},
 		},
 	}
 	for _, opt := range opts {
@@ -109,6 +112,11 @@ func (c *Consumer) Consume(ctx context.Context) ([]types.Message, error) {
 		c.log.ErrorContext(spanCtx, "failed to receive messages", slogfield.Error(err))
 		return nil, err
 	}
+
+	c.log.InfoContext(spanCtx, "received messages", slogfield.Int("num_of_messages", len(resp.Messages)))
+	if len(resp.Messages) == 0 {
+		return nil, queue.ErrNoItem
+	}
 	return resp.Messages, nil
 }
 
@@ -118,8 +126,22 @@ type batchDeleteProcessorOptions struct {
 	inner queue.Processor[types.Message]
 }
 
+// BatchDeleteProcessorOption
 type BatchDeleteProcessorOption interface {
 	applyProcessor(*batchDeleteProcessorOptions)
+}
+
+type batchDeleteProcessorOptionFunc func(*batchDeleteProcessorOptions)
+
+func (f batchDeleteProcessorOptionFunc) applyProcessor(bo *batchDeleteProcessorOptions) {
+	f(bo)
+}
+
+// Processor
+func Processor(p queue.Processor[types.Message]) BatchDeleteProcessorOption {
+	return batchDeleteProcessorOptionFunc(func(bo *batchDeleteProcessorOptions) {
+		bo.inner = p
+	})
 }
 
 type sqsBatchDeleteClient interface {
@@ -139,7 +161,7 @@ type BatchDeleteProcessor struct {
 func NewBatchDeleteProcessor(opts ...BatchDeleteProcessorOption) *BatchDeleteProcessor {
 	bo := &batchDeleteProcessorOptions{
 		commonOptions: commonOptions{
-			logHandler: noopLogHandler{},
+			logHandler: noop.LogHandler{},
 		},
 	}
 	for _, opt := range opts {
@@ -155,7 +177,9 @@ func NewBatchDeleteProcessor(opts ...BatchDeleteProcessorOption) *BatchDeletePro
 
 // Process
 func (p *BatchDeleteProcessor) Process(ctx context.Context, msgs []types.Message) error {
-	spanCtx, span := otel.Tracer("sqs").Start(ctx, "BatchDeleteProcessor.Process")
+	spanCtx, span := otel.Tracer("sqs").Start(ctx, "BatchDeleteProcessor.Process", trace.WithAttributes(
+		attribute.Int("num_of_messages", len(msgs)),
+	))
 	defer span.End()
 
 	msgCh := make(chan *types.Message)
@@ -196,6 +220,10 @@ func (p *BatchDeleteProcessor) Process(ctx context.Context, msgs []types.Message
 	// Always delete try to delete messages even if
 	// context has been cancelled.
 	_ = g2.Wait()
+	if len(deleteEntries) == 0 {
+		return nil
+	}
+
 	resp, err := p.sqs.DeleteMessageBatch(spanCtx, &sqs.DeleteMessageBatchInput{
 		QueueUrl: &p.queueUrl,
 		Entries:  deleteEntries,
@@ -223,10 +251,3 @@ func (p *BatchDeleteProcessor) Process(ctx context.Context, msgs []types.Message
 	}
 	return nil
 }
-
-type noopLogHandler struct{}
-
-func (noopLogHandler) Enabled(_ context.Context, _ slog.Level) bool  { return true }
-func (noopLogHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
-func (h noopLogHandler) WithAttrs(_ []slog.Attr) slog.Handler        { return h }
-func (h noopLogHandler) WithGroup(name string) slog.Handler          { return h }
