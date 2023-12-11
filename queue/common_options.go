@@ -15,26 +15,20 @@ type commonOptions struct {
 	logHandler slog.Handler
 }
 
-// Option
-type Option interface {
-	apply(any)
-}
-
 // CommonOption
 type CommonOption interface {
-	Option
-	applyCommon(*commonOptions)
+	SequentialOption
+	PipeOption
 }
 
 type commonOptionFunc func(*commonOptions)
 
-func (f commonOptionFunc) apply(v any) {
-	co := v.(*commonOptions)
-	f(co)
+func (f commonOptionFunc) applySequential(so *sequentialOptions) {
+	f(&so.commonOptions)
 }
 
-func (f commonOptionFunc) applyCommon(co *commonOptions) {
-	f(co)
+func (f commonOptionFunc) applyPipe(po *pipeOptions) {
+	f(&po.commonOptions)
 }
 
 // LogHandler

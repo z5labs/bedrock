@@ -11,12 +11,16 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/z5labs/app/pkg/noop"
 	"github.com/z5labs/app/pkg/slogfield"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"golang.org/x/sync/errgroup"
 )
+
+// ErrNoItem
+var ErrNoItem = errors.New("queue: no item")
 
 // Consumer
 type Consumer[T any] interface {
@@ -34,12 +38,7 @@ type sequentialOptions struct {
 
 // SequentialOption
 type SequentialOption interface {
-	Option
 	applySequential(*sequentialOptions)
-}
-
-func (f commonOptionFunc) applySequential(so *sequentialOptions) {
-	f(&so.commonOptions)
 }
 
 // SequentialRuntime
@@ -50,19 +49,14 @@ type SequentialRuntime[T any] struct {
 }
 
 // Sequential
-func Sequential[T any](c Consumer[T], p Processor[T], opts ...Option) *SequentialRuntime[T] {
+func Sequential[T any](c Consumer[T], p Processor[T], opts ...SequentialOption) *SequentialRuntime[T] {
 	so := &sequentialOptions{
 		commonOptions: commonOptions{
-			logHandler: noopLogHandler{},
+			logHandler: noop.LogHandler{},
 		},
 	}
 	for _, opt := range opts {
-		switch x := opt.(type) {
-		case SequentialOption:
-			x.applySequential(so)
-		default:
-			x.apply(so)
-		}
+		opt.applySequential(so)
 	}
 
 	return &SequentialRuntime[T]{
@@ -84,6 +78,10 @@ func (rt *SequentialRuntime[T]) Run(ctx context.Context) error {
 
 		spanCtx, span := tracer.Start(ctx, "SequentialRuntime.Run")
 		item, err := consume(spanCtx, rt.c)
+		if errors.Is(err, ErrNoItem) {
+			span.End()
+			continue
+		}
 		if err != nil {
 			rt.log.ErrorContext(spanCtx, "failed to consume", slogfield.Error(err))
 			span.End()
@@ -113,23 +111,13 @@ type pipeOptions struct {
 
 // PipeOption
 type PipeOption interface {
-	Option
 	applyPipe(*pipeOptions)
 }
 
 type pipeOptionFunc func(*pipeOptions)
 
-func (f pipeOptionFunc) apply(v any) {
-	po := v.(*pipeOptions)
-	f(po)
-}
-
 func (f pipeOptionFunc) applyPipe(po *pipeOptions) {
 	f(po)
-}
-
-func (f commonOptionFunc) applyPipe(po *pipeOptions) {
-	f(&po.commonOptions)
 }
 
 // MaxConcurrentProcessors
@@ -153,20 +141,15 @@ type PipeRuntime[T any] struct {
 }
 
 // Pipe
-func Pipe[T any](c Consumer[T], p Processor[T], opts ...Option) *PipeRuntime[T] {
+func Pipe[T any](c Consumer[T], p Processor[T], opts ...PipeOption) *PipeRuntime[T] {
 	po := &pipeOptions{
 		commonOptions: commonOptions{
-			logHandler: noopLogHandler{},
+			logHandler: noop.LogHandler{},
 		},
 		maxConcurrentProcessors: -1,
 	}
 	for _, opt := range opts {
-		switch x := opt.(type) {
-		case PipeOption:
-			x.applyPipe(po)
-		default:
-			x.apply(po)
-		}
+		opt.applyPipe(po)
 	}
 
 	return &PipeRuntime[T]{
@@ -212,6 +195,10 @@ func (rt *PipeRuntime[T]) consumeItems(ctx context.Context, itemCh chan<- *item[
 			}
 
 			item, err := consume(spanCtx, rt.c)
+			if errors.Is(err, ErrNoItem) {
+				span.End()
+				continue
+			}
 			if err != nil {
 				rt.log.ErrorContext(spanCtx, "failed to consume", slogfield.Error(err))
 				span.End()
@@ -300,10 +287,3 @@ func errRecover(err *error) {
 	}
 	*err = rerr
 }
-
-type noopLogHandler struct{}
-
-func (noopLogHandler) Enabled(_ context.Context, _ slog.Level) bool  { return true }
-func (noopLogHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
-func (h noopLogHandler) WithAttrs(_ []slog.Attr) slog.Handler        { return h }
-func (h noopLogHandler) WithGroup(name string) slog.Handler          { return h }
