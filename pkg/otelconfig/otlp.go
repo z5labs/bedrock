@@ -15,6 +15,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -24,6 +25,8 @@ type OTLPConfig struct {
 
 	// gRPC traget string which is passed to grpc.Dial()
 	Target string `config:"target"`
+
+	TransportCredentials credentials.TransportCredentials
 }
 
 // OTLPOption
@@ -31,9 +34,31 @@ type OTLPOption interface {
 	ApplyOTLP(*OTLPConfig)
 }
 
+type otlpOptionFunc func(*OTLPConfig)
+
+func (f otlpOptionFunc) ApplyOTLP(cfg *OTLPConfig) {
+	f(cfg)
+}
+
+// OTLPTarget
+func OTLPTarget(target string) OTLPOption {
+	return otlpOptionFunc(func(o *OTLPConfig) {
+		o.Target = target
+	})
+}
+
+// OTLPTransportCreds
+func OTLPTransportCreds(tc credentials.TransportCredentials) OTLPOption {
+	return otlpOptionFunc(func(o *OTLPConfig) {
+		o.TransportCredentials = tc
+	})
+}
+
 // OTLP
 func OTLP(opts ...OTLPOption) Initializer {
-	c := OTLPConfig{}
+	c := OTLPConfig{
+		TransportCredentials: insecure.NewCredentials(),
+	}
 	for _, opt := range opts {
 		opt.ApplyOTLP(&c)
 	}
@@ -59,8 +84,7 @@ func (cfg OTLPConfig) Init() (trace.TracerProvider, error) {
 	conn, err := grpc.DialContext(
 		ctx,
 		cfg.Target,
-		// Note the use of insecure transport here. TLS is recommended in production.
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(cfg.TransportCredentials),
 		grpc.WithBlock(),
 	)
 	if err != nil {

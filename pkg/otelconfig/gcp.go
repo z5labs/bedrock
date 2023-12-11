@@ -34,8 +34,8 @@ func (f gcpOptionFunc) ApplyGCP(cfg *GoogleCloudConfig) {
 	f(cfg)
 }
 
-// ProjectId
-func ProjectId(id string) GoogleCloudOption {
+// GoogleCloudProjectId
+func GoogleCloudProjectId(id string) GoogleCloudOption {
 	return gcpOptionFunc(func(gcc *GoogleCloudConfig) {
 		gcc.ProjectId = id
 	})
