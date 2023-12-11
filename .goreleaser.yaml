@@ -1,0 +1,104 @@
+version: 1
+
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy -v
+
+builds:
+  - id: otlp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v3
+    main: example/otlp/main.go
+    binary: otlp
+
+  - id: simple_http
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v3
+    main: example/simple_http/main.go
+    binary: simple_http
+
+  - id: simple_queue
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v3
+    main: example/simple_queue/main.go
+    binary: simple_queue
+
+dockers:
+  - id: otlp
+    goos: linux
+    goarch: amd64
+    goamd64: v3
+    ids:
+      - otlp
+    image_templates:
+      - "ghcr.io/z5labs/app/example/otlp:latest"
+      - "ghcr.io/z5labs/app/example/otlp:{{ .Tag }}"
+    dockerfile: example/otlp/Containerfile
+    use: docker
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64"
+
+  - id: simple_http
+    goos: linux
+    goarch: amd64
+    goamd64: v3
+    ids:
+      - simple_http
+    image_templates:
+      - "ghcr.io/z5labs/app/example/simple_http:latest"
+      - "ghcr.io/z5labs/app/example/simple_http:{{ .Tag }}"
+    dockerfile: example/simple_http/Containerfile
+    use: docker
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64"
+
+  - id: simple_queue
+    goos: linux
+    goarch: amd64
+    goamd64: v3
+    ids:
+      - simple_queue
+    image_templates:
+      - "ghcr.io/z5labs/app/example/simple_queue:latest"
+      - "ghcr.io/z5labs/app/example/simple_queue:{{ .Tag }}"
+    dockerfile: example/simple_queue/Containerfile
+    use: docker
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64"

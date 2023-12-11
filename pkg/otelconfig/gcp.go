@@ -12,53 +12,57 @@ import (
 	"go.opentelemetry.io/contrib/detectors/gcp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
-type GoogleCloudOption func(*gcpIniter)
+// GoogleCloudConfig
+type GoogleCloudConfig struct {
+	Common
 
-func ProjectId(id string) GoogleCloudOption {
-	return func(gc *gcpIniter) {
-		gc.projectId = id
-	}
+	ProjectId string `config:"projectId"`
 }
 
-func ServiceName(name string) GoogleCloudOption {
-	return func(gc *gcpIniter) {
-		gc.serviceName = name
-	}
+// GoogleCloudOption
+type GoogleCloudOption interface {
+	ApplyGCP(*GoogleCloudConfig)
 }
 
-type gcpIniter struct {
-	projectId   string
-	serviceName string
+type gcpOptionFunc func(*GoogleCloudConfig)
+
+func (f gcpOptionFunc) ApplyGCP(cfg *GoogleCloudConfig) {
+	f(cfg)
 }
 
+// GoogleCloudProjectId
+func GoogleCloudProjectId(id string) GoogleCloudOption {
+	return gcpOptionFunc(func(gcc *GoogleCloudConfig) {
+		gcc.ProjectId = id
+	})
+}
+
+// GoogleCloud
 func GoogleCloud(opts ...GoogleCloudOption) Initializer {
-	gc := gcpIniter{}
+	gc := GoogleCloudConfig{}
 	for _, opt := range opts {
-		opt(&gc)
+		opt.ApplyGCP(&gc)
 	}
 	return gc
 }
 
-func (c gcpIniter) Init() (trace.TracerProvider, error) {
-	exporter, err := texporter.New(texporter.WithProjectID(c.projectId))
+// Init implements the Initializer interface.
+func (cfg GoogleCloudConfig) Init() (trace.TracerProvider, error) {
+	exporter, err := texporter.New(texporter.WithProjectID(cfg.ProjectId))
 	if err != nil {
 		return nil, err
 	}
 
-	// Identify your application using resource detection
 	res, err := resource.New(
 		context.Background(),
-		// Use the GCP resource detector to detect information about the GCP platform
 		resource.WithDetectors(gcp.NewDetector()),
-		// Keep the default detectors
 		resource.WithTelemetrySDK(),
-		// Add your own custom attributes to identify your application
 		resource.WithAttributes(
-			semconv.ServiceNameKey.String(c.serviceName),
+			semconv.ServiceName(cfg.Common.ServiceName),
 		),
 	)
 	if err != nil {

@@ -32,3 +32,12 @@ jobs:
 
         - name: Test
           run: go test -race -cover ./...
+
+        - name: Build example container images
+          uses: goreleaser/goreleaser-action@v5
+          with:
+            distribution: goreleaser
+            version: latest
+            args: release --clean --snapshot
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

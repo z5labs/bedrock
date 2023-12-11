@@ -31,7 +31,9 @@ func initRuntime(bc app.BuildContext) (app.Runtime, error) {
 
 func main() {
 	app.New(
-		app.InitTracerProvider(otelconfig.Stdout),
+		app.InitTracerProvider(otelconfig.Local(
+			otelconfig.ServiceName("simple_http"),
+		)),
 		app.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }
