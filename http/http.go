@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 
 	"github.com/z5labs/app/http/httpvalidate"
+	"github.com/z5labs/app/pkg/noop"
 	"github.com/z5labs/app/pkg/slogfield"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -79,7 +80,7 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 	ros := &runtimeOptions{
 		port:       8080,
 		mux:        http.NewServeMux(),
-		logHandler: noopLogHandler{},
+		logHandler: noop.LogHandler{},
 	}
 	for _, opt := range opts {
 		opt(ros)
@@ -199,10 +200,3 @@ func (rt *Runtime) readinessHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	w.WriteHeader(http.StatusServiceUnavailable)
 }
-
-type noopLogHandler struct{}
-
-func (noopLogHandler) Enabled(_ context.Context, _ slog.Level) bool  { return true }
-func (noopLogHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
-func (h noopLogHandler) WithAttrs(_ []slog.Attr) slog.Handler        { return h }
-func (h noopLogHandler) WithGroup(name string) slog.Handler          { return h }

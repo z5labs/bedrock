@@ -13,6 +13,7 @@ import (
 	"net"
 	"sync/atomic"
 
+	"github.com/z5labs/app/pkg/noop"
 	"github.com/z5labs/app/pkg/slogfield"
 
 	"golang.org/x/sync/errgroup"
@@ -70,7 +71,7 @@ type Runtime struct {
 func NewRuntime(opts ...RuntimeOption) *Runtime {
 	ro := &runtimeOptions{
 		port:       8090,
-		logHandler: noopLogHandler{},
+		logHandler: noop.LogHandler{},
 	}
 	for _, opt := range opts {
 		opt(ro)
@@ -122,10 +123,3 @@ func (rt *Runtime) Run(ctx context.Context) error {
 	rt.log.Error("service encountered unexpected error", slogfield.Error(err))
 	return err
 }
-
-type noopLogHandler struct{}
-
-func (noopLogHandler) Enabled(_ context.Context, _ slog.Level) bool  { return true }
-func (noopLogHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
-func (h noopLogHandler) WithAttrs(_ []slog.Attr) slog.Handler        { return h }
-func (h noopLogHandler) WithGroup(name string) slog.Handler          { return h }
