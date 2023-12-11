@@ -1,11 +1,3 @@
-# This is an example .goreleaser.yml file with some sensible defaults.
-# Make sure to check the documentation at https://goreleaser.com
-
-# The lines below are called `modelines`. See `:help modeline`
-# Feel free to remove those if you don't want/need to use them.
-# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
-# vim: set ts=2 sw=2 tw=0 fo=cnqoj
-
 version: 1
 
 before:
@@ -50,7 +42,7 @@ builds:
       - arm64
     goamd64:
       - v3
-    main: example/simple_http/main.go
+    main: example/simple_queue/main.go
     binary: simple_queue
 
 dockers:
@@ -64,7 +56,7 @@ dockers:
       - "ghcr.io/z5labs/app/example/otlp:latest"
       - "ghcr.io/z5labs/app/example/otlp:{{ .Tag }}"
     dockerfile: example/otlp/Containerfile
-    use: buildx
+    use: docker
     build_flag_templates:
       - "--pull"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -83,7 +75,7 @@ dockers:
       - "ghcr.io/z5labs/app/example/simple_http:latest"
       - "ghcr.io/z5labs/app/example/simple_http:{{ .Tag }}"
     dockerfile: example/simple_http/Containerfile
-    use: buildx
+    use: docker
     build_flag_templates:
       - "--pull"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -102,7 +94,7 @@ dockers:
       - "ghcr.io/z5labs/app/example/simple_queue:latest"
       - "ghcr.io/z5labs/app/example/simple_queue:{{ .Tag }}"
     dockerfile: example/simple_queue/Containerfile
-    use: buildx
+    use: docker
     build_flag_templates:
       - "--pull"
       - "--label=org.opencontainers.image.created={{.Date}}"
