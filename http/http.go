@@ -12,9 +12,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"sync/atomic"
 
 	"github.com/z5labs/app/http/httpvalidate"
+	"github.com/z5labs/app/pkg/health"
 	"github.com/z5labs/app/pkg/noop"
 	"github.com/z5labs/app/pkg/slogfield"
 
@@ -26,6 +26,8 @@ type runtimeOptions struct {
 	port       uint
 	mux        *http.ServeMux
 	logHandler slog.Handler
+	readiness  *health.Readiness
+	liveness   *health.Liveness
 }
 
 // RuntimeOption
@@ -61,6 +63,20 @@ func HandleFunc(pattern string, f func(http.ResponseWriter, *http.Request)) Runt
 	}
 }
 
+// Readiness
+func Readiness(r *health.Readiness) RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.readiness = r
+	}
+}
+
+// Liveness
+func Liveness(l *health.Liveness) RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.liveness = l
+	}
+}
+
 // Runtime
 type Runtime struct {
 	port   uint
@@ -70,9 +86,9 @@ type Runtime struct {
 
 	h http.Handler
 
-	started atomic.Bool
-	healthy atomic.Bool
-	serving atomic.Bool
+	started   *health.Started
+	liveness  *health.Liveness
+	readiness *health.Readiness
 }
 
 // NewRuntime
@@ -81,23 +97,28 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 		port:       8080,
 		mux:        http.NewServeMux(),
 		logHandler: noop.LogHandler{},
+		readiness:  &health.Readiness{},
+		liveness:   &health.Liveness{},
 	}
 	for _, opt := range opts {
 		opt(ros)
 	}
 
 	rt := &Runtime{
-		port:   ros.port,
-		listen: net.Listen,
-		log:    slog.New(ros.logHandler),
-		h:      ros.mux,
+		port:      ros.port,
+		listen:    net.Listen,
+		log:       slog.New(ros.logHandler),
+		h:         ros.mux,
+		started:   &health.Started{},
+		liveness:  ros.liveness,
+		readiness: ros.readiness,
 	}
 
 	registerEndpoint(
 		ros.mux,
 		"/health/startup",
 		httpvalidate.Request(
-			http.HandlerFunc(rt.startupHandler),
+			rt.started,
 			httpvalidate.ForMethods(http.MethodGet),
 		),
 	)
@@ -105,7 +126,7 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 		ros.mux,
 		"/health/liveness",
 		httpvalidate.Request(
-			http.HandlerFunc(rt.livenessHandler),
+			rt.liveness,
 			httpvalidate.ForMethods(http.MethodGet),
 		),
 	)
@@ -113,7 +134,7 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 		ros.mux,
 		"/health/readiness",
 		httpvalidate.Request(
-			http.HandlerFunc(rt.readinessHandler),
+			rt.readiness,
 			httpvalidate.ForMethods(http.MethodGet),
 		),
 	)
@@ -149,9 +170,9 @@ func (rt *Runtime) Run(ctx context.Context) error {
 		return s.Shutdown(ctx)
 	})
 	g.Go(func() error {
-		rt.started.Store(true)
-		rt.healthy.Store(true)
-		rt.serving.Store(true)
+		rt.started.Started()
+		rt.liveness.Alive()
+		rt.readiness.Ready()
 		rt.log.Info("started service")
 		return s.Serve(ls)
 	})
@@ -169,34 +190,4 @@ func registerEndpoint(mux *http.ServeMux, path string, h http.Handler) {
 		path,
 		otelhttp.WithRouteTag(path, h),
 	)
-}
-
-// report whether this service is ready to begin accepting traffic
-func (rt *Runtime) startupHandler(w http.ResponseWriter, req *http.Request) {
-	started := rt.started.Load()
-	if started {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	w.WriteHeader(http.StatusServiceUnavailable)
-}
-
-// report whether this service is healthy or needs to be restarted
-func (rt *Runtime) livenessHandler(w http.ResponseWriter, req *http.Request) {
-	healthy := rt.healthy.Load()
-	if healthy {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	w.WriteHeader(http.StatusServiceUnavailable)
-}
-
-// report whether this service is able to accept traffic
-func (rt *Runtime) readinessHandler(w http.ResponseWriter, req *http.Request) {
-	serving := rt.serving.Load()
-	if serving {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	w.WriteHeader(http.StatusServiceUnavailable)
 }
