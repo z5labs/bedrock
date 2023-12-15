@@ -10,10 +10,10 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/z5labs/app/pkg/noop"
-	"github.com/z5labs/app/pkg/otelslog"
-	"github.com/z5labs/app/pkg/slogfield"
-	"github.com/z5labs/app/queue"
+	"github.com/z5labs/bedrock/pkg/noop"
+	"github.com/z5labs/bedrock/pkg/otelslog"
+	"github.com/z5labs/bedrock/pkg/slogfield"
+	"github.com/z5labs/bedrock/queue"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"

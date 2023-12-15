@@ -3,7 +3,8 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-package app
+// Package bedrock provides a minimal foundation for building more complex frameworks on top of.
+package bedrock
 
 import (
 	"bytes"
@@ -14,8 +15,8 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/z5labs/app/pkg/config"
-	"github.com/z5labs/app/pkg/otelconfig"
+	"github.com/z5labs/bedrock/pkg/config"
+	"github.com/z5labs/bedrock/pkg/otelconfig"
 	"go.opentelemetry.io/otel"
 
 	"github.com/spf13/cobra"

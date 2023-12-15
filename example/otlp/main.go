@@ -15,24 +15,24 @@ import (
 	"os"
 	"time"
 
-	"github.com/z5labs/app"
-	apphttp "github.com/z5labs/app/http"
-	"github.com/z5labs/app/pkg/otelconfig"
-	"github.com/z5labs/app/pkg/otelslog"
-	"github.com/z5labs/app/pkg/slogfield"
-	"github.com/z5labs/app/queue"
+	"github.com/z5labs/bedrock"
+	brhttp "github.com/z5labs/bedrock/http"
+	"github.com/z5labs/bedrock/pkg/otelconfig"
+	"github.com/z5labs/bedrock/pkg/otelslog"
+	"github.com/z5labs/bedrock/pkg/slogfield"
+	"github.com/z5labs/bedrock/queue"
 
 	"go.opentelemetry.io/otel"
 )
 
-func initHttpRuntime(bc app.BuildContext) (app.Runtime, error) {
+func initHttpRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 	logger := otelslog.New(logHandler)
 
-	rt := apphttp.NewRuntime(
-		apphttp.ListenOnPort(8080),
-		apphttp.LogHandler(logHandler),
-		apphttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	rt := brhttp.NewRuntime(
+		brhttp.ListenOnPort(8080),
+		brhttp.LogHandler(logHandler),
+		brhttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			spanCtx, span := otel.Tracer("main").Start(r.Context(), "handler")
 			defer span.End()
 
@@ -61,7 +61,7 @@ func (f processorFunc[T]) Process(ctx context.Context, t T) error {
 	return f(ctx, t)
 }
 
-func initQueueRuntime(bc app.BuildContext) (app.Runtime, error) {
+func initQueueRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 	logger := otelslog.New(logHandler)
 
@@ -118,16 +118,16 @@ func initQueueRuntime(bc app.BuildContext) (app.Runtime, error) {
 }
 
 func main() {
-	app.New(
-		app.InitTracerProvider(func(_ app.BuildContext) (otelconfig.Initializer, error) {
+	bedrock.New(
+		bedrock.InitTracerProvider(func(_ bedrock.BuildContext) (otelconfig.Initializer, error) {
 			// TODO: move target address to config
 			return otelconfig.OTLP(
 				otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
 				otelconfig.ServiceName("otlp"),
 			), nil
 		}),
-		app.WithRuntimeBuilderFunc(initHttpRuntime),
-		app.WithRuntimeBuilderFunc(initQueueRuntime),
+		bedrock.WithRuntimeBuilderFunc(initHttpRuntime),
+		bedrock.WithRuntimeBuilderFunc(initQueueRuntime),
 	).Run()
 }
 

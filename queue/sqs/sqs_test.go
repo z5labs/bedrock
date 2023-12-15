@@ -13,10 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/z5labs/bedrock/queue"
+
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/z5labs/app/queue"
 )
 
 func withSqsClient(c sqsClient) CommonOption {
