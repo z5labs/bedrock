@@ -31,6 +31,10 @@ type BuildContext struct {
 	Config config.Manager
 }
 
+func (b BuildContext) RegisterFinalizers(f ...func()) {
+	cobra.OnFinalize(f...)
+}
+
 // RuntimeBuilder
 type RuntimeBuilder interface {
 	Build(BuildContext) (Runtime, error)
