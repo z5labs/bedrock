@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/z5labs/app/pkg/config"
 	"github.com/z5labs/app/pkg/otelconfig"
@@ -26,9 +27,20 @@ type Runtime interface {
 	Run(context.Context) error
 }
 
+type FinalizerFunc func() error
+
+type finalizer struct {
+	Finalizers []FinalizerFunc
+}
+
 // BuildContext
 type BuildContext struct {
-	Config config.Manager
+	Config    config.Manager
+	finalizer *finalizer
+}
+
+func (b BuildContext) RegisterFinalizers(f ...FinalizerFunc) {
+	b.finalizer.Finalizers = append(b.finalizer.Finalizers, f...)
 }
 
 // RuntimeBuilder
@@ -119,46 +131,25 @@ func (app *App) Run(args ...string) error {
 
 func buildCmd(app *App) *cobra.Command {
 	rs := make([]Runtime, len(app.rbs))
+	bc := BuildContext{finalizer: &finalizer{Finalizers: []FinalizerFunc{finalizeOtel}}}
 	return &cobra.Command{
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
-
-			if app.cfgSrc == nil {
-				otelIniter, err := app.otelIniterFunc(BuildContext{})
+			if app.cfgSrc != nil {
+				b, err := readAllAndTryClose(app.cfgSrc)
 				if err != nil {
 					return err
 				}
-				tp, err := otelIniter.Init()
+
+				m, err := config.Read(bytes.NewReader(b), config.Language(config.YAML))
 				if err != nil {
 					return err
 				}
-				otel.SetTracerProvider(tp)
 
-				for i, rb := range app.rbs {
-					r, err := rb.Build(BuildContext{})
-					if err != nil {
-						return err
-					}
-					if r == nil {
-						return errors.New("nil runtime")
-					}
-					rs[i] = r
-				}
-				return nil
+				bc.Config = m
 			}
 
-			b, err := readAllAndTryClose(app.cfgSrc)
-			if err != nil {
-				return err
-			}
-
-			m, err := config.Read(bytes.NewReader(b), config.Language(config.YAML))
-			if err != nil {
-				return err
-			}
-			bc := BuildContext{Config: m}
-
-			otelIniter, err := app.otelIniterFunc(BuildContext{})
+			otelIniter, err := app.otelIniterFunc(bc)
 			if err != nil {
 				return err
 			}
@@ -178,6 +169,7 @@ func buildCmd(app *App) *cobra.Command {
 				}
 				rs[i] = r
 			}
+
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
@@ -201,16 +193,49 @@ func buildCmd(app *App) *cobra.Command {
 			return g.Wait()
 		},
 		PostRunE: func(cmd *cobra.Command, args []string) error {
-			tp := otel.GetTracerProvider()
-			stp, ok := tp.(interface {
-				Shutdown(context.Context) error
-			})
-			if !ok {
+			// will always have at least one finalizer for otel
+			me := &multiError{}
+			for _, f := range bc.finalizer.Finalizers {
+				err := f()
+				if err != nil {
+					me.errors = append(me.errors, err)
+				}
+			}
+
+			if len(me.errors) == 0 {
 				return nil
 			}
-			return stp.Shutdown(context.Background())
+			return me
 		},
 	}
+}
+
+type multiError struct {
+	errors []error
+}
+
+func (m multiError) Error() string {
+	if len(m.errors) == 0 {
+		return ""
+	}
+
+	e := ""
+	for _, err := range m.errors {
+		e += err.Error() + ";"
+	}
+
+	return strings.TrimSuffix(e, ";")
+}
+
+func finalizeOtel() error {
+	tp := otel.GetTracerProvider()
+	stp, ok := tp.(interface {
+		Shutdown(context.Context) error
+	})
+	if !ok {
+		return nil
+	}
+	return stp.Shutdown(context.Background())
 }
 
 func readAllAndTryClose(r io.Reader) ([]byte, error) {
