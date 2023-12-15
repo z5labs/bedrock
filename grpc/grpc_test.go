@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/z5labs/app/pkg/health"
-	"github.com/z5labs/app/pkg/noop"
+	"github.com/z5labs/bedrock/pkg/health"
+	"github.com/z5labs/bedrock/pkg/noop"
 
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/sync/errgroup"

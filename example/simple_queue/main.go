@@ -11,9 +11,9 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/z5labs/app"
-	"github.com/z5labs/app/pkg/otelconfig"
-	"github.com/z5labs/app/queue"
+	"github.com/z5labs/bedrock"
+	"github.com/z5labs/bedrock/pkg/otelconfig"
+	"github.com/z5labs/bedrock/queue"
 )
 
 type intGenerator struct {
@@ -36,7 +36,7 @@ func (p evenOrOdd) Process(ctx context.Context, n int) error {
 	return nil
 }
 
-func initRuntime(bc app.BuildContext) (app.Runtime, error) {
+func initRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
 	consumer := &intGenerator{n: 0}
@@ -52,12 +52,12 @@ func initRuntime(bc app.BuildContext) (app.Runtime, error) {
 }
 
 func main() {
-	app.New(
-		app.InitTracerProvider(func(_ app.BuildContext) (otelconfig.Initializer, error) {
+	bedrock.New(
+		bedrock.InitTracerProvider(func(_ bedrock.BuildContext) (otelconfig.Initializer, error) {
 			return otelconfig.Local(
 				otelconfig.ServiceName("simple_queue"),
 			), nil
 		}),
-		app.WithRuntimeBuilderFunc(initRuntime),
+		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/z5labs/app/pkg/health"
+	"github.com/z5labs/bedrock/pkg/health"
 
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/sync/errgroup"

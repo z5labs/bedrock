@@ -13,9 +13,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/z5labs/app/pkg/health"
-	"github.com/z5labs/app/pkg/noop"
-	"github.com/z5labs/app/pkg/slogfield"
+	"github.com/z5labs/bedrock/pkg/health"
+	"github.com/z5labs/bedrock/pkg/noop"
+	"github.com/z5labs/bedrock/pkg/slogfield"
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"

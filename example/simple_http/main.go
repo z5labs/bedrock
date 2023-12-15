@@ -11,18 +11,18 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/z5labs/app"
-	apphttp "github.com/z5labs/app/http"
-	"github.com/z5labs/app/pkg/otelconfig"
+	"github.com/z5labs/bedrock"
+	brhttp "github.com/z5labs/bedrock/http"
+	"github.com/z5labs/bedrock/pkg/otelconfig"
 )
 
-func initRuntime(bc app.BuildContext) (app.Runtime, error) {
+func initRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
-	rt := apphttp.NewRuntime(
-		apphttp.ListenOnPort(8080),
-		apphttp.LogHandler(logHandler),
-		apphttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	rt := brhttp.NewRuntime(
+		brhttp.ListenOnPort(8080),
+		brhttp.LogHandler(logHandler),
+		brhttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, "Hello, world")
 		}),
 	)
@@ -30,12 +30,12 @@ func initRuntime(bc app.BuildContext) (app.Runtime, error) {
 }
 
 func main() {
-	app.New(
-		app.InitTracerProvider(func(_ app.BuildContext) (otelconfig.Initializer, error) {
+	bedrock.New(
+		bedrock.InitTracerProvider(func(_ bedrock.BuildContext) (otelconfig.Initializer, error) {
 			return otelconfig.Local(
 				otelconfig.ServiceName("simple_http"),
 			), nil
 		}),
-		app.WithRuntimeBuilderFunc(initRuntime),
+		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

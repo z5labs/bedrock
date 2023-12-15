@@ -13,10 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/z5labs/bedrock/queue"
+
 	pubsubpb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/stretchr/testify/assert"
-	"github.com/z5labs/app/queue"
 )
 
 type pubsubPullClientFunc func(context.Context, *pubsubpb.PullRequest, ...gax.CallOption) (*pubsubpb.PullResponse, error)
