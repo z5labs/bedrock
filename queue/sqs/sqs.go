@@ -14,6 +14,7 @@ import (
 	"github.com/z5labs/bedrock/pkg/otelslog"
 	"github.com/z5labs/bedrock/pkg/slogfield"
 	"github.com/z5labs/bedrock/queue"
+	"github.com/z5labs/bedrock/queue/sqs/sqsslog"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
@@ -242,7 +243,7 @@ func (p *BatchDeleteProcessor) Process(ctx context.Context, msgs []types.Message
 			p.log.ErrorContext(
 				spanCtx,
 				"failed to delete message",
-				slogfield.String("sqs_message_id", *entry.Id),
+				sqsslog.MessageId(deref(entry.Id)),
 				slogfield.String("sqs_error_code", *entry.Code),
 				slogfield.String("sqs_error_message", *entry.Message),
 				slogfield.Bool("sqs_sender_fault", entry.SenderFault),
@@ -250,4 +251,12 @@ func (p *BatchDeleteProcessor) Process(ctx context.Context, msgs []types.Message
 		}
 	}
 	return nil
+}
+
+func deref[T any](t *T) T {
+	var zero T
+	if t == nil {
+		return zero
+	}
+	return *t
 }
