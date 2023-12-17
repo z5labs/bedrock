@@ -8,6 +8,7 @@ package http
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
@@ -28,6 +29,7 @@ type runtimeOptions struct {
 	logHandler slog.Handler
 	readiness  *health.Readiness
 	liveness   *health.Liveness
+	tlsConfig  *tls.Config
 }
 
 // RuntimeOption
@@ -77,6 +79,13 @@ func Liveness(l *health.Liveness) RuntimeOption {
 	}
 }
 
+// TLSConfig
+func TLSConfig(cfg *tls.Config) RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.tlsConfig = cfg
+	}
+}
+
 // Runtime
 type Runtime struct {
 	port   uint
@@ -84,7 +93,8 @@ type Runtime struct {
 
 	log *slog.Logger
 
-	h http.Handler
+	tlsConfig *tls.Config
+	h         http.Handler
 
 	started   *health.Started
 	liveness  *health.Liveness
@@ -108,6 +118,7 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 		port:      ros.port,
 		listen:    net.Listen,
 		log:       slog.New(ros.logHandler),
+		tlsConfig: ros.tlsConfig,
 		h:         ros.mux,
 		started:   &health.Started{},
 		liveness:  ros.liveness,
@@ -148,6 +159,9 @@ func (rt *Runtime) Run(ctx context.Context) error {
 	if err != nil {
 		rt.log.Error("failed to listen for connections", slogfield.Error(err))
 		return err
+	}
+	if rt.tlsConfig != nil {
+		ls = tls.NewListener(ls, rt.tlsConfig)
 	}
 
 	s := &http.Server{
