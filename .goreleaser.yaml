@@ -19,6 +19,19 @@ builds:
     main: example/otlp/main.go
     binary: otlp
 
+  - id: simple_grpc
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v3
+    main: example/simple_grpc/main.go
+    binary: simple_grpc
+
   - id: simple_http
     env:
       - CGO_ENABLED=0
@@ -53,9 +66,28 @@ dockers:
     ids:
       - otlp
     image_templates:
-      - "ghcr.io/z5labs/app/example/otlp:latest"
-      - "ghcr.io/z5labs/app/example/otlp:{{ .Tag }}"
+      - "ghcr.io/z5labs/bedrock/example/otlp:latest"
+      - "ghcr.io/z5labs/bedrock/example/otlp:{{ .Tag }}"
     dockerfile: example/otlp/Containerfile
+    use: docker
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64"
+
+  - id: simple_grpc
+    goos: linux
+    goarch: amd64
+    goamd64: v3
+    ids:
+      - simple_grpc
+    image_templates:
+      - "ghcr.io/z5labs/bedrock/example/simple_grpc:latest"
+      - "ghcr.io/z5labs/bedrock/example/simple_grpc:{{ .Tag }}"
+    dockerfile: example/simple_grpc/Containerfile
     use: docker
     build_flag_templates:
       - "--pull"
@@ -72,8 +104,8 @@ dockers:
     ids:
       - simple_http
     image_templates:
-      - "ghcr.io/z5labs/app/example/simple_http:latest"
-      - "ghcr.io/z5labs/app/example/simple_http:{{ .Tag }}"
+      - "ghcr.io/z5labs/bedrock/example/simple_http:latest"
+      - "ghcr.io/z5labs/bedrock/example/simple_http:{{ .Tag }}"
     dockerfile: example/simple_http/Containerfile
     use: docker
     build_flag_templates:
@@ -91,8 +123,8 @@ dockers:
     ids:
       - simple_queue
     image_templates:
-      - "ghcr.io/z5labs/app/example/simple_queue:latest"
-      - "ghcr.io/z5labs/app/example/simple_queue:{{ .Tag }}"
+      - "ghcr.io/z5labs/bedrock/example/simple_queue:latest"
+      - "ghcr.io/z5labs/bedrock/example/simple_queue:{{ .Tag }}"
     dockerfile: example/simple_queue/Containerfile
     use: docker
     build_flag_templates:

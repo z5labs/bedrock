@@ -178,7 +178,7 @@ func (rt *Runtime) Run(ctx context.Context) error {
 	})
 
 	err = g.Wait()
-	if err == http.ErrServerClosed {
+	if err == nil || err == http.ErrServerClosed {
 		return nil
 	}
 	rt.log.Error("service encountered unexpected error", slogfield.Error(err))

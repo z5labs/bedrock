@@ -1,0 +1,22 @@
+// Copyright (c) 2023 Z5Labs and Contributors
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+syntax = "proto3";
+
+package simple_grpc_pb;
+
+option go_package = "github.com/z5labs/bedrock/example/simple_grpc/simple_grpc_pb";
+
+service Simple {
+    rpc Echo (EchoRequest) returns (EchoResponse);
+}
+
+message EchoRequest {
+    string message = 1;
+}
+
+message EchoResponse {
+    string message = 1;
+}

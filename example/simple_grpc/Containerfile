@@ -4,6 +4,6 @@
 # https://opensource.org/licenses/MIT
 
 FROM scratch
-EXPOSE 8080
-COPY simple_http /
-ENTRYPOINT ["/simple_http"]
+EXPOSE 9080
+COPY simple_grpc /
+ENTRYPOINT ["/simple_grpc"]
