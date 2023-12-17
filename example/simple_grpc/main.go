@@ -41,7 +41,7 @@ func initRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
 	rt := brgrpc.NewRuntime(
-		brgrpc.ListenOnPort(0),
+		brgrpc.ListenOnPort(9080),
 		brgrpc.LogHandler(logHandler),
 		brgrpc.Service(
 			registerSimpleService,
