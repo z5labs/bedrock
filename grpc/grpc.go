@@ -17,6 +17,7 @@ import (
 	"github.com/z5labs/bedrock/pkg/noop"
 	"github.com/z5labs/bedrock/pkg/slogfield"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -126,7 +127,12 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 	}
 
 	var healthMonitors []serviceHealthMonitor
-	s := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
+	s := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler(
+			otelgrpc.WithMessageEvents(otelgrpc.ReceivedEvents, otelgrpc.SentEvents),
+		)),
+		grpc.Creds(insecure.NewCredentials()),
+	)
 	for _, svc := range ro.services {
 		svc.registerFunc(s)
 		healthMonitors = append(healthMonitors, serviceHealthMonitor{
@@ -194,7 +200,7 @@ func (rt *Runtime) Run(ctx context.Context) error {
 	})
 
 	err = g.Wait()
-	if err == grpc.ErrServerStopped {
+	if err == nil || err == grpc.ErrServerStopped {
 		return nil
 	}
 	rt.log.ErrorContext(gctx, "service encountered unexpected error", slogfield.Error(err))
