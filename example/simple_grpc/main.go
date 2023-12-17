@@ -18,6 +18,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 type simpleService struct {
@@ -25,7 +26,7 @@ type simpleService struct {
 }
 
 func (*simpleService) Echo(ctx context.Context, req *simple_grpc_pb.EchoRequest) (*simple_grpc_pb.EchoResponse, error) {
-	_, span := otel.Tracer("main").Start(ctx, "simpleServer.Echo")
+	_, span := otel.Tracer("main").Start(ctx, "simpleService.Echo")
 	defer span.End()
 	resp := &simple_grpc_pb.EchoResponse{
 		Message: req.Message,
@@ -48,6 +49,12 @@ func initRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
 			brgrpc.ServiceName("simple"),
 			brgrpc.Readiness(&health.Readiness{}),
 		),
+		// register reflection service so you can test this example
+		// via Insomnia, Postman and any other API testing tool that
+		// understands gRPC reflection.
+		brgrpc.Service(func(s *grpc.Server) {
+			reflection.Register(s)
+		}),
 	)
 	return rt, nil
 }
