@@ -19,6 +19,19 @@ builds:
     main: example/otlp/main.go
     binary: otlp
 
+  - id: simple_grpc
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v3
+    main: example/simple_grpc/main.go
+    binary: simple_grpc
+
   - id: simple_http
     env:
       - CGO_ENABLED=0
@@ -56,6 +69,25 @@ dockers:
       - "ghcr.io/z5labs/app/example/otlp:latest"
       - "ghcr.io/z5labs/app/example/otlp:{{ .Tag }}"
     dockerfile: example/otlp/Containerfile
+    use: docker
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64"
+
+  - id: simple_grpc
+    goos: linux
+    goarch: amd64
+    goamd64: v3
+    ids:
+      - simple_grpc
+    image_templates:
+      - "ghcr.io/z5labs/app/example/simple_grpc:latest"
+      - "ghcr.io/z5labs/app/example/simple_grpc:{{ .Tag }}"
+    dockerfile: example/simple_grpc/Containerfile
     use: docker
     build_flag_templates:
       - "--pull"
