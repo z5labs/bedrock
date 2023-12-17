@@ -30,6 +30,7 @@ type runtimeOptions struct {
 	readiness  *health.Readiness
 	liveness   *health.Liveness
 	tlsConfig  *tls.Config
+	http2Only  bool
 }
 
 // RuntimeOption
@@ -86,6 +87,13 @@ func TLSConfig(cfg *tls.Config) RuntimeOption {
 	}
 }
 
+// Http2Only
+func Http2Only() RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.http2Only = true
+	}
+}
+
 // Runtime
 type Runtime struct {
 	port   uint
@@ -94,6 +102,7 @@ type Runtime struct {
 	log *slog.Logger
 
 	tlsConfig *tls.Config
+	http2Only bool
 	h         http.Handler
 
 	started   *health.Started
@@ -119,6 +128,7 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 		listen:    net.Listen,
 		log:       slog.New(ros.logHandler),
 		tlsConfig: ros.tlsConfig,
+		http2Only: ros.http2Only,
 		h:         ros.mux,
 		started:   &health.Started{},
 		liveness:  ros.liveness,
@@ -161,6 +171,10 @@ func (rt *Runtime) Run(ctx context.Context) error {
 		return err
 	}
 	if rt.tlsConfig != nil {
+		rt.tlsConfig.NextProtos = append([]string{"h2"}, rt.tlsConfig.NextProtos...)
+		if rt.http2Only {
+			rt.tlsConfig.NextProtos = []string{"h2"}
+		}
 		ls = tls.NewListener(ls, rt.tlsConfig)
 	}
 
