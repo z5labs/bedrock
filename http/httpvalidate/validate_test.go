@@ -187,3 +187,49 @@ func TestExactParams(t *testing.T) {
 		})
 	})
 }
+
+func TestMinProto(t *testing.T) {
+	t.Run("will return a 505 status code", func(t *testing.T) {
+		t.Run("if a http/1.0 request is received", func(t *testing.T) {
+			h := Request(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}),
+				MinProto(2, 0),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "http://example.com", nil)
+			r.ProtoMajor = 1
+			r.ProtoMinor = 0
+
+			h.ServeHTTP(w, r)
+
+			responseCode := w.Result().StatusCode
+			if !assert.Equal(t, http.StatusHTTPVersionNotSupported, responseCode) {
+				return
+			}
+		})
+
+		t.Run("if a http/1.1 request is received", func(t *testing.T) {
+			h := Request(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}),
+				MinProto(2, 0),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "http://example.com", nil)
+			r.ProtoMajor = 1
+			r.ProtoMinor = 1
+
+			h.ServeHTTP(w, r)
+
+			responseCode := w.Result().StatusCode
+			if !assert.Equal(t, http.StatusHTTPVersionNotSupported, responseCode) {
+				return
+			}
+		})
+	})
+}
