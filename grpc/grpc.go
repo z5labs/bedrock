@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	grpchealth "google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -33,6 +34,7 @@ type service struct {
 type runtimeOptions struct {
 	port       uint
 	logHandler slog.Handler
+	tc         credentials.TransportCredentials
 	services   []service
 }
 
@@ -52,6 +54,13 @@ func ListenOnPort(port uint) RuntimeOption {
 func LogHandler(h slog.Handler) RuntimeOption {
 	return func(ro *runtimeOptions) {
 		ro.logHandler = h
+	}
+}
+
+// TransportCredentials
+func TransportCredentials(tc credentials.TransportCredentials) RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.tc = tc
 	}
 }
 
@@ -121,6 +130,7 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 	ro := &runtimeOptions{
 		port:       8090,
 		logHandler: noop.LogHandler{},
+		tc:         insecure.NewCredentials(),
 	}
 	for _, opt := range opts {
 		opt(ro)
@@ -131,7 +141,7 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
 			otelgrpc.WithMessageEvents(otelgrpc.ReceivedEvents, otelgrpc.SentEvents),
 		)),
-		grpc.Creds(insecure.NewCredentials()),
+		grpc.Creds(ro.tc),
 	)
 	for _, svc := range ro.services {
 		svc.registerFunc(s)
