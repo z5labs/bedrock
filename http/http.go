@@ -180,7 +180,13 @@ func (rt *Runtime) Run(ctx context.Context) error {
 
 	s := &http.Server{
 		Handler: otelhttp.NewHandler(
-			rt.h,
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if rt.http2Only && r.ProtoMajor < 2 {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				rt.h.ServeHTTP(w, r)
+			}),
 			"server",
 			otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 		),
