@@ -5,7 +5,9 @@
 
 package httpvalidate
 
-import "net/http"
+import (
+	"net/http"
+)
 
 // Validator represents an http.Request validator.
 type Validator interface {
@@ -93,5 +95,16 @@ func ExactParams(names ...string) Validator {
 			}
 		}
 		return true
+	})
+}
+
+// MinProto
+func MinProto(major, minor int) Validator {
+	return ValidatorFunc(func(w http.ResponseWriter, r *http.Request) bool {
+		if r.ProtoAtLeast(major, minor) {
+			return true
+		}
+		w.WriteHeader(http.StatusHTTPVersionNotSupported)
+		return false
 	})
 }
