@@ -178,15 +178,17 @@ func (rt *Runtime) Run(ctx context.Context) error {
 		ls = tls.NewListener(ls, rt.tlsConfig)
 	}
 
+	handler := rt.h
+	if rt.http2Only {
+		handler = httpvalidate.Request(
+			rt.h,
+			httpvalidate.MinProto(2, 0),
+		)
+	}
+
 	s := &http.Server{
 		Handler: otelhttp.NewHandler(
-			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if rt.http2Only && r.ProtoMajor < 2 {
-					w.WriteHeader(http.StatusUnauthorized)
-					return
-				}
-				rt.h.ServeHTTP(w, r)
-			}),
+			handler,
 			"server",
 			otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 		),
