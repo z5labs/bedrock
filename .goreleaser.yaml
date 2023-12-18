@@ -6,6 +6,19 @@ before:
     - go mod tidy -v
 
 builds:
+  - id: http2
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v3
+    main: example/http2/main.go
+    binary: http2
+
   - id: otlp
     env:
       - CGO_ENABLED=0
@@ -58,7 +71,39 @@ builds:
     main: example/simple_queue/main.go
     binary: simple_queue
 
+  - id: tls_http
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v3
+    main: example/tls_http/main.go
+    binary: tls_http
+
 dockers:
+  - id: http2
+    goos: linux
+    goarch: amd64
+    goamd64: v3
+    ids:
+      - http2
+    image_templates:
+      - "ghcr.io/z5labs/bedrock/example/http2:latest"
+      - "ghcr.io/z5labs/bedrock/example/http2:{{ .Tag }}"
+    dockerfile: example/http2/Containerfile
+    use: docker
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64"
+
   - id: otlp
     goos: linux
     goarch: amd64
@@ -126,6 +171,25 @@ dockers:
       - "ghcr.io/z5labs/bedrock/example/simple_queue:latest"
       - "ghcr.io/z5labs/bedrock/example/simple_queue:{{ .Tag }}"
     dockerfile: example/simple_queue/Containerfile
+    use: docker
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64"
+
+  - id: tls_http
+    goos: linux
+    goarch: amd64
+    goamd64: v3
+    ids:
+      - tls_http
+    image_templates:
+      - "ghcr.io/z5labs/bedrock/example/tls_http:latest"
+      - "ghcr.io/z5labs/bedrock/example/tls_http:{{ .Tag }}"
+    dockerfile: example/tls_http/Containerfile
     use: docker
     build_flag_templates:
       - "--pull"

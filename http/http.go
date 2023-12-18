@@ -8,6 +8,7 @@ package http
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
@@ -28,6 +29,8 @@ type runtimeOptions struct {
 	logHandler slog.Handler
 	readiness  *health.Readiness
 	liveness   *health.Liveness
+	tlsConfig  *tls.Config
+	http2Only  bool
 }
 
 // RuntimeOption
@@ -77,6 +80,20 @@ func Liveness(l *health.Liveness) RuntimeOption {
 	}
 }
 
+// TLSConfig
+func TLSConfig(cfg *tls.Config) RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.tlsConfig = cfg
+	}
+}
+
+// Http2Only
+func Http2Only() RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.http2Only = true
+	}
+}
+
 // Runtime
 type Runtime struct {
 	port   uint
@@ -84,7 +101,9 @@ type Runtime struct {
 
 	log *slog.Logger
 
-	h http.Handler
+	tlsConfig *tls.Config
+	http2Only bool
+	h         http.Handler
 
 	started   *health.Started
 	liveness  *health.Liveness
@@ -108,6 +127,8 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 		port:      ros.port,
 		listen:    net.Listen,
 		log:       slog.New(ros.logHandler),
+		tlsConfig: ros.tlsConfig,
+		http2Only: ros.http2Only,
 		h:         ros.mux,
 		started:   &health.Started{},
 		liveness:  ros.liveness,
@@ -149,10 +170,25 @@ func (rt *Runtime) Run(ctx context.Context) error {
 		rt.log.Error("failed to listen for connections", slogfield.Error(err))
 		return err
 	}
+	if rt.tlsConfig != nil {
+		rt.tlsConfig.NextProtos = append([]string{"h2"}, rt.tlsConfig.NextProtos...)
+		if rt.http2Only {
+			rt.tlsConfig.NextProtos = []string{"h2"}
+		}
+		ls = tls.NewListener(ls, rt.tlsConfig)
+	}
+
+	handler := rt.h
+	if rt.http2Only {
+		handler = httpvalidate.Request(
+			rt.h,
+			httpvalidate.MinProto(2, 0),
+		)
+	}
 
 	s := &http.Server{
 		Handler: otelhttp.NewHandler(
-			rt.h,
+			handler,
 			"server",
 			otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 		),
