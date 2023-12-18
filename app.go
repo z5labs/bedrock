@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -17,9 +18,9 @@ import (
 
 	"github.com/z5labs/bedrock/pkg/config"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
-	"go.opentelemetry.io/otel"
 
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -67,19 +68,21 @@ func Name(name string) Option {
 	}
 }
 
-// WithRuntime
-func WithRuntime(rb RuntimeBuilder) Option {
+// WithRuntimeBuilder
+func WithRuntimeBuilder(rb RuntimeBuilder) Option {
 	return func(a *App) {
 		a.rbs = append(a.rbs, rb)
 	}
 }
 
+// WithRuntimeBuilderFunc
 func WithRuntimeBuilderFunc(f func(BuildContext) (Runtime, error)) Option {
 	return func(a *App) {
 		a.rbs = append(a.rbs, RuntimeBuilderFunc(f))
 	}
 }
 
+// Config
 func Config(r io.Reader) Option {
 	return func(a *App) {
 		a.cfgSrc = r
@@ -130,6 +133,8 @@ func (app *App) Run(args ...string) error {
 	return cmd.ExecuteContext(ctx)
 }
 
+var errNilRuntime = errors.New("nil runtime")
+
 func buildCmd(app *App) *cobra.Command {
 	rs := make([]Runtime, len(app.rbs))
 	bc := BuildContext{finalizer: &finalizer{Finalizers: []FinalizerFunc{finalizeOtel}}}
@@ -166,7 +171,7 @@ func buildCmd(app *App) *cobra.Command {
 					return err
 				}
 				if r == nil {
-					return errors.New("nil runtime")
+					return errNilRuntime
 				}
 				rs[i] = r
 			}
@@ -195,7 +200,7 @@ func buildCmd(app *App) *cobra.Command {
 		},
 		PostRunE: func(cmd *cobra.Command, args []string) error {
 			// will always have at least one finalizer for otel
-			me := &multiError{}
+			var me multiError
 			for _, f := range bc.finalizer.Finalizers {
 				err := f()
 				if err != nil {
@@ -250,6 +255,14 @@ func readAllAndTryClose(r io.Reader) ([]byte, error) {
 	return io.ReadAll(r)
 }
 
+type panicError struct {
+	v any
+}
+
+func (e panicError) Error() string {
+	return fmt.Sprintf("bedrock: recovered from a panic caused by: %v", e.v)
+}
+
 func errRecover(err *error) {
 	r := recover()
 	if r == nil {
@@ -257,6 +270,7 @@ func errRecover(err *error) {
 	}
 	rerr, ok := r.(error)
 	if !ok {
+		*err = panicError{v: r}
 		return
 	}
 	*err = rerr
