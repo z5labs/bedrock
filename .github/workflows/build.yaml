@@ -17,8 +17,6 @@ jobs:
     steps:
         - name: Checkout
           uses: actions/checkout@v4
-          with:
-            ref: ${{ github.head_ref }}
 
         - uses: actions/setup-go@v5
           with:
@@ -37,31 +35,7 @@ jobs:
           run: go build ./...
 
         - name: Test
-          run: |
-            go test -race -coverprofile=coverage.out ./...
-            go tool cover -func=coverage.out -o=coverage.out
-
-        - name: Go Coverage Badge
-          uses: tj-actions/coverage-badge-go@v2
-          with:
-            filename: coverage.out
-            text: coverage
-            green: 90
-
-        - uses: stefanzweifel/git-auto-commit-action@v5
-          id: auto-commit-action
-          with:
-            commit_message: 'chore(docs): update coverage badge'
-            skip_fetch: true
-            skip_checkout: true
-            file_pattern: ./README.md
-
-        - name: Push Changes
-          if: steps.auto-commit-action.outputs.changes_detected == 'true'
-          uses: ad-m/github-push-action@master
-          with:
-            github_token: ${{ github.token }}
-            branch: ${{ github.ref }}
+          run: go test -race -cover ./...
 
         - name: Build example container images
           uses: goreleaser/goreleaser-action@v5
