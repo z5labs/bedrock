@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-func initHttpRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
+func initHttpRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 	logger := otelslog.New(logHandler)
 
@@ -61,7 +61,7 @@ func (f processorFunc[T]) Process(ctx context.Context, t T) error {
 	return f(ctx, t)
 }
 
-func initQueueRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
+func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 	logger := otelslog.New(logHandler)
 
