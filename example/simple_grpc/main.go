@@ -14,6 +14,7 @@ import (
 	"github.com/z5labs/bedrock/example/simple_grpc/simple_grpc_pb"
 	brgrpc "github.com/z5labs/bedrock/grpc"
 	"github.com/z5labs/bedrock/pkg/health"
+	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 
 	"go.opentelemetry.io/otel"
@@ -41,11 +42,6 @@ func registerSimpleService(s *grpc.Server) {
 func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
-	life := bedrock.LifecycleFromContext(ctx)
-	bedrock.WithTracerProvider(life, otelconfig.Local(
-		otelconfig.ServiceName("simple_grpc"),
-	))
-
 	rt := brgrpc.NewRuntime(
 		brgrpc.ListenOnPort(9080),
 		brgrpc.LogHandler(logHandler),
@@ -64,8 +60,18 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
+func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
+	initer := otelconfig.Local(
+		otelconfig.ServiceName("simple_grpc"),
+	)
+	return initer, nil
+}
+
 func main() {
 	bedrock.New(
+		bedrock.Hooks(
+			lifecycle.ManageOTel(localOtel),
+		),
 		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

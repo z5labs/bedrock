@@ -21,6 +21,7 @@ import (
 
 	"github.com/z5labs/bedrock"
 	brhttp "github.com/z5labs/bedrock/http"
+	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 )
 
@@ -63,11 +64,6 @@ func createCert() (tls.Certificate, error) {
 func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
-	life := bedrock.LifecycleFromContext(ctx)
-	bedrock.WithTracerProvider(life, otelconfig.Local(
-		otelconfig.ServiceName("tls_http"),
-	))
-
 	cert, err := createCert()
 	if err != nil {
 		return nil, err
@@ -86,8 +82,18 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
+func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
+	initer := otelconfig.Local(
+		otelconfig.ServiceName("tls_http"),
+	)
+	return initer, nil
+}
+
 func main() {
 	bedrock.New(
+		bedrock.Hooks(
+			lifecycle.ManageOTel(localOtel),
+		),
 		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

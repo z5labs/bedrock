@@ -60,14 +60,17 @@ func TestApp_Run(t *testing.T) {
 			}
 		})
 
-		t.Run("if the otel initializer fails to initialize", func(t *testing.T) {
-			initErr := errors.New("failed to init")
+		t.Run("if a pre run lifecycle hook returns an error", func(t *testing.T) {
+			lifeErr := errors.New("failed to life")
 			app := New(
+				Hooks(
+					func(life *Lifecycle) {
+						life.PreRun(func(ctx context.Context) error {
+							return lifeErr
+						})
+					},
+				),
 				WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
-					life := LifecycleFromContext(ctx)
-					WithTracerProvider(life, otelInitFunc(func() (trace.TracerProvider, error) {
-						return nil, initErr
-					}))
 					rt := runtimeFunc(func(ctx context.Context) error {
 						return nil
 					})
@@ -86,7 +89,7 @@ func TestApp_Run(t *testing.T) {
 			if !assert.Len(t, me.errors, 1) {
 				return
 			}
-			if !assert.Equal(t, initErr, me.errors[0]) {
+			if !assert.Equal(t, lifeErr, me.errors[0]) {
 				return
 			}
 		})
@@ -230,11 +233,14 @@ func TestApp_Run(t *testing.T) {
 		t.Run("if a lifecycle post run hook returns an error", func(t *testing.T) {
 			finalizeErr := errors.New("failed to finalize")
 			app := New(
+				Hooks(
+					func(life *Lifecycle) {
+						life.PostRun(func(ctx context.Context) error {
+							return finalizeErr
+						})
+					},
+				),
 				WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
-					life := LifecycleFromContext(ctx)
-					life.PostRun(func(ctx context.Context) error {
-						return finalizeErr
-					})
 					rt := runtimeFunc(func(ctx context.Context) error {
 						return nil
 					})

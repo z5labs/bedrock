@@ -8,16 +8,12 @@ package bedrock
 import (
 	"context"
 	"fmt"
-
-	"github.com/z5labs/bedrock/pkg/otelconfig"
 )
 
 func ExampleApp_Run() {
 	app := New(
 		Name("example"),
 		WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
-			life := LifecycleFromContext(ctx)
-			WithTracerProvider(life, otelconfig.Local())
 			rt := runtimeFunc(func(ctx context.Context) error {
 				fmt.Println("hello, world")
 				return nil

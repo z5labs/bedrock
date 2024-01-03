@@ -17,6 +17,7 @@ import (
 
 	"github.com/z5labs/bedrock"
 	brhttp "github.com/z5labs/bedrock/http"
+	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 	"github.com/z5labs/bedrock/pkg/otelslog"
 	"github.com/z5labs/bedrock/pkg/slogfield"
@@ -64,12 +65,6 @@ func (f processorFunc[T]) Process(ctx context.Context, t T) error {
 func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 	logger := otelslog.New(logHandler)
-
-	life := bedrock.LifecycleFromContext(ctx)
-	bedrock.WithTracerProvider(life, otelconfig.OTLP(
-		otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
-		otelconfig.ServiceName("otlp"),
-	))
 
 	c := consumerFunc[int](func(ctx context.Context) (int, error) {
 		spanCtx, span := otel.Tracer("main").Start(ctx, "consumer")
@@ -123,8 +118,19 @@ func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
+func otlpOtel(ctx context.Context) (otelconfig.Initializer, error) {
+	initer := otelconfig.OTLP(
+		otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
+		otelconfig.ServiceName("otlp"),
+	)
+	return initer, nil
+}
+
 func main() {
 	bedrock.New(
+		bedrock.Hooks(
+			lifecycle.ManageOTel(otlpOtel),
+		),
 		bedrock.WithRuntimeBuilderFunc(initHttpRuntime),
 		bedrock.WithRuntimeBuilderFunc(initQueueRuntime),
 	).Run()

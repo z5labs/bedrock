@@ -17,10 +17,8 @@ import (
 	"strings"
 
 	"github.com/z5labs/bedrock/pkg/config"
-	"github.com/z5labs/bedrock/pkg/otelconfig"
 
 	"github.com/spf13/cobra"
-	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -36,7 +34,7 @@ type Lifecycle struct {
 	postRunHooks []func(context.Context) error
 }
 
-// PreRun registers hooks to be called before Runtime.Run is called.
+// PreRun registers hooks to be called after the config is parsed and before Runtime.Run is called.
 func (l *Lifecycle) PreRun(hooks ...func(context.Context) error) {
 	l.preRunHooks = append(l.preRunHooks, hooks...)
 }
@@ -45,20 +43,6 @@ func (l *Lifecycle) PreRun(hooks ...func(context.Context) error) {
 // whether it returned an error or not.
 func (l *Lifecycle) PostRun(hooks ...func(context.Context) error) {
 	l.postRunHooks = append(l.postRunHooks, hooks...)
-}
-
-// WithTracerProvider register lifecycle hooks for ensuring a global trace.TracerProvider is registered
-// before Runtime.Run and that the TracerProvider is successfully shutdown after Runtime.Run.
-func WithTracerProvider(life *Lifecycle, initer otelconfig.Initializer) {
-	life.PreRun(func(ctx context.Context) error {
-		tp, err := initer.Init()
-		if err != nil {
-			return err
-		}
-		otel.SetTracerProvider(tp)
-		return nil
-	})
-	life.PostRun(finalizeOtel)
 }
 
 type contextKey string
@@ -122,12 +106,21 @@ func Config(r io.Reader) Option {
 	}
 }
 
+// Hooks
+func Hooks(fs ...func(*Lifecycle)) Option {
+	return func(a *App) {
+		for _, f := range fs {
+			f(&a.life)
+		}
+	}
+}
+
 // App
 type App struct {
-	name           string
-	cfgSrc         io.Reader
-	otelIniterFunc func(context.Context) (otelconfig.Initializer, error)
-	rbs            []RuntimeBuilder
+	name   string
+	cfgSrc io.Reader
+	rbs    []RuntimeBuilder
+	life   Lifecycle
 }
 
 // New
@@ -138,9 +131,6 @@ func New(opts ...Option) *App {
 	}
 	app := &App{
 		name: name,
-		otelIniterFunc: func(_ context.Context) (otelconfig.Initializer, error) {
-			return otelconfig.Noop, nil
-		},
 	}
 	for _, opt := range opts {
 		opt(app)
@@ -163,7 +153,6 @@ var errNilRuntime = errors.New("nil runtime")
 
 func buildCmd(app *App) *cobra.Command {
 	var cfg config.Manager
-	var life Lifecycle
 
 	rs := make([]Runtime, len(app.rbs))
 
@@ -184,7 +173,7 @@ func buildCmd(app *App) *cobra.Command {
 			}
 
 			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
-			ctx = context.WithValue(ctx, lifecycleContextKey, &life)
+			ctx = context.WithValue(ctx, lifecycleContextKey, &app.life)
 
 			for i, rb := range app.rbs {
 				r, err := rb.Build(ctx)
@@ -198,7 +187,7 @@ func buildCmd(app *App) *cobra.Command {
 			}
 
 			var me multiError
-			for _, f := range life.preRunHooks {
+			for _, f := range app.life.preRunHooks {
 				err := f(ctx)
 				if err != nil {
 					me.errors = append(me.errors, err)
@@ -231,10 +220,10 @@ func buildCmd(app *App) *cobra.Command {
 		},
 		PostRunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
-			ctx = context.WithValue(ctx, lifecycleContextKey, &life)
+			ctx = context.WithValue(ctx, lifecycleContextKey, &app.life)
 
 			var me multiError
-			for _, f := range life.postRunHooks {
+			for _, f := range app.life.postRunHooks {
 				err := f(ctx)
 				if err != nil {
 					me.errors = append(me.errors, err)
@@ -264,17 +253,6 @@ func (m multiError) Error() string {
 	}
 
 	return strings.TrimSuffix(e, ";")
-}
-
-func finalizeOtel(ctx context.Context) error {
-	tp := otel.GetTracerProvider()
-	stp, ok := tp.(interface {
-		Shutdown(context.Context) error
-	})
-	if !ok {
-		return nil
-	}
-	return stp.Shutdown(ctx)
 }
 
 func readAllAndTryClose(r io.Reader) ([]byte, error) {

@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"github.com/z5labs/bedrock"
+	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 	"github.com/z5labs/bedrock/queue"
 )
@@ -39,11 +40,6 @@ func (p evenOrOdd) Process(ctx context.Context, n int) error {
 func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
-	life := bedrock.LifecycleFromContext(ctx)
-	bedrock.WithTracerProvider(life, otelconfig.Local(
-		otelconfig.ServiceName("simple_queue"),
-	))
-
 	consumer := &intGenerator{n: 0}
 
 	processor := evenOrOdd{}
@@ -56,8 +52,18 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
+func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
+	initer := otelconfig.Local(
+		otelconfig.ServiceName("simple_queue"),
+	)
+	return initer, nil
+}
+
 func main() {
 	bedrock.New(
+		bedrock.Hooks(
+			lifecycle.ManageOTel(localOtel),
+		),
 		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }
