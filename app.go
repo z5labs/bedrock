@@ -31,30 +31,41 @@ type Runtime interface {
 
 type FinalizerFunc func() error
 
-type finalizer struct {
-	Finalizers []FinalizerFunc
+type Finalizers struct {
+	finalizers []FinalizerFunc
 }
 
-// BuildContext
-type BuildContext struct {
-	Config    config.Manager
-	finalizer *finalizer
+func (fs *Finalizers) Add(ff ...FinalizerFunc) {
+	fs.finalizers = append(fs.finalizers, ff...)
 }
 
-func (b BuildContext) RegisterFinalizers(f ...FinalizerFunc) {
-	b.finalizer.Finalizers = append(b.finalizer.Finalizers, f...)
+type contextKey string
+
+var (
+	configContextKey     = contextKey("configContextKey")
+	finalizersContextKey = contextKey("finalizersContextKey")
+)
+
+// ConfigFromContext extracts a *config.Manager from the given context.Context if it's present.
+func ConfigFromContext(ctx context.Context) *config.Manager {
+	return ctx.Value(configContextKey).(*config.Manager)
+}
+
+// FinalizersFromContext extracts *Finalizers from the given context.Context if it's present.
+func FinalizersFromContext(ctx context.Context) *Finalizers {
+	return ctx.Value(finalizersContextKey).(*Finalizers)
 }
 
 // RuntimeBuilder
 type RuntimeBuilder interface {
-	Build(BuildContext) (Runtime, error)
+	Build(context.Context) (Runtime, error)
 }
 
 // RuntimeBuilderFunc
-type RuntimeBuilderFunc func(BuildContext) (Runtime, error)
+type RuntimeBuilderFunc func(context.Context) (Runtime, error)
 
 // Build implements the RuntimeBuilder interface.
-func (f RuntimeBuilderFunc) Build(ctx BuildContext) (Runtime, error) {
+func (f RuntimeBuilderFunc) Build(ctx context.Context) (Runtime, error) {
 	return f(ctx)
 }
 
@@ -76,7 +87,7 @@ func WithRuntimeBuilder(rb RuntimeBuilder) Option {
 }
 
 // WithRuntimeBuilderFunc
-func WithRuntimeBuilderFunc(f func(BuildContext) (Runtime, error)) Option {
+func WithRuntimeBuilderFunc(f func(context.Context) (Runtime, error)) Option {
 	return func(a *App) {
 		a.rbs = append(a.rbs, RuntimeBuilderFunc(f))
 	}
@@ -90,7 +101,7 @@ func Config(r io.Reader) Option {
 }
 
 // InitTracerProvider
-func InitTracerProvider(f func(BuildContext) (otelconfig.Initializer, error)) Option {
+func InitTracerProvider(f func(context.Context) (otelconfig.Initializer, error)) Option {
 	return func(a *App) {
 		a.otelIniterFunc = f
 	}
@@ -100,7 +111,7 @@ func InitTracerProvider(f func(BuildContext) (otelconfig.Initializer, error)) Op
 type App struct {
 	name           string
 	cfgSrc         io.Reader
-	otelIniterFunc func(BuildContext) (otelconfig.Initializer, error)
+	otelIniterFunc func(context.Context) (otelconfig.Initializer, error)
 	rbs            []RuntimeBuilder
 }
 
@@ -112,7 +123,7 @@ func New(opts ...Option) *App {
 	}
 	app := &App{
 		name: name,
-		otelIniterFunc: func(_ BuildContext) (otelconfig.Initializer, error) {
+		otelIniterFunc: func(_ context.Context) (otelconfig.Initializer, error) {
 			return otelconfig.Noop, nil
 		},
 	}
@@ -137,10 +148,13 @@ var errNilRuntime = errors.New("nil runtime")
 
 func buildCmd(app *App) *cobra.Command {
 	rs := make([]Runtime, len(app.rbs))
-	bc := BuildContext{finalizer: &finalizer{Finalizers: []FinalizerFunc{finalizeOtel}}}
+	fs := &Finalizers{
+		finalizers: []FinalizerFunc{finalizeOtel},
+	}
 	return &cobra.Command{
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
+			var cfg config.Manager
 			if app.cfgSrc != nil {
 				b, err := readAllAndTryClose(app.cfgSrc)
 				if err != nil {
@@ -151,11 +165,13 @@ func buildCmd(app *App) *cobra.Command {
 				if err != nil {
 					return err
 				}
-
-				bc.Config = m
+				cfg = m
 			}
 
-			otelIniter, err := app.otelIniterFunc(bc)
+			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
+			ctx = context.WithValue(ctx, finalizersContextKey, fs)
+
+			otelIniter, err := app.otelIniterFunc(ctx)
 			if err != nil {
 				return err
 			}
@@ -166,7 +182,7 @@ func buildCmd(app *App) *cobra.Command {
 			otel.SetTracerProvider(tp)
 
 			for i, rb := range app.rbs {
-				r, err := rb.Build(bc)
+				r, err := rb.Build(ctx)
 				if err != nil {
 					return err
 				}
@@ -201,7 +217,7 @@ func buildCmd(app *App) *cobra.Command {
 		PostRunE: func(cmd *cobra.Command, args []string) error {
 			// will always have at least one finalizer for otel
 			var me multiError
-			for _, f := range bc.finalizer.Finalizers {
+			for _, f := range fs.finalizers {
 				err := f()
 				if err != nil {
 					me.errors = append(me.errors, err)
