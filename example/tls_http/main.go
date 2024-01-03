@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
@@ -59,7 +60,7 @@ func createCert() (tls.Certificate, error) {
 	return cert, nil
 }
 
-func initRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
+func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
 	cert, err := createCert()
@@ -82,7 +83,7 @@ func initRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
 
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(bc bedrock.BuildContext) (otelconfig.Initializer, error) {
+		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
 			return otelconfig.Local(
 				otelconfig.ServiceName("tls_http"),
 			), nil
