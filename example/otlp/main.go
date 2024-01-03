@@ -119,7 +119,7 @@ func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
 
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(_ bedrock.BuildContext) (otelconfig.Initializer, error) {
+		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
 			// TODO: move target address to config
 			return otelconfig.OTLP(
 				otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),

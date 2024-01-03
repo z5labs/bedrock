@@ -61,7 +61,7 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(bc bedrock.BuildContext) (otelconfig.Initializer, error) {
+		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
 			return otelconfig.Local(
 				otelconfig.ServiceName("simple_grpc"),
 			), nil

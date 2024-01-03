@@ -31,23 +31,29 @@ type Runtime interface {
 
 type FinalizerFunc func() error
 
-// BuildContext
-type BuildContext struct {
-	Config     config.Manager
+type Finalizers struct {
 	finalizers []FinalizerFunc
 }
 
-func (b *BuildContext) RegisterFinalizers(f ...FinalizerFunc) {
-	b.finalizers = append(b.finalizers, f...)
+func (fs *Finalizers) Add(ff ...FinalizerFunc) {
+	fs.finalizers = append(fs.finalizers, ff...)
 }
 
-type buildContextKey string
+type contextKey string
 
-var buildBuildContextKeyVar = buildContextKey("buildContextKey")
+var (
+	configContextKey     = contextKey("configContextKey")
+	finalizersContextKey = contextKey("finalizersContextKey")
+)
 
-// BuildContextFromContext extracts a BuildContext from the given context.Context if it's present.
-func BuildContextFromContext(ctx context.Context) *BuildContext {
-	return ctx.Value(buildBuildContextKeyVar).(*BuildContext)
+// ConfigFromContext extracts a *config.Manager from the given context.Context if it's present.
+func ConfigFromContext(ctx context.Context) *config.Manager {
+	return ctx.Value(configContextKey).(*config.Manager)
+}
+
+// FinalizersFromContext extracts *Finalizers from the given context.Context if it's present.
+func FinalizersFromContext(ctx context.Context) *Finalizers {
+	return ctx.Value(finalizersContextKey).(*Finalizers)
 }
 
 // RuntimeBuilder
@@ -95,7 +101,7 @@ func Config(r io.Reader) Option {
 }
 
 // InitTracerProvider
-func InitTracerProvider(f func(BuildContext) (otelconfig.Initializer, error)) Option {
+func InitTracerProvider(f func(context.Context) (otelconfig.Initializer, error)) Option {
 	return func(a *App) {
 		a.otelIniterFunc = f
 	}
@@ -105,7 +111,7 @@ func InitTracerProvider(f func(BuildContext) (otelconfig.Initializer, error)) Op
 type App struct {
 	name           string
 	cfgSrc         io.Reader
-	otelIniterFunc func(BuildContext) (otelconfig.Initializer, error)
+	otelIniterFunc func(context.Context) (otelconfig.Initializer, error)
 	rbs            []RuntimeBuilder
 }
 
@@ -117,7 +123,7 @@ func New(opts ...Option) *App {
 	}
 	app := &App{
 		name: name,
-		otelIniterFunc: func(_ BuildContext) (otelconfig.Initializer, error) {
+		otelIniterFunc: func(_ context.Context) (otelconfig.Initializer, error) {
 			return otelconfig.Noop, nil
 		},
 	}
@@ -142,10 +148,13 @@ var errNilRuntime = errors.New("nil runtime")
 
 func buildCmd(app *App) *cobra.Command {
 	rs := make([]Runtime, len(app.rbs))
-	bc := BuildContext{finalizers: []FinalizerFunc{finalizeOtel}}
+	fs := &Finalizers{
+		finalizers: []FinalizerFunc{finalizeOtel},
+	}
 	return &cobra.Command{
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
+			var cfg config.Manager
 			if app.cfgSrc != nil {
 				b, err := readAllAndTryClose(app.cfgSrc)
 				if err != nil {
@@ -156,11 +165,13 @@ func buildCmd(app *App) *cobra.Command {
 				if err != nil {
 					return err
 				}
-
-				bc.Config = m
+				cfg = m
 			}
 
-			otelIniter, err := app.otelIniterFunc(bc)
+			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
+			ctx = context.WithValue(ctx, finalizersContextKey, fs)
+
+			otelIniter, err := app.otelIniterFunc(ctx)
 			if err != nil {
 				return err
 			}
@@ -170,7 +181,6 @@ func buildCmd(app *App) *cobra.Command {
 			}
 			otel.SetTracerProvider(tp)
 
-			ctx := context.WithValue(cmd.Context(), buildBuildContextKeyVar, &bc)
 			for i, rb := range app.rbs {
 				r, err := rb.Build(ctx)
 				if err != nil {
@@ -207,7 +217,7 @@ func buildCmd(app *App) *cobra.Command {
 		PostRunE: func(cmd *cobra.Command, args []string) error {
 			// will always have at least one finalizer for otel
 			var me multiError
-			for _, f := range bc.finalizers {
+			for _, f := range fs.finalizers {
 				err := f()
 				if err != nil {
 					me.errors = append(me.errors, err)

@@ -64,7 +64,7 @@ func TestApp_Run(t *testing.T) {
 
 		t.Run("if it fails to get the otel initializer", func(t *testing.T) {
 			initErr := errors.New("failed to init")
-			app := New(InitTracerProvider(func(bc BuildContext) (otelconfig.Initializer, error) {
+			app := New(InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
 				return nil, initErr
 			}))
 
@@ -76,7 +76,7 @@ func TestApp_Run(t *testing.T) {
 
 		t.Run("if the otel initializer fails to initialize", func(t *testing.T) {
 			initErr := errors.New("failed to init")
-			app := New(InitTracerProvider(func(bc BuildContext) (otelconfig.Initializer, error) {
+			app := New(InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
 				initer := otelInitFunc(func() (trace.TracerProvider, error) {
 					return nil, initErr
 				})
@@ -229,8 +229,8 @@ func TestApp_Run(t *testing.T) {
 			finalizeErr := errors.New("failed to finalize")
 			app := New(
 				WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
-					bc := BuildContextFromContext(ctx)
-					bc.RegisterFinalizers(func() error {
+					fs := FinalizersFromContext(ctx)
+					fs.Add(func() error {
 						return finalizeErr
 					})
 
