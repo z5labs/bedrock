@@ -36,7 +36,7 @@ func (p evenOrOdd) Process(ctx context.Context, n int) error {
 	return nil
 }
 
-func initRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
+func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
 	consumer := &intGenerator{n: 0}

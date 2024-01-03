@@ -38,7 +38,7 @@ func registerSimpleService(s *grpc.Server) {
 	simple_grpc_pb.RegisterSimpleServer(s, &simpleService{})
 }
 
-func initRuntime(bc bedrock.BuildContext) (bedrock.Runtime, error) {
+func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
 	rt := brgrpc.NewRuntime(
