@@ -14,6 +14,7 @@ import (
 	"github.com/z5labs/bedrock/example/simple_grpc/simple_grpc_pb"
 	brgrpc "github.com/z5labs/bedrock/grpc"
 	"github.com/z5labs/bedrock/pkg/health"
+	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 
 	"go.opentelemetry.io/otel"
@@ -59,13 +60,18 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
+func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
+	initer := otelconfig.Local(
+		otelconfig.ServiceName("simple_grpc"),
+	)
+	return initer, nil
+}
+
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-			return otelconfig.Local(
-				otelconfig.ServiceName("simple_grpc"),
-			), nil
-		}),
+		bedrock.Hooks(
+			lifecycle.ManageOTel(localOtel),
+		),
 		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

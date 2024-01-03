@@ -17,6 +17,7 @@ import (
 
 	"github.com/z5labs/bedrock"
 	brhttp "github.com/z5labs/bedrock/http"
+	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 	"github.com/z5labs/bedrock/pkg/otelslog"
 	"github.com/z5labs/bedrock/pkg/slogfield"
@@ -117,15 +118,19 @@ func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
+func otlpOtel(ctx context.Context) (otelconfig.Initializer, error) {
+	initer := otelconfig.OTLP(
+		otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
+		otelconfig.ServiceName("otlp"),
+	)
+	return initer, nil
+}
+
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-			// TODO: move target address to config
-			return otelconfig.OTLP(
-				otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
-				otelconfig.ServiceName("otlp"),
-			), nil
-		}),
+		bedrock.Hooks(
+			lifecycle.ManageOTel(otlpOtel),
+		),
 		bedrock.WithRuntimeBuilderFunc(initHttpRuntime),
 		bedrock.WithRuntimeBuilderFunc(initQueueRuntime),
 	).Run()

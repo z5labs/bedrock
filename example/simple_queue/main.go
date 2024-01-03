@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"github.com/z5labs/bedrock"
+	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 	"github.com/z5labs/bedrock/queue"
 )
@@ -51,13 +52,18 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
+func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
+	initer := otelconfig.Local(
+		otelconfig.ServiceName("simple_queue"),
+	)
+	return initer, nil
+}
+
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-			return otelconfig.Local(
-				otelconfig.ServiceName("simple_queue"),
-			), nil
-		}),
+		bedrock.Hooks(
+			lifecycle.ManageOTel(localOtel),
+		),
 		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

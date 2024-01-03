@@ -21,6 +21,7 @@ import (
 
 	"github.com/z5labs/bedrock"
 	brhttp "github.com/z5labs/bedrock/http"
+	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 )
 
@@ -81,13 +82,18 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
+func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
+	initer := otelconfig.Local(
+		otelconfig.ServiceName("tls_http"),
+	)
+	return initer, nil
+}
+
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-			return otelconfig.Local(
-				otelconfig.ServiceName("tls_http"),
-			), nil
-		}),
+		bedrock.Hooks(
+			lifecycle.ManageOTel(localOtel),
+		),
 		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }
