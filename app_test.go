@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/z5labs/bedrock/pkg/otelconfig"
-
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/trace"
@@ -62,29 +60,33 @@ func TestApp_Run(t *testing.T) {
 			}
 		})
 
-		t.Run("if it fails to get the otel initializer", func(t *testing.T) {
-			initErr := errors.New("failed to init")
-			app := New(InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-				return nil, initErr
-			}))
-
-			err := app.Run()
-			if !assert.Equal(t, initErr, err) {
-				return
-			}
-		})
-
 		t.Run("if the otel initializer fails to initialize", func(t *testing.T) {
 			initErr := errors.New("failed to init")
-			app := New(InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-				initer := otelInitFunc(func() (trace.TracerProvider, error) {
-					return nil, initErr
-				})
-				return initer, nil
-			}))
+			app := New(
+				WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
+					life := LifecycleFromContext(ctx)
+					WithTracerProvider(life, otelInitFunc(func() (trace.TracerProvider, error) {
+						return nil, initErr
+					}))
+					rt := runtimeFunc(func(ctx context.Context) error {
+						return nil
+					})
+					return rt, nil
+				}),
+			)
 
 			err := app.Run()
-			if !assert.Equal(t, initErr, err) {
+			var me multiError
+			if !assert.ErrorAs(t, err, &me) {
+				return
+			}
+			if !assert.NotEmpty(t, me.Error()) {
+				return
+			}
+			if !assert.Len(t, me.errors, 1) {
+				return
+			}
+			if !assert.Equal(t, initErr, me.errors[0]) {
 				return
 			}
 		})
@@ -225,15 +227,14 @@ func TestApp_Run(t *testing.T) {
 			}
 		})
 
-		t.Run("if a finalizer returns an error", func(t *testing.T) {
+		t.Run("if a lifecycle post run hook returns an error", func(t *testing.T) {
 			finalizeErr := errors.New("failed to finalize")
 			app := New(
 				WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
-					fs := FinalizersFromContext(ctx)
-					fs.Add(func() error {
+					life := LifecycleFromContext(ctx)
+					life.PostRun(func(ctx context.Context) error {
 						return finalizeErr
 					})
-
 					rt := runtimeFunc(func(ctx context.Context) error {
 						return nil
 					})
