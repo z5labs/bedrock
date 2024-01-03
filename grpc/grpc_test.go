@@ -122,6 +122,9 @@ func TestReadiness(t *testing.T) {
 				defer close(statusCh)
 
 				addr := <-addrCh
+				if addr == nil {
+					return nil
+				}
 				conn, err := grpc.Dial(
 					addr.String(),
 					grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -142,6 +145,10 @@ func TestReadiness(t *testing.T) {
 			})
 
 			status := <-statusCh
+			err := g.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
 			if !assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, status) {
 				return
 			}
@@ -182,6 +189,9 @@ func TestReadiness(t *testing.T) {
 				defer close(statusCh)
 
 				addr := <-addrCh
+				if addr == nil {
+					return nil
+				}
 				conn, err := grpc.Dial(
 					addr.String(),
 					grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -205,6 +215,10 @@ func TestReadiness(t *testing.T) {
 			})
 
 			status := <-statusCh
+			err := g.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
 			if !assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, status) {
 				return
 			}
@@ -243,6 +257,9 @@ func TestReadiness(t *testing.T) {
 				defer close(statusCh)
 
 				addr := <-addrCh
+				if addr == nil {
+					return nil
+				}
 				conn, err := grpc.Dial(
 					addr.String(),
 					grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -263,6 +280,10 @@ func TestReadiness(t *testing.T) {
 			})
 
 			status := <-statusCh
+			err := g.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
 			if !assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, status) {
 				return
 			}
@@ -304,6 +325,9 @@ func TestReadiness(t *testing.T) {
 				defer close(statusCh)
 
 				addr := <-addrCh
+				if addr == nil {
+					return nil
+				}
 				conn, err := grpc.Dial(
 					addr.String(),
 					grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -327,6 +351,10 @@ func TestReadiness(t *testing.T) {
 			})
 
 			status := <-statusCh
+			err := g.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
 			if !assert.Equal(t, grpc_health_v1.HealthCheckResponse_NOT_SERVING, status) {
 				return
 			}
