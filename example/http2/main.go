@@ -63,6 +63,11 @@ func createCert() (tls.Certificate, error) {
 func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
+	life := bedrock.LifecycleFromContext(ctx)
+	bedrock.WithTracerProvider(life, otelconfig.Local(
+		otelconfig.ServiceName("http2"),
+	))
+
 	cert, err := createCert()
 	if err != nil {
 		return nil, err
@@ -84,11 +89,6 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-			return otelconfig.Local(
-				otelconfig.ServiceName("http2"),
-			), nil
-		}),
 		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }
