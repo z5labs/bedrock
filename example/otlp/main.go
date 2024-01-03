@@ -65,6 +65,12 @@ func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 	logger := otelslog.New(logHandler)
 
+	life := bedrock.LifecycleFromContext(ctx)
+	bedrock.WithTracerProvider(life, otelconfig.OTLP(
+		otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
+		otelconfig.ServiceName("otlp"),
+	))
+
 	c := consumerFunc[int](func(ctx context.Context) (int, error) {
 		spanCtx, span := otel.Tracer("main").Start(ctx, "consumer")
 		defer span.End()
@@ -119,13 +125,6 @@ func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
 
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-			// TODO: move target address to config
-			return otelconfig.OTLP(
-				otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
-				otelconfig.ServiceName("otlp"),
-			), nil
-		}),
 		bedrock.WithRuntimeBuilderFunc(initHttpRuntime),
 		bedrock.WithRuntimeBuilderFunc(initQueueRuntime),
 	).Run()

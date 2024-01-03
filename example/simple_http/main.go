@@ -20,6 +20,11 @@ import (
 func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
+	life := bedrock.LifecycleFromContext(ctx)
+	bedrock.WithTracerProvider(life, otelconfig.Local(
+		otelconfig.ServiceName("simple_http"),
+	))
+
 	rt := brhttp.NewRuntime(
 		brhttp.ListenOnPort(8080),
 		brhttp.LogHandler(logHandler),
@@ -32,11 +37,6 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-			return otelconfig.Local(
-				otelconfig.ServiceName("simple_http"),
-			), nil
-		}),
 		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }

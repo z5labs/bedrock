@@ -41,6 +41,11 @@ func registerSimpleService(s *grpc.Server) {
 func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 
+	life := bedrock.LifecycleFromContext(ctx)
+	bedrock.WithTracerProvider(life, otelconfig.Local(
+		otelconfig.ServiceName("simple_grpc"),
+	))
+
 	rt := brgrpc.NewRuntime(
 		brgrpc.ListenOnPort(9080),
 		brgrpc.LogHandler(logHandler),
@@ -61,11 +66,6 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 
 func main() {
 	bedrock.New(
-		bedrock.InitTracerProvider(func(_ context.Context) (otelconfig.Initializer, error) {
-			return otelconfig.Local(
-				otelconfig.ServiceName("simple_grpc"),
-			), nil
-		}),
 		bedrock.WithRuntimeBuilderFunc(initRuntime),
 	).Run()
 }
