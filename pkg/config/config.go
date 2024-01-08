@@ -3,10 +3,13 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+// Package config provides an useful wrapper for the popular spf13/viper package.
 package config
 
 import (
 	"bytes"
+	"encoding"
+	"errors"
 	"io"
 	"os"
 	"reflect"
@@ -23,8 +26,10 @@ type Manager struct {
 	*viper.Viper
 }
 
+// ReadOption
 type ReadOption func(*reader)
 
+// LanguageType
 type LanguageType string
 
 const (
@@ -33,6 +38,7 @@ const (
 	TOML LanguageType = "toml"
 )
 
+// Language sets which language the config source uses.
 func Language(lang LanguageType) ReadOption {
 	return func(r *reader) {
 		r.lang = lang
@@ -64,8 +70,9 @@ func (m Manager) Unmarshal(v interface{}) error {
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		TagName: "config",
 		Result:  v,
-		DecodeHook: mapstructure.ComposeDecodeHookFunc(
-			decodeTimeDuration(),
+		DecodeHook: composeDecodeHooks(
+			textUnmarshalerHookFunc(),
+			timeDurationHookFunc(),
 		),
 	})
 	if err != nil {
@@ -74,10 +81,62 @@ func (m Manager) Unmarshal(v interface{}) error {
 	return dec.Decode(m.AllSettings())
 }
 
-func decodeTimeDuration() mapstructure.DecodeHookFunc {
+var errInvalidDecodeCondition = errors.New("invalid decode condition")
+
+type multiError struct {
+	errors []error
+}
+
+func (e multiError) Error() string {
+	ss := make([]string, len(e.errors))
+	for i, e := range e.errors {
+		ss[i] = e.Error()
+	}
+	return strings.Join(ss, "\n")
+}
+
+func composeDecodeHooks(hs ...mapstructure.DecodeHookFunc) mapstructure.DecodeHookFuncValue {
+	return func(f, t reflect.Value) (any, error) {
+		var errs []error
+		for _, h := range hs {
+			v, err := mapstructure.DecodeHookExec(h, f, t)
+			if err == nil {
+				return v, nil
+			}
+			if err == errInvalidDecodeCondition {
+				continue
+			}
+			errs = append(errs, err)
+		}
+		if len(errs) == 0 {
+			return f.Interface(), nil
+		}
+		return nil, multiError{errors: errs}
+	}
+}
+
+func textUnmarshalerHookFunc() mapstructure.DecodeHookFuncType {
+	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String {
+			return nil, errInvalidDecodeCondition
+		}
+		result := reflect.New(t).Interface()
+		u, ok := result.(encoding.TextUnmarshaler)
+		if !ok {
+			return nil, errInvalidDecodeCondition
+		}
+		err := u.UnmarshalText([]byte(data.(string)))
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+func timeDurationHookFunc() mapstructure.DecodeHookFuncType {
 	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
 		if t != reflect.TypeOf(time.Duration(0)) {
-			return data, nil
+			return nil, errInvalidDecodeCondition
 		}
 
 		switch f.Kind() {
@@ -86,7 +145,7 @@ func decodeTimeDuration() mapstructure.DecodeHookFunc {
 		case reflect.Int64:
 			return time.Duration(data.(int64)), nil
 		default:
-			return data, nil
+			return nil, errInvalidDecodeCondition
 		}
 	}
 }

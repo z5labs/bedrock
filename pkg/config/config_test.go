@@ -8,11 +8,13 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"text/template"
 	"time"
 
+	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
@@ -84,6 +86,27 @@ func TestRead(t *testing.T) {
 	})
 }
 
+type Custom struct {
+	N int
+}
+
+func (c *Custom) UnmarshalText(b []byte) error {
+	n, err := strconv.Atoi(string(b))
+	if err != nil {
+		return err
+	}
+	c.N = n
+	return nil
+}
+
+var unmarshalErr = errors.New("failed to unmarshal")
+
+type UnmarshalTextFailure struct{}
+
+func (x UnmarshalTextFailure) UnmarshalText(b []byte) error {
+	return unmarshalErr
+}
+
 func TestManager_Unmarshal(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
 		t.Run("if a nil result is provided", func(t *testing.T) {
@@ -96,6 +119,34 @@ func TestManager_Unmarshal(t *testing.T) {
 			var v any
 			err = m.Unmarshal(v)
 			if !assert.Error(t, err) {
+				return
+			}
+		})
+
+		t.Run("if the encoding.TextUnmarshaler fails to UnmarshalText", func(t *testing.T) {
+			r := strings.NewReader(`value: "10"`)
+			m, err := Read(r, Language(YAML))
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var cfg struct {
+				Value UnmarshalTextFailure `config:"value"`
+			}
+			err = m.Unmarshal(&cfg)
+			if !assert.Error(t, err) {
+				return
+			}
+
+			var me *mapstructure.Error
+			if !assert.ErrorAs(t, err, &me) {
+				return
+			}
+			errs := me.WrappedErrors()
+			if !assert.Len(t, errs, 1) {
+				return
+			}
+			if !assert.Contains(t, errs[0].Error(), unmarshalErr.Error()) {
 				return
 			}
 		})
@@ -136,6 +187,27 @@ func TestManager_Unmarshal(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, 10*time.Second, cfg.Duration) {
+				return
+			}
+		})
+	})
+
+	t.Run("will unmarshal encoding.TextUnmarshaler", func(t *testing.T) {
+		t.Run("if the value is a string", func(t *testing.T) {
+			r := strings.NewReader(`value: "10"`)
+			m, err := Read(r, Language(YAML))
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var cfg struct {
+				Value Custom `config:"value"`
+			}
+			err = m.Unmarshal(&cfg)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, 10, cfg.Value.N) {
 				return
 			}
 		})
