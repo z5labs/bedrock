@@ -102,7 +102,7 @@ func WithRuntimeBuilderFunc(f func(context.Context) (Runtime, error)) Option {
 // Config
 func Config(r io.Reader) Option {
 	return func(a *App) {
-		a.cfgSrc = r
+		a.cfgSrcs = append(a.cfgSrcs, r)
 	}
 }
 
@@ -117,10 +117,10 @@ func Hooks(fs ...func(*Lifecycle)) Option {
 
 // App
 type App struct {
-	name   string
-	cfgSrc io.Reader
-	rbs    []RuntimeBuilder
-	life   Lifecycle
+	name    string
+	cfgSrcs []io.Reader
+	rbs     []RuntimeBuilder
+	life    Lifecycle
 }
 
 // New
@@ -159,17 +159,16 @@ func buildCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
-			if app.cfgSrc != nil {
-				b, err := readAllAndTryClose(app.cfgSrc)
+			for _, cfgSrc := range app.cfgSrcs {
+				b, err := readAllAndTryClose(cfgSrc)
 				if err != nil {
 					return err
 				}
 
-				m, err := config.Read(bytes.NewReader(b), config.Language(config.YAML))
+				cfg, err = config.Merge(cfg, bytes.NewReader(b), config.Language(config.YAML))
 				if err != nil {
 					return err
 				}
-				cfg = m
 			}
 
 			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
