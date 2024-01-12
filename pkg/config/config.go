@@ -62,7 +62,21 @@ func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
 		opt(&rd)
 	}
 
-	return rd.read(r)
+	v := viper.New()
+	v.SetConfigType(string(rd.lang))
+	err := rd.read(v, r)
+	if err != nil {
+		return Manager{}, err
+	}
+	return Manager{Viper: v}, nil
+}
+
+// Merge allows you to merge another config into an already existing one.
+func Merge(m Manager, r io.Reader, opts ...ReadOption) (Manager, error) {
+	if m.Viper == nil {
+		return Read(r, opts...)
+	}
+	return m, m.MergeConfig(r)
 }
 
 // Unmarshal
@@ -150,11 +164,11 @@ func timeDurationHookFunc() mapstructure.DecodeHookFuncType {
 	}
 }
 
-func (rd reader) read(r io.Reader) (Manager, error) {
+func (rd reader) read(v *viper.Viper, r io.Reader) error {
 	var sb strings.Builder
 	_, err := io.Copy(&sb, r)
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
 	s := sb.String()
 
@@ -172,22 +186,21 @@ func (rd reader) read(r io.Reader) (Manager, error) {
 
 	tmpl, err := template.New("config").Funcs(funcs).Parse(s)
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
 
 	var buf bytes.Buffer
 	err = tmpl.Execute(&buf, struct{}{})
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
 
-	v := viper.New()
 	v.SetConfigType(string(rd.lang))
 	err = v.ReadConfig(&buf)
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
-	return Manager{Viper: v}, nil
+	return nil
 }
 
 func readEnv() map[string]string {
