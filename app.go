@@ -17,10 +17,8 @@ import (
 	"strings"
 
 	"github.com/z5labs/bedrock/pkg/config"
-	"github.com/z5labs/bedrock/pkg/otelconfig"
 
 	"github.com/spf13/cobra"
-	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -29,32 +27,51 @@ type Runtime interface {
 	Run(context.Context) error
 }
 
-type FinalizerFunc func() error
-
-type finalizer struct {
-	Finalizers []FinalizerFunc
+// Lifecycle provides the ability to hook into certain points of
+// the bedrock App.Run process.
+type Lifecycle struct {
+	preRunHooks  []func(context.Context) error
+	postRunHooks []func(context.Context) error
 }
 
-// BuildContext
-type BuildContext struct {
-	Config    config.Manager
-	finalizer *finalizer
+// PreRun registers hooks to be called after the config is parsed and before Runtime.Run is called.
+func (l *Lifecycle) PreRun(hooks ...func(context.Context) error) {
+	l.preRunHooks = append(l.preRunHooks, hooks...)
 }
 
-func (b BuildContext) RegisterFinalizers(f ...FinalizerFunc) {
-	b.finalizer.Finalizers = append(b.finalizer.Finalizers, f...)
+// PostRun registers hooks to be after Runtime.Run has completed, regardless
+// whether it returned an error or not.
+func (l *Lifecycle) PostRun(hooks ...func(context.Context) error) {
+	l.postRunHooks = append(l.postRunHooks, hooks...)
+}
+
+type contextKey string
+
+var (
+	configContextKey    = contextKey("configContextKey")
+	lifecycleContextKey = contextKey("lifecycleContextKey")
+)
+
+// ConfigFromContext extracts a *config.Manager from the given context.Context if it's present.
+func ConfigFromContext(ctx context.Context) *config.Manager {
+	return ctx.Value(configContextKey).(*config.Manager)
+}
+
+// LifecycleFromContext extracts a *Lifecycle from the given context.Context if it's present.
+func LifecycleFromContext(ctx context.Context) *Lifecycle {
+	return ctx.Value(lifecycleContextKey).(*Lifecycle)
 }
 
 // RuntimeBuilder
 type RuntimeBuilder interface {
-	Build(BuildContext) (Runtime, error)
+	Build(context.Context) (Runtime, error)
 }
 
 // RuntimeBuilderFunc
-type RuntimeBuilderFunc func(BuildContext) (Runtime, error)
+type RuntimeBuilderFunc func(context.Context) (Runtime, error)
 
 // Build implements the RuntimeBuilder interface.
-func (f RuntimeBuilderFunc) Build(ctx BuildContext) (Runtime, error) {
+func (f RuntimeBuilderFunc) Build(ctx context.Context) (Runtime, error) {
 	return f(ctx)
 }
 
@@ -76,7 +93,7 @@ func WithRuntimeBuilder(rb RuntimeBuilder) Option {
 }
 
 // WithRuntimeBuilderFunc
-func WithRuntimeBuilderFunc(f func(BuildContext) (Runtime, error)) Option {
+func WithRuntimeBuilderFunc(f func(context.Context) (Runtime, error)) Option {
 	return func(a *App) {
 		a.rbs = append(a.rbs, RuntimeBuilderFunc(f))
 	}
@@ -85,23 +102,25 @@ func WithRuntimeBuilderFunc(f func(BuildContext) (Runtime, error)) Option {
 // Config
 func Config(r io.Reader) Option {
 	return func(a *App) {
-		a.cfgSrc = r
+		a.cfgSrcs = append(a.cfgSrcs, r)
 	}
 }
 
-// InitTracerProvider
-func InitTracerProvider(f func(BuildContext) (otelconfig.Initializer, error)) Option {
+// Hooks
+func Hooks(fs ...func(*Lifecycle)) Option {
 	return func(a *App) {
-		a.otelIniterFunc = f
+		for _, f := range fs {
+			f(&a.life)
+		}
 	}
 }
 
 // App
 type App struct {
-	name           string
-	cfgSrc         io.Reader
-	otelIniterFunc func(BuildContext) (otelconfig.Initializer, error)
-	rbs            []RuntimeBuilder
+	name    string
+	cfgSrcs []io.Reader
+	rbs     []RuntimeBuilder
+	life    Lifecycle
 }
 
 // New
@@ -112,9 +131,6 @@ func New(opts ...Option) *App {
 	}
 	app := &App{
 		name: name,
-		otelIniterFunc: func(_ BuildContext) (otelconfig.Initializer, error) {
-			return otelconfig.Noop, nil
-		},
 	}
 	for _, opt := range opts {
 		opt(app)
@@ -136,37 +152,36 @@ func (app *App) Run(args ...string) error {
 var errNilRuntime = errors.New("nil runtime")
 
 func buildCmd(app *App) *cobra.Command {
+	var cfg config.Manager
+
 	rs := make([]Runtime, len(app.rbs))
-	bc := BuildContext{finalizer: &finalizer{Finalizers: []FinalizerFunc{finalizeOtel}}}
+
 	return &cobra.Command{
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
-			if app.cfgSrc != nil {
-				b, err := readAllAndTryClose(app.cfgSrc)
+			for i, cfgSrc := range app.cfgSrcs {
+				b, err := readAllAndTryClose(cfgSrc)
 				if err != nil {
 					return err
 				}
 
-				m, err := config.Read(bytes.NewReader(b), config.Language(config.YAML))
+				cfg, err = config.Merge(cfg, bytes.NewReader(b), config.Language(config.YAML))
 				if err != nil {
 					return err
 				}
 
-				bc.Config = m
+				// tell the garbage collector that we no longer
+				// need that config source and it can be collected
+				app.cfgSrcs[i] = nil
 			}
+			// we no longer need this slice since all configs have been merged
+			app.cfgSrcs = nil
 
-			otelIniter, err := app.otelIniterFunc(bc)
-			if err != nil {
-				return err
-			}
-			tp, err := otelIniter.Init()
-			if err != nil {
-				return err
-			}
-			otel.SetTracerProvider(tp)
+			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
+			ctx = context.WithValue(ctx, lifecycleContextKey, &app.life)
 
 			for i, rb := range app.rbs {
-				r, err := rb.Build(bc)
+				r, err := rb.Build(ctx)
 				if err != nil {
 					return err
 				}
@@ -174,9 +189,25 @@ func buildCmd(app *App) *cobra.Command {
 					return errNilRuntime
 				}
 				rs[i] = r
-			}
 
-			return nil
+				// tell the garbage collector that we no longer
+				// need that runtime builder and it can be collected
+				app.rbs[i] = nil
+			}
+			// we no longer need this slice since all runtime have been built
+			app.rbs = nil
+
+			var me multiError
+			for _, f := range app.life.preRunHooks {
+				err := f(ctx)
+				if err != nil {
+					me.errors = append(me.errors, err)
+				}
+			}
+			if len(me.errors) == 0 {
+				return nil
+			}
+			return me
 		},
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
@@ -199,10 +230,12 @@ func buildCmd(app *App) *cobra.Command {
 			return g.Wait()
 		},
 		PostRunE: func(cmd *cobra.Command, args []string) error {
-			// will always have at least one finalizer for otel
+			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
+			ctx = context.WithValue(ctx, lifecycleContextKey, &app.life)
+
 			var me multiError
-			for _, f := range bc.finalizer.Finalizers {
-				err := f()
+			for _, f := range app.life.postRunHooks {
+				err := f(ctx)
 				if err != nil {
 					me.errors = append(me.errors, err)
 				}
@@ -231,17 +264,6 @@ func (m multiError) Error() string {
 	}
 
 	return strings.TrimSuffix(e, ";")
-}
-
-func finalizeOtel() error {
-	tp := otel.GetTracerProvider()
-	stp, ok := tp.(interface {
-		Shutdown(context.Context) error
-	})
-	if !ok {
-		return nil
-	}
-	return stp.Shutdown(context.Background())
 }
 
 func readAllAndTryClose(r io.Reader) ([]byte, error) {

@@ -3,10 +3,13 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+// Package config provides an useful wrapper for the popular spf13/viper package.
 package config
 
 import (
 	"bytes"
+	"encoding"
+	"errors"
 	"io"
 	"os"
 	"reflect"
@@ -23,8 +26,10 @@ type Manager struct {
 	*viper.Viper
 }
 
+// ReadOption
 type ReadOption func(*reader)
 
+// LanguageType
 type LanguageType string
 
 const (
@@ -33,6 +38,7 @@ const (
 	TOML LanguageType = "toml"
 )
 
+// Language sets which language the config source uses.
 func Language(lang LanguageType) ReadOption {
 	return func(r *reader) {
 		r.lang = lang
@@ -46,7 +52,7 @@ type reader struct {
 
 // Read
 func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
-	env := readEnv()
+	env := mapEnv(os.Environ())
 
 	rd := reader{
 		lang: YAML,
@@ -56,7 +62,21 @@ func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
 		opt(&rd)
 	}
 
-	return rd.read(r)
+	v := viper.New()
+	v.SetConfigType(string(rd.lang))
+	err := rd.read(v, r)
+	if err != nil {
+		return Manager{}, err
+	}
+	return Manager{Viper: v}, nil
+}
+
+// Merge allows you to merge another config into an already existing one.
+func Merge(m Manager, r io.Reader, opts ...ReadOption) (Manager, error) {
+	if m.Viper == nil {
+		return Read(r, opts...)
+	}
+	return m, m.MergeConfig(r)
 }
 
 // Unmarshal
@@ -64,8 +84,9 @@ func (m Manager) Unmarshal(v interface{}) error {
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		TagName: "config",
 		Result:  v,
-		DecodeHook: mapstructure.ComposeDecodeHookFunc(
-			decodeTimeDuration(),
+		DecodeHook: composeDecodeHooks(
+			textUnmarshalerHookFunc(),
+			timeDurationHookFunc(),
 		),
 	})
 	if err != nil {
@@ -74,28 +95,80 @@ func (m Manager) Unmarshal(v interface{}) error {
 	return dec.Decode(m.AllSettings())
 }
 
-func decodeTimeDuration() mapstructure.DecodeHookFunc {
+var errInvalidDecodeCondition = errors.New("invalid decode condition")
+
+type multiError struct {
+	errors []error
+}
+
+func (e multiError) Error() string {
+	ss := make([]string, len(e.errors))
+	for i, e := range e.errors {
+		ss[i] = e.Error()
+	}
+	return strings.Join(ss, "\n")
+}
+
+func composeDecodeHooks(hs ...mapstructure.DecodeHookFunc) mapstructure.DecodeHookFuncValue {
+	return func(f, t reflect.Value) (any, error) {
+		var errs []error
+		for _, h := range hs {
+			v, err := mapstructure.DecodeHookExec(h, f, t)
+			if err == nil {
+				return v, nil
+			}
+			if err == errInvalidDecodeCondition {
+				continue
+			}
+			errs = append(errs, err)
+		}
+		if len(errs) == 0 {
+			return f.Interface(), nil
+		}
+		return nil, multiError{errors: errs}
+	}
+}
+
+func textUnmarshalerHookFunc() mapstructure.DecodeHookFuncType {
+	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String {
+			return nil, errInvalidDecodeCondition
+		}
+		result := reflect.New(t).Interface()
+		u, ok := result.(encoding.TextUnmarshaler)
+		if !ok {
+			return nil, errInvalidDecodeCondition
+		}
+		err := u.UnmarshalText([]byte(data.(string)))
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+func timeDurationHookFunc() mapstructure.DecodeHookFuncType {
 	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
 		if t != reflect.TypeOf(time.Duration(0)) {
-			return data, nil
+			return nil, errInvalidDecodeCondition
 		}
 
 		switch f.Kind() {
 		case reflect.String:
 			return time.ParseDuration(data.(string))
-		case reflect.Int64:
-			return time.Duration(data.(int64)), nil
+		case reflect.Int:
+			return time.Duration(int64(data.(int))), nil
 		default:
-			return data, nil
+			return nil, errInvalidDecodeCondition
 		}
 	}
 }
 
-func (rd reader) read(r io.Reader) (Manager, error) {
+func (rd reader) read(v *viper.Viper, r io.Reader) error {
 	var sb strings.Builder
 	_, err := io.Copy(&sb, r)
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
 	s := sb.String()
 
@@ -113,26 +186,25 @@ func (rd reader) read(r io.Reader) (Manager, error) {
 
 	tmpl, err := template.New("config").Funcs(funcs).Parse(s)
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
 
 	var buf bytes.Buffer
 	err = tmpl.Execute(&buf, struct{}{})
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
 
-	v := viper.New()
 	v.SetConfigType(string(rd.lang))
 	err = v.ReadConfig(&buf)
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
-	return Manager{Viper: v}, nil
+	return nil
 }
 
-func readEnv() map[string]string {
-	envVars := os.Environ()
+// envVars = pairs formatted with a '=' between the key and value
+func mapEnv(envVars []string) map[string]string {
 	envs := make(map[string]string, len(envVars))
 	for _, envVar := range envVars {
 		key, value, ok := strings.Cut(envVar, "=")

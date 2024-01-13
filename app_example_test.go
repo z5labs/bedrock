@@ -13,7 +13,7 @@ import (
 func ExampleApp_Run() {
 	app := New(
 		Name("example"),
-		WithRuntimeBuilderFunc(func(bc BuildContext) (Runtime, error) {
+		WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
 			rt := runtimeFunc(func(ctx context.Context) error {
 				fmt.Println("hello, world")
 				return nil
