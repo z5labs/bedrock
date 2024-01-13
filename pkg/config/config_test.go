@@ -86,6 +86,74 @@ func TestRead(t *testing.T) {
 	})
 }
 
+func TestMerge(t *testing.T) {
+	t.Run("will return an error", func(t *testing.T) {
+		t.Run("if it fails to read the first config", func(t *testing.T) {
+			var cfg Manager
+			r := strings.NewReader(`hello`)
+			_, err := Merge(cfg, r, Language(YAML))
+			if !assert.IsType(t, viper.ConfigParseError{}, err) {
+				return
+			}
+		})
+
+		t.Run("if it viper fails to read from the io.Reader", func(t *testing.T) {
+			base := strings.NewReader(`hello: world`)
+			m, err := Read(base, Language(YAML))
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			r := strings.NewReader(`hello`)
+			_, err = Merge(m, r)
+			if !assert.IsType(t, viper.ConfigParseError{}, err) {
+				return
+			}
+		})
+	})
+
+	t.Run("will overwrite base value", func(t *testing.T) {
+		t.Run("if the new reader contains the same key", func(t *testing.T) {
+			base := strings.NewReader(`hello: world`)
+			m, err := Read(base, Language(YAML))
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			r := strings.NewReader(`hello: bye`)
+			m, err = Merge(m, r)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "bye", m.GetString("hello")) {
+				return
+			}
+		})
+	})
+
+	t.Run("will not overwrite base value", func(t *testing.T) {
+		t.Run("if the new reader does not contain the same key", func(t *testing.T) {
+			base := strings.NewReader(`hello: world`)
+			m, err := Read(base, Language(YAML))
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			r := strings.NewReader(`good: bye`)
+			m, err = Merge(m, r)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "world", m.GetString("hello")) {
+				return
+			}
+			if !assert.Equal(t, "bye", m.GetString("good")) {
+				return
+			}
+		})
+	})
+}
+
 type Custom struct {
 	N int
 }
@@ -208,6 +276,21 @@ func TestManager_Unmarshal(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, 10, cfg.Value.N) {
+				return
+			}
+		})
+	})
+}
+
+func TestMapEnv(t *testing.T) {
+	t.Run("will ignore malformed pairs", func(t *testing.T) {
+		t.Run("if there is no '=' separating the key and value", func(t *testing.T) {
+			pairs := []string{"hello=world", "good bye"}
+			env := mapEnv(pairs)
+			if !assert.Less(t, len(env), len(pairs)) {
+				return
+			}
+			if !assert.Contains(t, env, "hello") {
 				return
 			}
 		})

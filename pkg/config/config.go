@@ -52,7 +52,7 @@ type reader struct {
 
 // Read
 func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
-	env := readEnv()
+	env := mapEnv(os.Environ())
 
 	rd := reader{
 		lang: YAML,
@@ -156,8 +156,8 @@ func timeDurationHookFunc() mapstructure.DecodeHookFuncType {
 		switch f.Kind() {
 		case reflect.String:
 			return time.ParseDuration(data.(string))
-		case reflect.Int64:
-			return time.Duration(data.(int64)), nil
+		case reflect.Int:
+			return time.Duration(int64(data.(int))), nil
 		default:
 			return nil, errInvalidDecodeCondition
 		}
@@ -203,8 +203,8 @@ func (rd reader) read(v *viper.Viper, r io.Reader) error {
 	return nil
 }
 
-func readEnv() map[string]string {
-	envVars := os.Environ()
+// envVars = pairs formatted with a '=' between the key and value
+func mapEnv(envVars []string) map[string]string {
 	envs := make(map[string]string, len(envVars))
 	for _, envVar := range envVars {
 		key, value, ok := strings.Cut(envVar, "=")
