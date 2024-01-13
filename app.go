@@ -159,7 +159,7 @@ func buildCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
-			for _, cfgSrc := range app.cfgSrcs {
+			for i, cfgSrc := range app.cfgSrcs {
 				b, err := readAllAndTryClose(cfgSrc)
 				if err != nil {
 					return err
@@ -169,7 +169,9 @@ func buildCmd(app *App) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				app.cfgSrcs[i] = nil
 			}
+			app.cfgSrcs = nil
 
 			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
 			ctx = context.WithValue(ctx, lifecycleContextKey, &app.life)
