@@ -67,8 +67,24 @@ func ExampleRead_env() {
 	// Output: world
 }
 
-func ExampleRead_envWithDefault() {
-	r := strings.NewReader(`hello: {{env "HELLO" | default "world"}}`)
+func ExampleRead_emptyEnvWithDefault() {
+	r := strings.NewReader(`hello: {{env "HELLO" | default "bye"}}`)
+
+	m, err := Read(r, Language(YAML))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println(m.GetString("hello"))
+	// Output: bye
+}
+
+func ExampleRead_nonEmptyEnvWithDefault() {
+	os.Setenv("HELLO", "world")
+	defer os.Unsetenv("HELLO")
+
+	r := strings.NewReader(`hello: {{env "HELLO" | default "bye"}}`)
 
 	m, err := Read(r, Language(YAML))
 	if err != nil {
@@ -78,6 +94,60 @@ func ExampleRead_envWithDefault() {
 
 	fmt.Println(m.GetString("hello"))
 	// Output: world
+}
+
+func ExampleMerge() {
+	base := strings.NewReader(`hello: world`)
+	m, err := Read(base, Language(YAML))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	r := strings.NewReader(`good: bye`)
+	m, err = Merge(m, r, Language(YAML))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println(m.GetString("hello"))
+	fmt.Println(m.GetString("good"))
+	// Output: world
+	// bye
+}
+
+func ExampleMerge_withZeroValueBaseManager() {
+	r := strings.NewReader(`hello: world`)
+
+	var cfg Manager
+	m, err := Merge(cfg, r, Language(YAML))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println(m.GetString("hello"))
+	// Output: world
+}
+
+func ExampleMerge_overwrite() {
+	base := strings.NewReader(`hello: world`)
+	m, err := Read(base, Language(YAML))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	r := strings.NewReader(`hello: bye`)
+	m, err = Merge(m, r, Language(YAML))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println(m.GetString("hello"))
+	// Output: bye
 }
 
 func ExampleManager_Unmarshal() {
