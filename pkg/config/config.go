@@ -52,7 +52,7 @@ type reader struct {
 
 // Read
 func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
-	env := readEnv()
+	env := mapEnv(os.Environ())
 
 	rd := reader{
 		lang: YAML,
@@ -62,7 +62,21 @@ func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
 		opt(&rd)
 	}
 
-	return rd.read(r)
+	v := viper.New()
+	v.SetConfigType(string(rd.lang))
+	err := rd.read(v, r)
+	if err != nil {
+		return Manager{}, err
+	}
+	return Manager{Viper: v}, nil
+}
+
+// Merge allows you to merge another config into an already existing one.
+func Merge(m Manager, r io.Reader, opts ...ReadOption) (Manager, error) {
+	if m.Viper == nil {
+		return Read(r, opts...)
+	}
+	return m, m.MergeConfig(r)
 }
 
 // Unmarshal
@@ -142,19 +156,19 @@ func timeDurationHookFunc() mapstructure.DecodeHookFuncType {
 		switch f.Kind() {
 		case reflect.String:
 			return time.ParseDuration(data.(string))
-		case reflect.Int64:
-			return time.Duration(data.(int64)), nil
+		case reflect.Int:
+			return time.Duration(int64(data.(int))), nil
 		default:
 			return nil, errInvalidDecodeCondition
 		}
 	}
 }
 
-func (rd reader) read(r io.Reader) (Manager, error) {
+func (rd reader) read(v *viper.Viper, r io.Reader) error {
 	var sb strings.Builder
 	_, err := io.Copy(&sb, r)
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
 	s := sb.String()
 
@@ -172,26 +186,25 @@ func (rd reader) read(r io.Reader) (Manager, error) {
 
 	tmpl, err := template.New("config").Funcs(funcs).Parse(s)
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
 
 	var buf bytes.Buffer
 	err = tmpl.Execute(&buf, struct{}{})
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
 
-	v := viper.New()
 	v.SetConfigType(string(rd.lang))
 	err = v.ReadConfig(&buf)
 	if err != nil {
-		return Manager{}, err
+		return err
 	}
-	return Manager{Viper: v}, nil
+	return nil
 }
 
-func readEnv() map[string]string {
-	envVars := os.Environ()
+// envVars = pairs formatted with a '=' between the key and value
+func mapEnv(envVars []string) map[string]string {
 	envs := make(map[string]string, len(envVars))
 	for _, envVar := range envVars {
 		key, value, ok := strings.Cut(envVar, "=")
