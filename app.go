@@ -169,8 +169,12 @@ func buildCmd(app *App) *cobra.Command {
 				if err != nil {
 					return err
 				}
+
+				// tell the garbage collector that we no longer
+				// need that config source and it can be collected
 				app.cfgSrcs[i] = nil
 			}
+			// we no longer need this slice since all configs have been merged
 			app.cfgSrcs = nil
 
 			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
@@ -185,7 +189,13 @@ func buildCmd(app *App) *cobra.Command {
 					return errNilRuntime
 				}
 				rs[i] = r
+
+				// tell the garbage collector that we no longer
+				// need that runtime builder and it can be collected
+				app.rbs[i] = nil
 			}
+			// we no longer need this slice since all runtime have been built
+			app.rbs = nil
 
 			var me multiError
 			for _, f := range app.life.preRunHooks {
