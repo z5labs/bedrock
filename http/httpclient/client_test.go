@@ -218,10 +218,62 @@ func TestCircuitBreaker(t *testing.T) {
 
 func TestRetry(t *testing.T) {
 	t.Run("will retry the request", func(t *testing.T) {
+		t.Run("if the provided retry on function returns true", func(t *testing.T) {
+			var callCount int
+			base := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				callCount += 1
+				return new(http.Response), nil
+			})
+			c := New(
+				RoundTripper(base),
+				MaxRetries(1),
+				MinRetryAfter(100*time.Millisecond),
+				MaxRetryAfter(1*time.Second),
+				RetryOn(func(r *http.Response, err error) bool {
+					return true
+				}),
+			)
 
+			resp, err := c.Get("http://example.org")
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Zero(t, resp.StatusCode) {
+				return
+			}
+			if !assert.Equal(t, 2, callCount) {
+				return
+			}
+		})
 	})
 
 	t.Run("will not retry the request", func(t *testing.T) {
+		t.Run("if the provided retry on function returns false", func(t *testing.T) {
+			var callCount int
+			base := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				callCount += 1
+				return new(http.Response), nil
+			})
+			c := New(
+				RoundTripper(base),
+				MaxRetries(1),
+				MinRetryAfter(100*time.Millisecond),
+				MaxRetryAfter(1*time.Second),
+				RetryOn(func(r *http.Response, err error) bool {
+					return false
+				}),
+			)
 
+			resp, err := c.Get("http://example.org")
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Zero(t, resp.StatusCode) {
+				return
+			}
+			if !assert.Equal(t, 1, callCount) {
+				return
+			}
+		})
 	})
 }

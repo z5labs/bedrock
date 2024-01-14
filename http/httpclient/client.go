@@ -7,6 +7,7 @@
 package httpclient
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -43,7 +44,7 @@ func (f circuitOptionFunc) setOption(o *options) {
 	if o.co == nil {
 		o.co = &circuitOptions{}
 	}
-	f(o.co)
+	f.setCircuitOption(o.co)
 }
 
 // HalfOpenRequests
@@ -85,6 +86,7 @@ type retryOptions struct {
 	maxRetries int
 	waitMin    time.Duration
 	waitMax    time.Duration
+	retryers   []func(*http.Response, error) bool
 }
 
 // RetryOption are Options specifically for configuring request retry attempts.
@@ -108,7 +110,35 @@ func (f retryOptionFunc) setOption(o *options) {
 			waitMax:    1 * time.Second,
 		}
 	}
-	f(o.ro)
+	f.setRetryOption(o.ro)
+}
+
+// MaxRetries specifies the maximum number of retries attempted.
+func MaxRetries(n int) RetryOption {
+	return retryOptionFunc(func(ro *retryOptions) {
+		ro.maxRetries = n
+	})
+}
+
+// MinRetryAfter specifies the minimum time to wait before retrying a request.
+func MinRetryAfter(d time.Duration) RetryOption {
+	return retryOptionFunc(func(ro *retryOptions) {
+		ro.waitMin = d
+	})
+}
+
+// MaxRetryAfter specifies the maximum time to wait before retrying a request.
+func MaxRetryAfter(d time.Duration) RetryOption {
+	return retryOptionFunc(func(ro *retryOptions) {
+		ro.waitMax = d
+	})
+}
+
+// RetryOn specifies the conditions for whether a request should be retried or not.
+func RetryOn(fs ...func(*http.Response, error) bool) RetryOption {
+	return retryOptionFunc(func(ro *retryOptions) {
+		ro.retryers = fs
+	})
 }
 
 type options struct {
@@ -272,8 +302,15 @@ func withRetries(opts *options, state *initState) {
 		RetryWaitMin: ro.waitMin,
 		RetryWaitMax: ro.waitMax,
 		RetryMax:     ro.maxRetries,
-		CheckRetry:   retryablehttp.DefaultRetryPolicy,
-		Backoff:      retryablehttp.DefaultBackoff,
+		CheckRetry: func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+			for _, retryOn := range ro.retryers {
+				if retryOn(resp, err) {
+					return true, nil
+				}
+			}
+			return false, nil
+		},
+		Backoff:      retryablehttp.LinearJitterBackoff,
 		ErrorHandler: retryablehttp.PassthroughErrorHandler,
 	}
 	state.rt = &retryablehttp.RoundTripper{
