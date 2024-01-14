@@ -14,10 +14,11 @@ import (
 
 	"github.com/z5labs/bedrock/pkg/noop"
 	"github.com/z5labs/bedrock/pkg/slogfield"
-	"golang.org/x/oauth2"
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/sony/gobreaker"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"golang.org/x/oauth2"
 )
 
 type circuitOptions struct {
@@ -159,10 +160,10 @@ func (f oauthOptionFunc) setOAuthOption(oo *oauthOptions) {
 }
 
 func (f oauthOptionFunc) setOption(o *options) {
-	if o.oo == nil {
-		o.oo = &oauthOptions{}
+	if o.oauthOptions == nil {
+		o.oauthOptions = &oauthOptions{}
 	}
-	f.setOAuthOption(o.oo)
+	f.setOAuthOption(o.oauthOptions)
 }
 
 // OAuth enables automatically adding the Authorization HTTP header
@@ -173,6 +174,37 @@ func OAuth(ts oauth2.TokenSource) OAuthOption {
 	})
 }
 
+type otelOptions struct {
+	opts []otelhttp.Option
+}
+
+// OTelOption are Options specifically for configuring OpenTelemetry.
+type OTelOption interface {
+	Option
+
+	setOtelConfig(*otelOptions)
+}
+
+type otelOptionFunc func(*otelOptions)
+
+func (f otelOptionFunc) setOtelConfig(oo *otelOptions) {
+	f(oo)
+}
+
+func (f otelOptionFunc) setOption(o *options) {
+	if o.otelOptions == nil {
+		o.otelOptions = &otelOptions{}
+	}
+	f.setOtelConfig(o.otelOptions)
+}
+
+// OTel enables wrapping outbound requests with a span.
+func OTel(opts ...otelhttp.Option) OTelOption {
+	return otelOptionFunc(func(oo *otelOptions) {
+		oo.opts = opts
+	})
+}
+
 type options struct {
 	timeout time.Duration
 	rt      http.RoundTripper
@@ -180,9 +212,10 @@ type options struct {
 	name       string
 	logHandler slog.Handler
 
-	co *circuitOptions
-	ro *retryOptions
-	oo *oauthOptions
+	co           *circuitOptions
+	ro           *retryOptions
+	oauthOptions *oauthOptions
+	otelOptions  *otelOptions
 }
 
 // Option is used to configure a http.Client in a functional manner.
@@ -255,6 +288,7 @@ func New(opts ...Option) *http.Client {
 	// initializations. Please document any specific ordering within
 	// the slice itself.
 	initers := []func(*options, *initState){
+		withOTel,
 		withOAuth,
 		withLogging,
 		// always put retry after circuit breaker so
@@ -272,13 +306,21 @@ func New(opts ...Option) *http.Client {
 	}
 }
 
+func withOTel(opts *options, state *initState) {
+	if opts.otelOptions == nil {
+		return
+	}
+
+	state.rt = otelhttp.NewTransport(state.rt, opts.otelOptions.opts...)
+}
+
 func withOAuth(opts *options, state *initState) {
-	if opts.oo == nil {
+	if opts.oauthOptions == nil {
 		return
 	}
 
 	state.rt = &oauth2.Transport{
-		Source: opts.oo.tokSrc,
+		Source: opts.oauthOptions.tokSrc,
 		Base:   state.rt,
 	}
 }
