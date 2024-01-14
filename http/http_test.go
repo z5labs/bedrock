@@ -7,9 +7,15 @@ package http
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"testing"
@@ -86,6 +92,98 @@ func TestRuntime_Run(t *testing.T) {
 
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
+				return
+			}
+		})
+	})
+}
+
+func TestTLSConfig(t *testing.T) {
+	t.Run("will serve tls traffic", func(t *testing.T) {
+		t.Run("if a proper config is provided", func(t *testing.T) {
+			now := time.Now()
+			template := &x509.Certificate{
+				SerialNumber: big.NewInt(now.Unix()),
+				Subject: pkix.Name{
+					CommonName:         "quickserve.example.com",
+					Country:            []string{"USA"},
+					Organization:       []string{"example.com"},
+					OrganizationalUnit: []string{"quickserve"},
+				},
+				NotBefore:             now,
+				NotAfter:              now.AddDate(0, 0, 1), // Valid for one day
+				SubjectKeyId:          []byte{113, 117, 105, 99, 107, 115, 101, 114, 118, 101},
+				BasicConstraintsValid: true,
+				IsCA:                  true,
+				ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+				KeyUsage: x509.KeyUsageKeyEncipherment |
+					x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+			}
+
+			priv, err := rsa.GenerateKey(rand.Reader, 2048)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			cert, err := x509.CreateCertificate(rand.Reader, template, template,
+				priv.Public(), priv)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var outCert tls.Certificate
+			outCert.Certificate = append(outCert.Certificate, cert)
+			outCert.PrivateKey = priv
+
+			config := &tls.Config{}
+			config.NextProtos = []string{"http/1.1"}
+			config.Certificates = []tls.Certificate{outCert}
+
+			addrCh := make(chan net.Addr)
+			rt := NewRuntime(
+				TLSConfig(config),
+				HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+					fmt.Fprintf(w, "hello, world")
+				}),
+			)
+			rt.listen = func(s1, s2 string) (net.Listener, error) {
+				defer close(addrCh)
+				ls, err := net.Listen(s1, s2)
+				if err != nil {
+					return nil, err
+				}
+				addrCh <- ls.Addr()
+				return ls, nil
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			g, gctx := errgroup.WithContext(ctx)
+			g.Go(func() error {
+				return rt.Run(gctx)
+			})
+			g.Go(func() error {
+				defer cancel()
+				addr := <-addrCh
+				if addr == nil {
+					return nil
+				}
+
+				_, err := http.Get(fmt.Sprintf("https://%s/", addr))
+				return err
+			})
+
+			err = g.Wait()
+
+			var cvErr *tls.CertificateVerificationError
+			if !assert.ErrorAs(t, err, &cvErr) {
+				return
+			}
+			if !assert.Error(t, cvErr.Err) {
+				return
+			}
+			if !assert.Len(t, cvErr.UnverifiedCertificates, 1) {
 				return
 			}
 		})

@@ -1,7 +1,7 @@
 # bedrock
 [![Go Reference](https://pkg.go.dev/badge/github.com/z5labs/bedrock.svg)](https://pkg.go.dev/github.com/z5labs/bedrock)
 [![Go Report Card](https://goreportcard.com/badge/github.com/z5labs/bedrock)](https://goreportcard.com/report/github.com/z5labs/bedrock)
-![Coverage](https://img.shields.io/badge/Coverage-93.8%25-brightgreen)
+![Coverage](https://img.shields.io/badge/Coverage-95.7%25-brightgreen)
 [![build](https://github.com/z5labs/bedrock/actions/workflows/build.yaml/badge.svg)](https://github.com/z5labs/bedrock/actions/workflows/build.yaml)
 
 bedrock provides a minimal, modular and composable foundation for
