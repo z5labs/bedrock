@@ -12,12 +12,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sony/gobreaker"
 	"github.com/stretchr/testify/assert"
 	"github.com/z5labs/bedrock/pkg/noop"
+	"golang.org/x/oauth2"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -68,6 +70,42 @@ func TestTimeout(t *testing.T) {
 				return
 			}
 			if !assert.True(t, nerr.Timeout()) {
+				return
+			}
+		})
+	})
+}
+
+func TestOAuth(t *testing.T) {
+	t.Run("will add an authorization header", func(t *testing.T) {
+		t.Run("if the token source is provided", func(t *testing.T) {
+			authHeader := ""
+			base := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				authHeader = r.Header.Get("Authorization")
+				return new(http.Response), nil
+			})
+
+			accessToken := "token"
+			c := New(
+				RoundTripper(base),
+				OAuth(oauth2.StaticTokenSource(&oauth2.Token{
+					AccessToken: accessToken,
+				})),
+			)
+
+			_, err := c.Get("http://example.org")
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			ss := strings.Split(authHeader, " ")
+			if !assert.Len(t, ss, 2) {
+				return
+			}
+			if !assert.Equal(t, "Bearer", ss[0]) {
+				return
+			}
+			if !assert.Equal(t, accessToken, ss[1]) {
 				return
 			}
 		})
