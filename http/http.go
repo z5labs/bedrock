@@ -61,9 +61,7 @@ func Handle(pattern string, h http.Handler) RuntimeOption {
 
 // HandleFunc registers a http.HandlerFunc for the given path pattern.
 func HandleFunc(pattern string, f func(http.ResponseWriter, *http.Request)) RuntimeOption {
-	return func(ro *runtimeOptions) {
-		registerEndpoint(ro.mux, pattern, http.HandlerFunc(f))
-	}
+	return Handle(pattern, http.HandlerFunc(f))
 }
 
 // Readiness
