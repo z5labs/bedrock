@@ -16,9 +16,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/z5labs/bedrock/pkg/noop"
+
 	"github.com/sony/gobreaker"
 	"github.com/stretchr/testify/assert"
-	"github.com/z5labs/bedrock/pkg/noop"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"golang.org/x/oauth2"
 )
 
@@ -70,6 +76,65 @@ func TestTimeout(t *testing.T) {
 				return
 			}
 			if !assert.True(t, nerr.Timeout()) {
+				return
+			}
+		})
+	})
+}
+
+func TestOTel(t *testing.T) {
+	t.Run("will propogate context", func(t *testing.T) {
+		t.Run("if the propogator is configured", func(t *testing.T) {
+			traceparent := ""
+			base := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				traceparent = r.Header.Get("traceparent")
+				return new(http.Response), nil
+			})
+
+			tp := sdktrace.NewTracerProvider(
+				sdktrace.WithBatcher(tracetest.NewInMemoryExporter()),
+			)
+			otel.SetTracerProvider(tp)
+
+			c := New(
+				RoundTripper(base),
+				OTel(otelhttp.WithPropagators(propagation.TraceContext{})),
+			)
+
+			_, err := c.Get("http://example.org")
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.NotEmpty(t, traceparent) {
+				return
+			}
+		})
+
+		t.Run("if the global propogator is configured", func(t *testing.T) {
+			traceparent := ""
+			base := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				traceparent = r.Header.Get("traceparent")
+				return new(http.Response), nil
+			})
+
+			tp := sdktrace.NewTracerProvider(
+				sdktrace.WithBatcher(tracetest.NewInMemoryExporter()),
+			)
+			otel.SetTracerProvider(tp)
+
+			otel.SetTextMapPropagator(propagation.TraceContext{})
+			defer otel.SetTextMapPropagator(nil)
+
+			c := New(
+				RoundTripper(base),
+				OTel(),
+			)
+
+			_, err := c.Get("http://example.org")
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.NotEmpty(t, traceparent) {
 				return
 			}
 		})
