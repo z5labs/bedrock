@@ -14,6 +14,7 @@ import (
 
 	"github.com/z5labs/bedrock/pkg/noop"
 	"github.com/z5labs/bedrock/pkg/slogfield"
+	"golang.org/x/oauth2"
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/sony/gobreaker"
@@ -141,6 +142,37 @@ func RetryOn(fs ...func(*http.Response, error) bool) RetryOption {
 	})
 }
 
+type oauthOptions struct {
+	tokSrc oauth2.TokenSource
+}
+
+type OAuthOption interface {
+	Option
+
+	setOAuthOption(*oauthOptions)
+}
+
+type oauthOptionFunc func(*oauthOptions)
+
+func (f oauthOptionFunc) setOAuthOption(oo *oauthOptions) {
+	f(oo)
+}
+
+func (f oauthOptionFunc) setOption(o *options) {
+	if o.oo == nil {
+		o.oo = &oauthOptions{}
+	}
+	f.setOAuthOption(o.oo)
+}
+
+// OAuth enables automatically adding the Authorization HTTP header
+// with its value being an OAuth Bearer token.
+func OAuth(ts oauth2.TokenSource) OAuthOption {
+	return oauthOptionFunc(func(oo *oauthOptions) {
+		oo.tokSrc = ts
+	})
+}
+
 type options struct {
 	timeout time.Duration
 	rt      http.RoundTripper
@@ -150,6 +182,7 @@ type options struct {
 
 	co *circuitOptions
 	ro *retryOptions
+	oo *oauthOptions
 }
 
 // Option is used to configure a http.Client in a functional manner.
@@ -222,6 +255,7 @@ func New(opts ...Option) *http.Client {
 	// initializations. Please document any specific ordering within
 	// the slice itself.
 	initers := []func(*options, *initState){
+		withOAuth,
 		withLogging,
 		// always put retry after circuit breaker so
 		// retried requests go through the circuit breaker
@@ -235,6 +269,17 @@ func New(opts ...Option) *http.Client {
 	return &http.Client{
 		Timeout:   o.timeout,
 		Transport: state.rt,
+	}
+}
+
+func withOAuth(opts *options, state *initState) {
+	if opts.oo == nil {
+		return
+	}
+
+	state.rt = &oauth2.Transport{
+		Source: opts.oo.tokSrc,
+		Base:   state.rt,
 	}
 }
 
