@@ -7,7 +7,6 @@
 package httpclient
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -20,50 +19,65 @@ import (
 )
 
 type circuitOptions struct {
-	maxRequests  uint32
-	interval     time.Duration
-	timeout      time.Duration
-	tripCount    uint32
-	isSuccessful func(error) bool
-	statusCodes  []int
+	maxRequests uint32
+	interval    time.Duration
+	timeout     time.Duration
+	tripCount   uint32
+	trippers    []func(*http.Response, error) bool
 }
 
-func withCircuitOption(f func(*circuitOptions)) Option {
-	return func(o *options) {
-		if o.co == nil {
-			o.co = new(circuitOptions)
-		}
-		f(o.co)
+// CircuitOption are Options specifically for configuring the request circuit breaker.
+type CircuitOption interface {
+	Option
+
+	setCircuitOption(*circuitOptions)
+}
+
+type circuitOptionFunc func(*circuitOptions)
+
+func (f circuitOptionFunc) setCircuitOption(co *circuitOptions) {
+	f(co)
+}
+
+func (f circuitOptionFunc) setOption(o *options) {
+	if o.co == nil {
+		o.co = &circuitOptions{}
 	}
+	f(o.co)
 }
 
-func HalfOpenRequests(n uint32) Option {
-	return withCircuitOption(func(co *circuitOptions) {
+// HalfOpenRequests
+func HalfOpenRequests(n uint32) CircuitOption {
+	return circuitOptionFunc(func(co *circuitOptions) {
 		co.maxRequests = n
 	})
 }
 
-func OpenStateTimeout(d time.Duration) Option {
-	return withCircuitOption(func(co *circuitOptions) {
+// OpenStateTimeout
+func OpenStateTimeout(d time.Duration) CircuitOption {
+	return circuitOptionFunc(func(co *circuitOptions) {
 		co.timeout = d
 	})
 }
 
-func CountResetInterval(d time.Duration) Option {
-	return withCircuitOption(func(co *circuitOptions) {
+// CountResetInterval
+func CountResetInterval(d time.Duration) CircuitOption {
+	return circuitOptionFunc(func(co *circuitOptions) {
 		co.interval = d
 	})
 }
 
-func TripAfter(n uint32) Option {
-	return withCircuitOption(func(co *circuitOptions) {
+// TripAfter
+func TripAfter(n uint32) CircuitOption {
+	return circuitOptionFunc(func(co *circuitOptions) {
 		co.tripCount = n
 	})
 }
 
-func TripOn() Option {
-	return withCircuitOption(func(co *circuitOptions) {
-
+// TripOn
+func TripOn(trippers ...func(*http.Response, error) bool) CircuitOption {
+	return circuitOptionFunc(func(co *circuitOptions) {
+		co.trippers = trippers
 	})
 }
 
@@ -71,6 +85,30 @@ type retryOptions struct {
 	maxRetries int
 	waitMin    time.Duration
 	waitMax    time.Duration
+}
+
+// RetryOption are Options specifically for configuring request retry attempts.
+type RetryOption interface {
+	Option
+
+	setRetryOption(*retryOptions)
+}
+
+type retryOptionFunc func(*retryOptions)
+
+func (f retryOptionFunc) setRetryOption(ro *retryOptions) {
+	f(ro)
+}
+
+func (f retryOptionFunc) setOption(o *options) {
+	if o.ro == nil {
+		o.ro = &retryOptions{
+			maxRetries: 2,
+			waitMin:    200 * time.Millisecond,
+			waitMax:    1 * time.Second,
+		}
+	}
+	f(o.ro)
 }
 
 type options struct {
@@ -84,115 +122,152 @@ type options struct {
 	ro *retryOptions
 }
 
-type Option func(*options)
-
-func Name(s string) Option {
-	return func(o *options) {
-		o.name = s
-	}
+// Option is used to configure a http.Client in a functional manner.
+type Option interface {
+	setOption(*options)
 }
 
+type optionFunc func(*options)
+
+func (f optionFunc) setOption(o *options) {
+	f(o)
+}
+
+// Name allows for naming this clients circuit breaker and providing a field
+// in any logs where the key is "http_client" and the value being
+// the name provided to this option.
+func Name(s string) Option {
+	return optionFunc(func(o *options) {
+		o.name = s
+	})
+}
+
+// RoundTripper allows you to provide a custom base http.RoundTripper which
+// all other capabilities, such as, circuit breaking and retries will wrap around.
 func RoundTripper(rt http.RoundTripper) Option {
-	return func(wo *options) {
+	return optionFunc(func(wo *options) {
 		wo.rt = rt
-	}
+	})
 }
 
 // Timeout provides a global timeout value for the http.Client.
 func Timeout(d time.Duration) Option {
-	return func(wo *options) {
+	return optionFunc(func(wo *options) {
 		wo.timeout = d
-	}
+	})
 }
 
+// LogHandler enables the http.Client to provide logs around:
+//   - sending requests
+//   - receiving responses
+//   - circuit state changes
+//   - retry attempts
 func LogHandler(h slog.Handler) Option {
-	return func(wo *options) {
+	return optionFunc(func(wo *options) {
 		wo.logHandler = h
-	}
+	})
 }
 
+type initState struct {
+	rt     http.RoundTripper
+	logger *slog.Logger
+}
+
+// New helps you construct a production-ready http.Client using functional options.
 func New(opts ...Option) *http.Client {
 	o := &options{
-		rt:         http.DefaultTransport,
-		logHandler: noop.LogHandler{},
+		rt: http.DefaultTransport,
 	}
 	for _, opt := range opts {
-		opt(o)
+		opt.setOption(o)
 	}
 
-	logger := slog.New(o.logHandler)
-	if o.name != "" {
-		logger = logger.With(slogfield.String("http_client", o.name))
+	state := &initState{
+		rt:     o.rt,
+		logger: slog.New(noop.LogHandler{}),
 	}
 
-	var rt http.RoundTripper = &logRoundTripper{
-		base: o.rt,
-		log:  logger,
+	// This list will wrap the starting RoundTripper one after another.
+	// Thus, the order of this slice must be maintained for certain
+	// initializations. Please document any specific ordering within
+	// the slice itself.
+	initers := []func(*options, *initState){
+		withLogging,
+		// always put retry after circuit breaker so
+		// retried requests go through the circuit breaker
+		withCircuitBreaker,
+		withRetries,
+	}
+	for _, initer := range initers {
+		initer(o, state)
 	}
 
-	if o.co != nil {
-		co := o.co
-		if len(co.statusCodes) == 0 {
-			co.statusCodes = append(
-				co.statusCodes,
-				http.StatusBadRequest,          // 400
-				http.StatusUnauthorized,        // 401
-				http.StatusForbidden,           // 403
-				http.StatusInternalServerError, // 500
-			)
-		}
+	return &http.Client{
+		Timeout:   o.timeout,
+		Transport: state.rt,
+	}
+}
 
-		codes := map[int]struct{}{}
-		for _, code := range co.statusCodes {
-			codes[code] = struct{}{}
-		}
+func withLogging(opts *options, state *initState) {
+	if opts.logHandler == nil {
+		return
+	}
 
-		rt = &circuitRoundTripper{
-			base: rt,
-			cb: gobreaker.NewCircuitBreaker(gobreaker.Settings{
-				Name:        o.name,
-				MaxRequests: co.maxRequests,
-				Interval:    co.interval,
-				Timeout:     co.timeout,
-				ReadyToTrip: func(counts gobreaker.Counts) bool {
-					return counts.ConsecutiveFailures >= co.tripCount
-				},
-				OnStateChange: func(name string, from, to gobreaker.State) {
-					switch to {
-					case gobreaker.StateOpen:
-						logger.Error("circuit has been opened")
-					case gobreaker.StateHalfOpen:
-						logger.Warn(
-							"circuit is now half open and lettings some requests through",
-							slogfield.Uint32("max_requests_allowed_through", co.maxRequests),
-						)
-					case gobreaker.StateClosed:
-						logger.Info("circuit has been closed")
-					}
-				},
-				IsSuccessful: co.isSuccessful,
-			}),
-			onStatusCode: func(n int) error {
-				_, ok := codes[n]
-				if !ok {
-					return nil
-				}
-				return errors.New("status code error")
+	state.logger = slog.New(opts.logHandler)
+	if opts.name != "" {
+		state.logger = state.logger.With(slogfield.String("http_client", opts.name))
+	}
+
+	state.rt = &logRoundTripper{
+		base: state.rt,
+		log:  state.logger,
+	}
+}
+
+func withCircuitBreaker(opts *options, state *initState) {
+	if opts.co == nil {
+		return
+	}
+	co := opts.co
+
+	logger := state.logger
+	state.rt = &circuitRoundTripper{
+		base: state.rt,
+		cb: gobreaker.NewTwoStepCircuitBreaker(gobreaker.Settings{
+			Name:        opts.name,
+			MaxRequests: co.maxRequests,
+			Interval:    co.interval,
+			Timeout:     co.timeout,
+			ReadyToTrip: func(counts gobreaker.Counts) bool {
+				return counts.ConsecutiveFailures >= co.tripCount
 			},
-		}
+			OnStateChange: func(name string, from, to gobreaker.State) {
+				switch to {
+				case gobreaker.StateOpen:
+					logger.Error("circuit has been opened")
+				case gobreaker.StateHalfOpen:
+					logger.Warn(
+						"circuit is now half open and lettings some requests through",
+						slogfield.Uint32("max_requests_allowed_through", co.maxRequests),
+					)
+				case gobreaker.StateClosed:
+					logger.Info("circuit has been closed")
+				}
+			},
+		}),
+		trippers: co.trippers,
 	}
-	if o.ro == nil {
-		return &http.Client{
-			Timeout:   o.timeout,
-			Transport: rt,
-		}
+}
+
+func withRetries(opts *options, state *initState) {
+	if opts.ro == nil {
+		return
 	}
 
-	ro := o.ro
+	ro := opts.ro
 	rc := retryablehttp.Client{
 		HTTPClient: &http.Client{
-			Timeout:   o.timeout,
-			Transport: rt,
+			Transport: state.rt,
 		},
 		RetryWaitMin: ro.waitMin,
 		RetryWaitMax: ro.waitMax,
@@ -201,7 +276,9 @@ func New(opts ...Option) *http.Client {
 		Backoff:      retryablehttp.DefaultBackoff,
 		ErrorHandler: retryablehttp.PassthroughErrorHandler,
 	}
-	return rc.StandardClient()
+	state.rt = &retryablehttp.RoundTripper{
+		Client: &rc,
+	}
 }
 
 type logRoundTripper struct {
@@ -227,36 +304,27 @@ func (rt *logRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		slogfield.String("url", req.URL.String()),
 		slogfield.Duration("latency", time.Since(start)),
 	)
-	return resp, err
-}
-
-type statusCodeError struct {
-	code int
-}
-
-func (e statusCodeError) Error() string {
-	return "error"
+	return resp, nil
 }
 
 type circuitRoundTripper struct {
-	base         http.RoundTripper
-	cb           *gobreaker.CircuitBreaker
-	onStatusCode func(int) error
+	base     http.RoundTripper
+	cb       *gobreaker.TwoStepCircuitBreaker
+	trippers []func(*http.Response, error) bool
 }
 
 func (rt *circuitRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	v, err := rt.cb.Execute(func() (interface{}, error) {
-		resp, err := rt.base.RoundTrip(req)
-		if err != nil {
-			return nil, err
-		}
-		return resp, statusCodeError{code: resp.StatusCode}
-	})
-	if errors.Is(err, statusCodeError{}) {
-		return v.(*http.Response), nil
-	}
+	done, err := rt.cb.Allow()
 	if err != nil {
 		return nil, err
 	}
-	return v.(*http.Response), nil
+	resp, err := rt.base.RoundTrip(req)
+	for _, tripOn := range rt.trippers {
+		if tripOn(resp, err) {
+			done(false)
+			return resp, err
+		}
+	}
+	done(true)
+	return resp, err
 }
