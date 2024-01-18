@@ -6,6 +6,19 @@ before:
     - go mod tidy -v
 
 builds:
+  - id: echo
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v3
+    main: example/custom_framework/echo/main.go
+    binary: echo
+
   - id: http2
     env:
       - CGO_ENABLED=0
@@ -85,6 +98,25 @@ builds:
     binary: tls_http
 
 dockers:
+  - id: echo
+    goos: linux
+    goarch: amd64
+    goamd64: v3
+    ids:
+      - echo
+    image_templates:
+      - "ghcr.io/z5labs/bedrock/example/custom_framework/echo:latest"
+      - "ghcr.io/z5labs/bedrock/example/custom_framework/echo:{{ .Tag }}"
+    dockerfile: example/custom_framework/echo/Containerfile
+    use: docker
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64"
+
   - id: http2
     goos: linux
     goarch: amd64
