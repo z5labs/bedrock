@@ -1,0 +1,7 @@
+otel:
+  serviceName: {{env "SERVICE_NAME"}}
+  otlp:
+    target: {{env "OTLP_ADDR"}}
+
+logging:
+  level: {{env "LOG_LEVEL" | default "INFO"}}
