@@ -53,8 +53,8 @@ var (
 )
 
 // ConfigFromContext extracts a *config.Manager from the given context.Context if it's present.
-func ConfigFromContext(ctx context.Context) *config.Manager {
-	return ctx.Value(configContextKey).(*config.Manager)
+func ConfigFromContext(ctx context.Context) config.Manager {
+	return ctx.Value(configContextKey).(config.Manager)
 }
 
 // LifecycleFromContext extracts a *Lifecycle from the given context.Context if it's present.
