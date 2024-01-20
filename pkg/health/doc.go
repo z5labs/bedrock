@@ -3,5 +3,5 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package health
+// Package health defines K8s inspired health metrics.
 package health
