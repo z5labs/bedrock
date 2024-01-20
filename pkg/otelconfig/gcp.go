@@ -16,14 +16,14 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// GoogleCloudConfig
+// GoogleCloudConfig is the config for the Google Cloud Initializer.
 type GoogleCloudConfig struct {
 	Common
 
 	ProjectId string `config:"projectId"`
 }
 
-// GoogleCloudOption
+// GoogleCloudOption are options for the Google Cloud Initializer.
 type GoogleCloudOption interface {
 	ApplyGCP(*GoogleCloudConfig)
 }
@@ -34,14 +34,14 @@ func (f gcpOptionFunc) ApplyGCP(cfg *GoogleCloudConfig) {
 	f(cfg)
 }
 
-// GoogleCloudProjectId
+// GoogleCloudProjectId configures the Google Cloud Project ID.
 func GoogleCloudProjectId(id string) GoogleCloudOption {
 	return gcpOptionFunc(func(gcc *GoogleCloudConfig) {
 		gcc.ProjectId = id
 	})
 }
 
-// GoogleCloud
+// GoogleCloud returns an Initializer for exporting traces directly to Cloud Trace.
 func GoogleCloud(opts ...GoogleCloudOption) Initializer {
 	gc := GoogleCloudConfig{}
 	for _, opt := range opts {

@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// OTLPConfig
+// OTLPConfig is the config for the OTLP Initializer.
 type OTLPConfig struct {
 	Common
 
@@ -29,7 +29,7 @@ type OTLPConfig struct {
 	TransportCredentials credentials.TransportCredentials
 }
 
-// OTLPOption
+// OTLPOption are options for the OTLP Initializer.
 type OTLPOption interface {
 	ApplyOTLP(*OTLPConfig)
 }
@@ -40,21 +40,21 @@ func (f otlpOptionFunc) ApplyOTLP(cfg *OTLPConfig) {
 	f(cfg)
 }
 
-// OTLPTarget
+// OTLPTarget configures the gRPC target where traces will be sent to via OTLP.
 func OTLPTarget(target string) OTLPOption {
 	return otlpOptionFunc(func(o *OTLPConfig) {
 		o.Target = target
 	})
 }
 
-// OTLPTransportCreds
+// OTLPTransportCreds configures the gRPC transport credentials for the OTLP target.
 func OTLPTransportCreds(tc credentials.TransportCredentials) OTLPOption {
 	return otlpOptionFunc(func(o *OTLPConfig) {
 		o.TransportCredentials = tc
 	})
 }
 
-// OTLP
+// OTLP returns an Initializer for exporting traces via OTLP.
 func OTLP(opts ...OTLPOption) Initializer {
 	c := OTLPConfig{
 		TransportCredentials: insecure.NewCredentials(),
