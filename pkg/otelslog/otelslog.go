@@ -20,7 +20,7 @@ type Handler struct {
 	slog slog.Handler
 }
 
-// NewHandler
+// NewHandler returns a new Handler.
 func NewHandler(h slog.Handler) *Handler {
 	return &Handler{slog: h}
 }
