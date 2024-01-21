@@ -117,7 +117,7 @@ func NewConsumer(opts ...ConsumerOption) *Consumer {
 // A ReceiveMessage request is sent to AWS SQS with the
 // configured options (e.g. visibility timeout, wait time seconds, etc.).
 // An error is only returned in the case where the SQS request
-// fails or SQS returns zero messages. In the case of the zero messages,
+// fails or SQS returns zero messages. In the case of zero messages,
 // the error, queue.ErrNoItem, is returned which allows the queue based
 // runtimes to disregard this as a failure and retry consuming messages.
 func (c *Consumer) Consume(ctx context.Context) ([]types.Message, error) {
