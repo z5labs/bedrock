@@ -3,5 +3,5 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package sqsslog
+// Package sqsslog provides slog helpers for SQS related data fields.
 package sqsslog
