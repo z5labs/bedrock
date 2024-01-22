@@ -17,6 +17,7 @@ type Validator interface {
 // ValidatorFunc implements Validator for funcs.
 type ValidatorFunc func(http.ResponseWriter, *http.Request) bool
 
+// Validate implements the Validator interface.
 func (f ValidatorFunc) Validate(w http.ResponseWriter, r *http.Request) bool {
 	return f(w, r)
 }
@@ -60,7 +61,8 @@ func ForMethods(methods ...string) Validator {
 	})
 }
 
-// MinimumParams
+// MinimumParams validates that the incoming HTTP request
+// has, at minimum, the query parameters given by the argument, names.
 func MinimumParams(names ...string) Validator {
 	minNumOfParams := len(names)
 	return ValidatorFunc(func(w http.ResponseWriter, r *http.Request) bool {
@@ -79,7 +81,8 @@ func MinimumParams(names ...string) Validator {
 	})
 }
 
-// ExactParams
+// ExactParams validates that the incoming HTTP request
+// has the exact query parameters given by the argument, names.
 func ExactParams(names ...string) Validator {
 	exactNumOfParams := len(names)
 	return ValidatorFunc(func(w http.ResponseWriter, r *http.Request) bool {
@@ -98,7 +101,9 @@ func ExactParams(names ...string) Validator {
 	})
 }
 
-// MinProto
+// MinProto validates that the incoming HTTP request
+// protocol version is greater than or equal to the given
+// major, minor version.
 func MinProto(major, minor int) Validator {
 	return ValidatorFunc(func(w http.ResponseWriter, r *http.Request) bool {
 		if r.ProtoAtLeast(major, minor) {

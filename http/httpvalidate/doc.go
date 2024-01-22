@@ -3,5 +3,5 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package httpvalidate
+// Package httpvalidate provides helpers for validating incoming HTTP requests.
 package httpvalidate
