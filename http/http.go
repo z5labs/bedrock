@@ -32,7 +32,7 @@ type runtimeOptions struct {
 	http2Only  bool
 }
 
-// RuntimeOption
+// RuntimeOption are options for configuring the HTTP runtime.
 type RuntimeOption func(*runtimeOptions)
 
 // ListenOnPort will configure the HTTP server to listen on the given port.
@@ -44,7 +44,7 @@ func ListenOnPort(port uint) RuntimeOption {
 	}
 }
 
-// LogHandler
+// LogHandler configures the underlying slog.Handler.
 func LogHandler(h slog.Handler) RuntimeOption {
 	return func(ro *runtimeOptions) {
 		ro.logHandler = h
@@ -63,35 +63,36 @@ func HandleFunc(pattern string, f func(http.ResponseWriter, *http.Request)) Runt
 	return Handle(pattern, http.HandlerFunc(f))
 }
 
-// Readiness
+// Readiness configures the health readiness metric for the HTTP service.
 func Readiness(r *health.Readiness) RuntimeOption {
 	return func(ro *runtimeOptions) {
 		ro.readiness = r
 	}
 }
 
-// Liveness
+// Liveness configures the health liveness metric for the HTTP service.
 func Liveness(l *health.Liveness) RuntimeOption {
 	return func(ro *runtimeOptions) {
 		ro.liveness = l
 	}
 }
 
-// TLSConfig
+// TLSConfig configues the HTTP server to serve HTTPS via
+// the given TLS config.
 func TLSConfig(cfg *tls.Config) RuntimeOption {
 	return func(ro *runtimeOptions) {
 		ro.tlsConfig = cfg
 	}
 }
 
-// Http2Only
+// Http2Only configures the HTTP server to only accept HTTP/2 connections.
 func Http2Only() RuntimeOption {
 	return func(ro *runtimeOptions) {
 		ro.http2Only = true
 	}
 }
 
-// Runtime
+// Runtime is a bedrock.Runtime for running a HTTP service.
 type Runtime struct {
 	port   uint
 	listen func(string, string) (net.Listener, error)
@@ -107,7 +108,7 @@ type Runtime struct {
 	readiness *health.Readiness
 }
 
-// NewRuntime
+// NewRuntime returns a fully initialized HTTP runtime.
 func NewRuntime(opts ...RuntimeOption) *Runtime {
 	ros := &runtimeOptions{
 		port:       8080,
