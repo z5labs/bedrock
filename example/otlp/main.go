@@ -110,7 +110,7 @@ func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
 		return nil
 	})
 
-	rt := queue.Pipe[int](
+	rt := queue.Concurrent[int](
 		c,
 		p,
 		queue.LogHandler(logHandler),
