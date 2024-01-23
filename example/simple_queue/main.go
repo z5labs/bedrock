@@ -53,9 +53,7 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 }
 
 func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
-	initer := otelconfig.Local(
-		otelconfig.ServiceName("simple_queue"),
-	)
+	initer := otelconfig.Local()
 	return initer, nil
 }
 

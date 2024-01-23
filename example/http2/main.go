@@ -84,9 +84,7 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 }
 
 func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
-	initer := otelconfig.Local(
-		otelconfig.ServiceName("http2"),
-	)
+	initer := otelconfig.Local()
 	return initer, nil
 }
 

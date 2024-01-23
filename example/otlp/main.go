@@ -121,7 +121,6 @@ func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
 func otlpOtel(ctx context.Context) (otelconfig.Initializer, error) {
 	initer := otelconfig.OTLP(
 		otelconfig.OTLPTarget("otlp-opentelemetry-collector:4317"),
-		otelconfig.ServiceName("otlp"),
 	)
 	return initer, nil
 }

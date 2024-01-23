@@ -15,6 +15,9 @@ import (
 	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 	"github.com/z5labs/bedrock/pkg/otelslog"
+
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 )
 
 //go:embed base_config.yaml
@@ -65,13 +68,23 @@ func Rest(cfg io.Reader, f func(context.Context) (http.Handler, error)) error {
 						return nil, err
 					}
 
+					res, err := resource.New(
+						context.Background(),
+						resource.WithAttributes(
+							semconv.ServiceName(cfg.OTel.ServiceName),
+						),
+					)
+					if err != nil {
+						return nil, err
+					}
+
 					if cfg.OTel.OTLP.Target == "" {
 						return otelconfig.Local(
-							otelconfig.ServiceName(cfg.OTel.ServiceName),
+							otelconfig.Resource(res),
 						), nil
 					}
 					return otelconfig.OTLP(
-						otelconfig.ServiceName(cfg.OTel.ServiceName),
+						otelconfig.Resource(res),
 						otelconfig.OTLPTarget(cfg.OTel.OTLP.Target),
 					), nil
 				}),
