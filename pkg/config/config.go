@@ -77,7 +77,22 @@ func Merge(m Manager, r io.Reader, opts ...ReadOption) (Manager, error) {
 		return Read(r, opts...)
 	}
 
-	return m, m.MergeConfig(r)
+	env := mapEnv(os.Environ())
+	rd := reader{
+		lang: YAML,
+		env:  env,
+	}
+	for _, opt := range opts {
+		opt(&rd)
+	}
+
+	var buf bytes.Buffer
+	err := rd.renderTemplate(&buf, r)
+	if err != nil {
+		return m, err
+	}
+
+	return m, m.MergeConfig(&buf)
 }
 
 // Unmarshal unmarshals the config into the value pointed to by v.
