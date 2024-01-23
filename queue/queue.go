@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package queue provides multiple patterns which implements the app.Runtime interface.
 package queue
 
 import (
@@ -19,15 +18,19 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// ErrNoItem
+// ErrNoItem should be returned by Consumers
+// when no item has been consumed.
 var ErrNoItem = errors.New("queue: no item")
 
-// Consumer
+// Consumer consumes items from a queue.
+//
+// If no item is consumed, then the Consumer
+// should return ErrNoItem.
 type Consumer[T any] interface {
 	Consume(context.Context) (T, error)
 }
 
-// Processor
+// Processor processes items that are retrieved from a queue.
 type Processor[T any] interface {
 	Process(context.Context, T) error
 }
@@ -36,19 +39,24 @@ type sequentialOptions struct {
 	commonOptions
 }
 
-// SequentialOption
+// SequentialOption are options for configuring the SequentialRuntime.
 type SequentialOption interface {
 	applySequential(*sequentialOptions)
 }
 
-// SequentialRuntime
+// SequentialRuntime is a bedrock.Runtime for sequentially processing items from a queue.
 type SequentialRuntime[T any] struct {
 	log *slog.Logger
 	c   Consumer[T]
 	p   Processor[T]
 }
 
-// Sequential
+// Sequential returns a fully initialized SequentialRuntime.
+//
+// Sequential will first consume an item from the Consumer, c. Then,
+// process that item with the given Processor, p. After, processing
+// the item, this sequence repeats. Thus, no new item will be consumed
+// from the queue until the current item has been processed.
 func Sequential[T any](c Consumer[T], p Processor[T], opts ...SequentialOption) *SequentialRuntime[T] {
 	so := &sequentialOptions{
 		commonOptions: commonOptions{
@@ -103,26 +111,27 @@ func (rt *SequentialRuntime[T]) Run(ctx context.Context) error {
 	}
 }
 
-type pipeOptions struct {
+type concurrentOptions struct {
 	commonOptions
 
 	maxConcurrentProcessors int
 }
 
-// PipeOption
-type PipeOption interface {
-	applyPipe(*pipeOptions)
+// ConcurrentOption are options for configuring the ConcurrentRuntime.
+type ConcurrentOption interface {
+	applyPipe(*concurrentOptions)
 }
 
-type pipeOptionFunc func(*pipeOptions)
+type concurrentOptionFunc func(*concurrentOptions)
 
-func (f pipeOptionFunc) applyPipe(po *pipeOptions) {
+func (f concurrentOptionFunc) applyPipe(po *concurrentOptions) {
 	f(po)
 }
 
-// MaxConcurrentProcessors
-func MaxConcurrentProcessors(n uint) PipeOption {
-	return pipeOptionFunc(func(po *pipeOptions) {
+// MaxConcurrentProcessors configures a limit for the number
+// of processor goroutines actively running.
+func MaxConcurrentProcessors(n uint) ConcurrentOption {
+	return concurrentOptionFunc(func(po *concurrentOptions) {
 		if n == 0 {
 			return
 		}
@@ -130,8 +139,8 @@ func MaxConcurrentProcessors(n uint) PipeOption {
 	})
 }
 
-// PipeRuntime
-type PipeRuntime[T any] struct {
+// ConcurrentRuntime is a bedrock.Runtime for concurrently processing items from a queue.
+type ConcurrentRuntime[T any] struct {
 	log *slog.Logger
 	c   Consumer[T]
 	p   Processor[T]
@@ -140,9 +149,15 @@ type PipeRuntime[T any] struct {
 	maxConcurrentProcessors int
 }
 
-// Pipe
-func Pipe[T any](c Consumer[T], p Processor[T], opts ...PipeOption) *PipeRuntime[T] {
-	po := &pipeOptions{
+// Concurrent returns a fully initialized ConcurrentRuntime.
+//
+// Concurrent will consume and process items as concurrent processes.
+// For every item returned by the Consumer, c, the Processor, p, is
+// called in a separate goroutine to process the item. Due to the concurrent
+// execution of the Consumer and Processor, new items will be consumed
+// before the current item has been completely processed.
+func Concurrent[T any](c Consumer[T], p Processor[T], opts ...ConcurrentOption) *ConcurrentRuntime[T] {
+	po := &concurrentOptions{
 		commonOptions: commonOptions{
 			logHandler: noop.LogHandler{},
 		},
@@ -152,7 +167,7 @@ func Pipe[T any](c Consumer[T], p Processor[T], opts ...PipeOption) *PipeRuntime
 		opt.applyPipe(po)
 	}
 
-	return &PipeRuntime[T]{
+	return &ConcurrentRuntime[T]{
 		log:                     slog.New(po.logHandler),
 		c:                       c,
 		p:                       p,
@@ -162,7 +177,7 @@ func Pipe[T any](c Consumer[T], p Processor[T], opts ...PipeOption) *PipeRuntime
 }
 
 // Run implements the app.Runtime interface
-func (rt *PipeRuntime[T]) Run(ctx context.Context) error {
+func (rt *ConcurrentRuntime[T]) Run(ctx context.Context) error {
 	itemCh := make(chan *item[T])
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -179,13 +194,13 @@ type item[T any] struct {
 	carrier propagation.TextMapCarrier
 }
 
-func (rt *PipeRuntime[T]) consumeItems(ctx context.Context, itemCh chan<- *item[T]) func() error {
+func (rt *ConcurrentRuntime[T]) consumeItems(ctx context.Context, itemCh chan<- *item[T]) func() error {
 	return func() error {
 		defer close(itemCh)
 
 		tracer := otel.Tracer("queue")
 		for {
-			spanCtx, span := tracer.Start(ctx, "PipeRuntime.consumeItems")
+			spanCtx, span := tracer.Start(ctx, "ConcurrentRuntime.consumeItems")
 
 			select {
 			case <-spanCtx.Done():
@@ -219,7 +234,7 @@ func (rt *PipeRuntime[T]) consumeItems(ctx context.Context, itemCh chan<- *item[
 	}
 }
 
-func (rt *PipeRuntime[T]) processItems(ctx context.Context, itemCh <-chan *item[T]) func() error {
+func (rt *ConcurrentRuntime[T]) processItems(ctx context.Context, itemCh <-chan *item[T]) func() error {
 	return func() error {
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(rt.maxConcurrentProcessors)
@@ -242,7 +257,7 @@ func (rt *PipeRuntime[T]) processItems(ctx context.Context, itemCh <-chan *item[
 	}
 }
 
-func (rt *PipeRuntime[T]) processItem(ctx context.Context, i *item[T]) func() error {
+func (rt *ConcurrentRuntime[T]) processItem(ctx context.Context, i *item[T]) func() error {
 	return func() error {
 		spanCtx, span := otel.Tracer("queue").Start(ctx, "processItem")
 		defer span.End()

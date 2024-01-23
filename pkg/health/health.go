@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package health
 package health
 
 import (
@@ -12,12 +11,13 @@ import (
 	"sync"
 )
 
-// Metric
+// Metric represents anything that can report its health status.
 type Metric interface {
 	Healthy(context.Context) bool
 }
 
-// Started
+// Started is used for signifying that the application
+// requires a longer amount of time to initialize.
 type Started struct {
 	mu      sync.RWMutex
 	started bool
@@ -37,7 +37,7 @@ func (s *Started) Healthy(ctx context.Context) bool {
 	return s.started
 }
 
-// ServeHTTP
+// ServeHTTP implements the http.Handler interface.
 func (s *Started) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	started := s.Healthy(req.Context())
 	if started {
@@ -47,7 +47,8 @@ func (s *Started) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusServiceUnavailable)
 }
 
-// Readiness
+// Readiness is used for signifying that the application is
+// temporarily unable to serve traffic.
 type Readiness struct {
 	mu    sync.RWMutex
 	ready bool
@@ -74,7 +75,7 @@ func (r *Readiness) Healthy(ctx context.Context) bool {
 	return r.ready
 }
 
-// ServeHTTP
+// ServeHTTP implements the http.Handler interface.
 func (r *Readiness) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	ready := r.Healthy(req.Context())
 	if ready {
@@ -84,7 +85,8 @@ func (r *Readiness) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusServiceUnavailable)
 }
 
-// Liveness
+// Liveness is used for signifying that the application has transitioned
+// to a broken state, and cannot recover execpt by being restarted.
 type Liveness struct {
 	mu    sync.RWMutex
 	alive bool
@@ -111,7 +113,7 @@ func (l *Liveness) Healthy(ctx context.Context) bool {
 	return l.alive
 }
 
-// ServeHTTP
+// ServeHTTP implements the http.Handler interface.
 func (l *Liveness) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	alive := l.Healthy(req.Context())
 	if alive {

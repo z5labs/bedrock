@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package sqs provides default implementations for using AWS SQS with the runtimes in the queue package.
 package sqs
 
 import (
@@ -32,6 +31,7 @@ type consumerOptions struct {
 	waitTimeSeconds   int32
 }
 
+// ConsumerOption are options for configuring the Consumer.
 type ConsumerOption interface {
 	applyConsumer(*consumerOptions)
 }
@@ -42,21 +42,35 @@ func (f consumerOptionFunc) applyConsumer(co *consumerOptions) {
 	f(co)
 }
 
-// MaxNumOfMessages
+// MaxNumOfMessages defines the maximum number of messages which
+// Amazon SQS will return in a single response.
+//
+// Amazon SQS never returns more messages than this value (however,
+// fewer messages might be returned). The minimum is 1. The maximum is 10.
 func MaxNumOfMessages(n int32) ConsumerOption {
 	return consumerOptionFunc(func(co *consumerOptions) {
 		co.maxNumOfMessages = n
 	})
 }
 
-// VisibilityTimeout
+// VisibilityTimeout a period of time during which Amazon SQS prevents
+// all consumers from receiving and processing the message.
+//
+// The default visibility timeout for a message is 30 seconds.
+// The minimum is 0 seconds. The maximum is 12 hours.
 func VisibilityTimeout(n int32) ConsumerOption {
 	return consumerOptionFunc(func(co *consumerOptions) {
 		co.visibilityTimeout = n
 	})
 }
 
-// WaitTimeSeconds
+// WaitTimeSeconds is the duration (in seconds) for which the call
+// waits for a message to arrive in the queue before returning. If
+// a message is available, the call returns sooner than WaitTimeSeconds.
+// If no messages are available and the wait time expires, the call
+// returns successfully with an empty list of messages. To avoid HTTP
+// errors, ensure that the HTTP response timeout for ReceiveMessage requests is
+// longer than the WaitTimeSeconds parameter.
 func WaitTimeSeconds(n int32) ConsumerOption {
 	return consumerOptionFunc(func(co *consumerOptions) {
 		co.waitTimeSeconds = n
@@ -67,7 +81,7 @@ type sqsReceiveClient interface {
 	ReceiveMessage(context.Context, *sqs.ReceiveMessageInput, ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error)
 }
 
-// Consumer
+// Consumer consumes messages from AWS SQS.
 type Consumer struct {
 	log *slog.Logger
 	sqs sqsReceiveClient
@@ -78,7 +92,7 @@ type Consumer struct {
 	waitTimeSeconds   int32
 }
 
-// NewConsumer
+// NewConsumer returns a fully initialized Consumer.
 func NewConsumer(opts ...ConsumerOption) *Consumer {
 	co := &consumerOptions{
 		commonOptions: commonOptions{
@@ -98,7 +112,14 @@ func NewConsumer(opts ...ConsumerOption) *Consumer {
 	}
 }
 
-// Consume
+// Consume implements the queue.Consumer interface.
+//
+// A ReceiveMessage request is sent to AWS SQS with the
+// configured options (e.g. visibility timeout, wait time seconds, etc.).
+// An error is only returned in the case where the SQS request
+// fails or SQS returns zero messages. In the case of zero messages,
+// the error, queue.ErrNoItem, is returned which allows the queue based
+// runtimes to disregard this as a failure and retry consuming messages.
 func (c *Consumer) Consume(ctx context.Context) ([]types.Message, error) {
 	spanCtx, span := otel.Tracer("sqs").Start(ctx, "Consumer.Consume")
 	defer span.End()
@@ -127,7 +148,7 @@ type batchDeleteProcessorOptions struct {
 	inner queue.Processor[types.Message]
 }
 
-// BatchDeleteProcessorOption
+// BatchDeleteProcessorOption are options for configuring the BatchDeleteProcessor.
 type BatchDeleteProcessorOption interface {
 	applyProcessor(*batchDeleteProcessorOptions)
 }
@@ -138,7 +159,9 @@ func (f batchDeleteProcessorOptionFunc) applyProcessor(bo *batchDeleteProcessorO
 	f(bo)
 }
 
-// Processor
+// Processor configures the underlying single message queue.Processor
+// which the BatchDeleteProcessor calls when concurrently processing a
+// batch of messages.
 func Processor(p queue.Processor[types.Message]) BatchDeleteProcessorOption {
 	return batchDeleteProcessorOptionFunc(func(bo *batchDeleteProcessorOptions) {
 		bo.inner = p
@@ -149,7 +172,7 @@ type sqsBatchDeleteClient interface {
 	DeleteMessageBatch(context.Context, *sqs.DeleteMessageBatchInput, ...func(*sqs.Options)) (*sqs.DeleteMessageBatchOutput, error)
 }
 
-// BatchDeleteProcessor
+// BatchDeleteProcessor will concurrently process and delete messages from AWS SQS.
 type BatchDeleteProcessor struct {
 	log *slog.Logger
 	sqs sqsBatchDeleteClient
@@ -158,7 +181,7 @@ type BatchDeleteProcessor struct {
 	inner    queue.Processor[types.Message]
 }
 
-// NewBatchDeleteProcessor
+// NewBatchDeleteProcessor returns a fully initially BatchDeleteProcessor.
 func NewBatchDeleteProcessor(opts ...BatchDeleteProcessorOption) *BatchDeleteProcessor {
 	bo := &batchDeleteProcessorOptions{
 		commonOptions: commonOptions{
@@ -176,7 +199,15 @@ func NewBatchDeleteProcessor(opts ...BatchDeleteProcessorOption) *BatchDeletePro
 	}
 }
 
-// Process
+// Process implements the queue.Processor interface.
+//
+// Each message is processed concurrently using the processor
+// that was provided to the BatchDeleteProcessor when it was
+// created. If the inner processor returns an error for a message,
+// it will not be deleted from SQS and will be reprocessed after
+// the VisibilityTimeout expires. If no error is returned, the
+// message will be collected with the other messages from the slice,
+// msgs, to be deleted together in a single BatchDelete request to SQS.
 func (p *BatchDeleteProcessor) Process(ctx context.Context, msgs []types.Message) error {
 	spanCtx, span := otel.Tracer("sqs").Start(ctx, "BatchDeleteProcessor.Process", trace.WithAttributes(
 		attribute.Int("num_of_messages", len(msgs)),
@@ -218,7 +249,7 @@ func (p *BatchDeleteProcessor) Process(ctx context.Context, msgs []types.Message
 		return nil
 	})
 
-	// Always delete try to delete messages even if
+	// Always try delete to delete messages even if
 	// context has been cancelled.
 	_ = g2.Wait()
 	if len(deleteEntries) == 0 {

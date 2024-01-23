@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package httpclient provides a production ready http.Client.
 package httpclient
 
 import (
@@ -49,35 +48,45 @@ func (f circuitOptionFunc) setOption(o *options) {
 	f.setCircuitOption(o.co)
 }
 
-// HalfOpenRequests
+// HalfOpenRequests is the maximum number of requests allowed to pass
+// through when the CircuitBreaker is half-open. If HalfOpenRequests is 0,
+// the CircuitBreaker allows only 1 request.
 func HalfOpenRequests(n uint32) CircuitOption {
 	return circuitOptionFunc(func(co *circuitOptions) {
 		co.maxRequests = n
 	})
 }
 
-// OpenStateTimeout
+// OpenStateTimeout is the period of the open state, after which the
+// state of the CircuitBreaker becomes half-open. The default timeout
+// is 60 seconds.
 func OpenStateTimeout(d time.Duration) CircuitOption {
 	return circuitOptionFunc(func(co *circuitOptions) {
 		co.timeout = d
 	})
 }
 
-// CountResetInterval
+// CountResetInterval is the cyclic period of the closed state for the
+// CircuitBreaker to clear the internal Counts. If CountResetInterval is less than
+// or equal to 0, the CircuitBreaker doesn't clear internal Counts during
+// the closed state.
 func CountResetInterval(d time.Duration) CircuitOption {
 	return circuitOptionFunc(func(co *circuitOptions) {
 		co.interval = d
 	})
 }
 
-// TripAfter
+// TripAfter will cause the circuit to become open if the number
+// of consecutive failuires is greater than or equal to n.
 func TripAfter(n uint32) CircuitOption {
 	return circuitOptionFunc(func(co *circuitOptions) {
 		co.tripCount = n
 	})
 }
 
-// TripOn
+// TripOn registers functions for determining is the circuit should
+// be opened based on the http.Response and error returned by the
+// underlying http.RoundTripper.
 func TripOn(trippers ...func(*http.Response, error) bool) CircuitOption {
 	return circuitOptionFunc(func(co *circuitOptions) {
 		co.trippers = trippers
@@ -147,6 +156,7 @@ type oauthOptions struct {
 	tokSrc oauth2.TokenSource
 }
 
+// OAuthOption are Options specifically for configuring OAuth.
 type OAuthOption interface {
 	Option
 

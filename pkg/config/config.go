@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package config provides an useful wrapper for the popular spf13/viper package.
 package config
 
 import (
@@ -21,15 +20,16 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Manager
+// Manager stores config values and provides helpers for
+// bridging the raw config values into Go types.
 type Manager struct {
 	*viper.Viper
 }
 
-// ReadOption
+// ReadOption configures different properties of the reader.
 type ReadOption func(*reader)
 
-// LanguageType
+// LanguageType configures the expected language the source is encoded in.
 type LanguageType string
 
 const (
@@ -50,7 +50,7 @@ type reader struct {
 	env  map[string]string
 }
 
-// Read
+// Read parses the data from r and stores the config values in the returned Manager.
 func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
 	env := mapEnv(os.Environ())
 
@@ -79,7 +79,7 @@ func Merge(m Manager, r io.Reader, opts ...ReadOption) (Manager, error) {
 	return m, m.MergeConfig(r)
 }
 
-// Unmarshal
+// Unmarshal unmarshals the config into the value pointed to by v.
 func (m Manager) Unmarshal(v interface{}) error {
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		TagName: "config",

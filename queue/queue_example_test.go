@@ -61,7 +61,7 @@ func ExampleSequential() {
 	// 5
 }
 
-func ExamplePipe() {
+func ExampleConcurrent() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -88,7 +88,7 @@ func ExamplePipe() {
 		return nil
 	})
 
-	rt := Pipe[int](c, p, LogHandler(slog.Default().Handler()))
+	rt := Concurrent[int](c, p, LogHandler(slog.Default().Handler()))
 
 	err := rt.Run(ctx)
 	if err != nil {
@@ -103,7 +103,7 @@ func ExamplePipe() {
 	//Output: true
 }
 
-func ExamplePipe_maxConcurrentProcessors() {
+func ExampleConcurrent_maxConcurrentProcessors() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -130,7 +130,7 @@ func ExamplePipe_maxConcurrentProcessors() {
 		return nil
 	})
 
-	rt := Pipe[int](
+	rt := Concurrent[int](
 		c,
 		p,
 		LogHandler(slog.Default().Handler()),

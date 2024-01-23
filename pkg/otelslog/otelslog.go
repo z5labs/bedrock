@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package otelslog provides a OpenTelemetry aware slog.Handler implementation.
 package otelslog
 
 import (
@@ -21,7 +20,7 @@ type Handler struct {
 	slog slog.Handler
 }
 
-// NewHandler
+// NewHandler returns a new Handler.
 func NewHandler(h slog.Handler) *Handler {
 	return &Handler{slog: h}
 }

@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package bedrock provides a minimal foundation for building more complex frameworks on top of.
 package bedrock
 
 import (
@@ -22,7 +21,11 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Runtime
+// Runtime represents the entry point for user specific code.
+// The Runtime should not worry about things like OS interrupts
+// and config parsing because App is responsible for managing those
+// more "low-level" things. A Runtime should be purely focused on
+// running use case specific code e.g. RESTful API, gRPC API, K8s Job, etc.
 type Runtime interface {
 	Run(context.Context) error
 }
@@ -52,7 +55,7 @@ var (
 	lifecycleContextKey = contextKey("lifecycleContextKey")
 )
 
-// ConfigFromContext extracts a *config.Manager from the given context.Context if it's present.
+// ConfigFromContext extracts a config.Manager from the given context.Context if it's present.
 func ConfigFromContext(ctx context.Context) config.Manager {
 	return ctx.Value(configContextKey).(config.Manager)
 }
@@ -62,12 +65,13 @@ func LifecycleFromContext(ctx context.Context) *Lifecycle {
 	return ctx.Value(lifecycleContextKey).(*Lifecycle)
 }
 
-// RuntimeBuilder
+// RuntimeBuilder represents anything which can initialize a Runtime.
 type RuntimeBuilder interface {
 	Build(context.Context) (Runtime, error)
 }
 
-// RuntimeBuilderFunc
+// RuntimeBuilderFunc is a functional implementation of
+// the RuntimeBuilder interface.
 type RuntimeBuilderFunc func(context.Context) (Runtime, error)
 
 // Build implements the RuntimeBuilder interface.
@@ -75,38 +79,41 @@ func (f RuntimeBuilderFunc) Build(ctx context.Context) (Runtime, error) {
 	return f(ctx)
 }
 
-// Option
+// Option are used to configure an App.
 type Option func(*App)
 
-// Name
+// Name configures the name of the application.
 func Name(name string) Option {
 	return func(a *App) {
 		a.name = name
 	}
 }
 
-// WithRuntimeBuilder
+// WithRuntimeBuilder registers the given RuntimeBuilder with the App.
 func WithRuntimeBuilder(rb RuntimeBuilder) Option {
 	return func(a *App) {
 		a.rbs = append(a.rbs, rb)
 	}
 }
 
-// WithRuntimeBuilderFunc
+// WithRuntimeBuilderFunc registers the given function as a RuntimeBuilder.
 func WithRuntimeBuilderFunc(f func(context.Context) (Runtime, error)) Option {
 	return func(a *App) {
 		a.rbs = append(a.rbs, RuntimeBuilderFunc(f))
 	}
 }
 
-// Config
+// Config registers a config source with the application.
+// If used multiple times, subsequent configs will be merged
+// with the very first Config provided. The subsequent configs
+// values will override any previous configs values.
 func Config(r io.Reader) Option {
 	return func(a *App) {
 		a.cfgSrcs = append(a.cfgSrcs, r)
 	}
 }
 
-// Hooks
+// Hooks allows you to register multiple lifecycle hooks.
 func Hooks(fs ...func(*Lifecycle)) Option {
 	return func(a *App) {
 		for _, f := range fs {
@@ -115,7 +122,12 @@ func Hooks(fs ...func(*Lifecycle)) Option {
 	}
 }
 
-// App
+// App handles the lower level things of running a service in Go.
+// App is responsible for the following:
+//   - Parsing (and merging) you config(s)
+//   - Calling your lifecycle hooks at the appropriate times
+//   - Running your Runtime(s) and propogating any OS interrupts
+//     via context.Context cancellation
 type App struct {
 	name    string
 	cfgSrcs []io.Reader
@@ -123,7 +135,7 @@ type App struct {
 	life    Lifecycle
 }
 
-// New
+// New returns a fully initialized App.
 func New(opts ...Option) *App {
 	var name string
 	if len(os.Args) > 0 {
@@ -138,7 +150,9 @@ func New(opts ...Option) *App {
 	return app
 }
 
-// Run
+// Run executes the application. It also handles listening
+// for interrupts from the underlying OS and terminates
+// the application when one is received.
 func (app *App) Run(args ...string) error {
 	cmd := buildCmd(app)
 	cmd.SetArgs(args)

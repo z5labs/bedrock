@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package grpc provides a gRPC server which implements the app.Runtime interface.
 package grpc
 
 import (
@@ -38,7 +37,7 @@ type runtimeOptions struct {
 	services   []service
 }
 
-// RuntimeOption
+// RuntimeOption are options for configuring the gRPC runtime.
 type RuntimeOption func(*runtimeOptions)
 
 // ListenOnPort will configure the HTTP server to listen on the given port.
@@ -50,14 +49,14 @@ func ListenOnPort(port uint) RuntimeOption {
 	}
 }
 
-// LogHandler
+// LogHandler configures the underlying slog.Handler.
 func LogHandler(h slog.Handler) RuntimeOption {
 	return func(ro *runtimeOptions) {
 		ro.logHandler = h
 	}
 }
 
-// TransportCredentials
+// TransportCredentials configures the gRPC transport credentials which the gRPC server uses.
 func TransportCredentials(tc credentials.TransportCredentials) RuntimeOption {
 	return func(ro *runtimeOptions) {
 		ro.tc = tc
@@ -69,17 +68,17 @@ type serviceOptions struct {
 	readiness *health.Readiness
 }
 
-// ServiceOption
+// ServiceOption are options for configuring the gRPC health service.
 type ServiceOption func(*serviceOptions)
 
-// ServiceName
+// ServiceName configures the service name which will be reported by the gRPC health service.
 func ServiceName(name string) ServiceOption {
 	return func(so *serviceOptions) {
 		so.name = name
 	}
 }
 
-// Readiness
+// Readiness configures the health readiness metric for the gRPC service.
 func Readiness(readiness *health.Readiness) ServiceOption {
 	return func(so *serviceOptions) {
 		so.readiness = readiness
@@ -112,7 +111,7 @@ type grpcServer interface {
 	GracefulStop()
 }
 
-// Runtime
+// Runtime is a bedrock.Runtime for running a gRPC service.
 type Runtime struct {
 	port   uint
 	listen func(string, string) (net.Listener, error)
@@ -125,7 +124,7 @@ type Runtime struct {
 	health *grpchealth.Server
 }
 
-// NewRuntime
+// NewRuntime returns a fully initialized gRPC Runtime.
 func NewRuntime(opts ...RuntimeOption) *Runtime {
 	ro := &runtimeOptions{
 		port:       8090,

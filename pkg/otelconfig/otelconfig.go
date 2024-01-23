@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package otelconfig provides helpers for initializing specific trace.TracerProviders.
 package otelconfig
 
 import (
@@ -19,12 +18,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Common
+// Common is the config for configuring any Initializer.
 type Common struct {
 	ServiceName string `config:"serviceName"`
 }
 
-// CommonOption
+// CommonOption are options which can be used to configure any Initializer.
 type CommonOption interface {
 	GoogleCloudOption
 	LocalOption
@@ -45,19 +44,20 @@ func (f commonOptionFunc) ApplyLocal(cfg *LocalConfig) {
 	f(&cfg.Common)
 }
 
-// ServiceName
+// ServiceName configures the resource service name.
 func ServiceName(name string) CommonOption {
 	return commonOptionFunc(func(c *Common) {
 		c.ServiceName = name
 	})
 }
 
-// Initializer
+// Initializer represents anything that can initialize a OTel TracerProvider.
 type Initializer interface {
 	Init() (trace.TracerProvider, error)
 }
 
-// Noop
+// Noop is a no-op Initializer which can, for example, be used as
+// a default during local development.
 var Noop = noopConfiger{}
 
 type noopConfiger struct{}
@@ -66,19 +66,19 @@ func (noopConfiger) Init() (trace.TracerProvider, error) {
 	return otel.GetTracerProvider(), nil
 }
 
-// LocalConfig
+// LocalConfig is the config for the Local Initializer.
 type LocalConfig struct {
 	Common
 
 	Out io.Writer
 }
 
-// LocalOption
+// LocalOption are options for the Local Initializer.
 type LocalOption interface {
 	ApplyLocal(*LocalConfig)
 }
 
-// Local
+// Local returns an Initializer for exporting traces to STDOUT.
 func Local(opts ...LocalOption) Initializer {
 	cfg := LocalConfig{
 		Out: os.Stdout,

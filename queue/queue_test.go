@@ -117,7 +117,7 @@ func TestSequentialRuntime_Run(t *testing.T) {
 	})
 }
 
-func TestPipeRuntime_Run(t *testing.T) {
+func TestConcurrentRuntime_Run(t *testing.T) {
 	t.Run("will stop", func(t *testing.T) {
 		t.Run("if the context is cancelled before consuming", func(t *testing.T) {
 			c := consumerFunc[int](func(ctx context.Context) (int, error) {
@@ -127,7 +127,7 @@ func TestPipeRuntime_Run(t *testing.T) {
 				return nil
 			})
 
-			rt := Pipe[int](c, p)
+			rt := Concurrent[int](c, p)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			cancel()
@@ -149,7 +149,7 @@ func TestPipeRuntime_Run(t *testing.T) {
 				return nil
 			})
 
-			rt := Pipe[int](c, p)
+			rt := Concurrent[int](c, p)
 
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
@@ -178,7 +178,7 @@ func TestPipeRuntime_Run(t *testing.T) {
 				return nil
 			})
 
-			rt := Pipe[int](c, p)
+			rt := Concurrent[int](c, p)
 
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
@@ -209,7 +209,7 @@ func TestPipeRuntime_Run(t *testing.T) {
 				return nil
 			})
 
-			rt := Pipe[int](c, p)
+			rt := Concurrent[int](c, p)
 
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
@@ -240,7 +240,7 @@ func TestPipeRuntime_Run(t *testing.T) {
 				return nil
 			})
 
-			rt := Pipe[int](c, p)
+			rt := Concurrent[int](c, p)
 
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
@@ -268,7 +268,7 @@ func TestPipeRuntime_Run(t *testing.T) {
 				return errors.New("failed to process")
 			})
 
-			rt := Pipe[int](c, p)
+			rt := Concurrent[int](c, p)
 
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
@@ -297,7 +297,7 @@ func TestPipeRuntime_Run(t *testing.T) {
 				return nil
 			})
 
-			rt := Pipe[int](c, p)
+			rt := Concurrent[int](c, p)
 
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {
@@ -326,7 +326,7 @@ func TestPipeRuntime_Run(t *testing.T) {
 				return nil
 			})
 
-			rt := Pipe[int](c, p)
+			rt := Concurrent[int](c, p)
 
 			err := rt.Run(ctx)
 			if !assert.Nil(t, err) {

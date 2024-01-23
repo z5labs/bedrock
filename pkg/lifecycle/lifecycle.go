@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package lifecycle provides helpers for registering common lifecycle hooks.
 package lifecycle
 
 import (
@@ -15,7 +14,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// ManageOTel
+// ManageOTel is a hook for intializing OTel on PreRun and shutting it down on PostRun.
 func ManageOTel(f func(context.Context) (otelconfig.Initializer, error)) func(*bedrock.Lifecycle) {
 	return func(life *bedrock.Lifecycle) {
 		life.PreRun(func(ctx context.Context) error {

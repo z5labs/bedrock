@@ -10,9 +10,17 @@ import (
 	"log/slog"
 )
 
+// LogHandler is a no-op implementation of the slog.Handler interface.
 type LogHandler struct{}
 
-func (LogHandler) Enabled(_ context.Context, _ slog.Level) bool  { return true }
+// Enabled implements the slog.Handler interface.
+func (LogHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+
+// Handle implements the slog.Handler interface.
 func (LogHandler) Handle(_ context.Context, _ slog.Record) error { return nil }
-func (h LogHandler) WithAttrs(_ []slog.Attr) slog.Handler        { return h }
-func (h LogHandler) WithGroup(name string) slog.Handler          { return h }
+
+// WithAttrs implements the slog.Handler interface.
+func (h LogHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+
+// WithGroup implements the slog.Handler interface.
+func (h LogHandler) WithGroup(name string) slog.Handler { return h }

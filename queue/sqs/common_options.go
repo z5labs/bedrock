@@ -22,7 +22,8 @@ type commonOptions struct {
 	queueUrl   string
 }
 
-// CommonOption
+// CommonOption are options common to all AWS SQS related
+// consumers and processors.
 type CommonOption interface {
 	ConsumerOption
 	BatchDeleteProcessorOption
@@ -38,21 +39,21 @@ func (f commonOptionFunc) applyProcessor(co *batchDeleteProcessorOptions) {
 	f(&co.commonOptions)
 }
 
-// LogHandler
+// LogHandler configures the underlying slog.Handler.
 func LogHandler(h slog.Handler) CommonOption {
 	return commonOptionFunc(func(co *commonOptions) {
 		co.logHandler = h
 	})
 }
 
-// Client
+// Client configures the underlying SQS client.
 func Client(c *sqs.Client) CommonOption {
 	return commonOptionFunc(func(co *commonOptions) {
 		co.sqs = c
 	})
 }
 
-// QueueUrl
+// QueueUrl configures the SQS queue url.
 func QueueUrl(url string) CommonOption {
 	return commonOptionFunc(func(co *commonOptions) {
 		co.queueUrl = url
