@@ -76,7 +76,23 @@ func Merge(m Manager, r io.Reader, opts ...ReadOption) (Manager, error) {
 	if m.Viper == nil {
 		return Read(r, opts...)
 	}
-	return m, m.MergeConfig(r)
+
+	env := mapEnv(os.Environ())
+	rd := reader{
+		lang: YAML,
+		env:  env,
+	}
+	for _, opt := range opts {
+		opt(&rd)
+	}
+
+	var buf bytes.Buffer
+	err := rd.renderTemplate(&buf, r)
+	if err != nil {
+		return m, err
+	}
+
+	return m, m.MergeConfig(&buf)
 }
 
 // Unmarshal unmarshals the config into the value pointed to by v.
@@ -164,9 +180,9 @@ func timeDurationHookFunc() mapstructure.DecodeHookFuncType {
 	}
 }
 
-func (rd reader) read(v *viper.Viper, r io.Reader) error {
+func (rd reader) renderTemplate(dst io.Writer, src io.Reader) error {
 	var sb strings.Builder
-	_, err := io.Copy(&sb, r)
+	_, err := io.Copy(&sb, src)
 	if err != nil {
 		return err
 	}
@@ -189,8 +205,12 @@ func (rd reader) read(v *viper.Viper, r io.Reader) error {
 		return err
 	}
 
+	return tmpl.Execute(dst, struct{}{})
+}
+
+func (rd reader) read(v *viper.Viper, r io.Reader) error {
 	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, struct{}{})
+	err := rd.renderTemplate(&buf, r)
 	if err != nil {
 		return err
 	}
