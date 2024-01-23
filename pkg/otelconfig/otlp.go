@@ -7,6 +7,7 @@ package otelconfig
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -27,6 +28,10 @@ type OTLPConfig struct {
 	Target string `config:"target"`
 
 	TransportCredentials credentials.TransportCredentials
+
+	DialOpts []grpc.DialOption
+
+	Compressor string `config:"compressor"`
 }
 
 // OTLPOption are options for the OTLP Initializer.
@@ -54,6 +59,25 @@ func OTLPTransportCreds(tc credentials.TransportCredentials) OTLPOption {
 	})
 }
 
+var supportedCompressors = []string{
+	"gzip",
+}
+
+// OTLPCompressor sets the compressor for the gRPC client to use when sending
+// requests. Supported compressor values are: "gzip".
+func OTLPCompressor(compressor string) OTLPOption {
+	return otlpOptionFunc(func(o *OTLPConfig) {
+		o.Compressor = compressor
+	})
+}
+
+// OTLPDialOptons sets explicit grpc.DialOptions to use when making a connection.
+func OTLPDialOptions(opts ...grpc.DialOption) OTLPOption {
+	return otlpOptionFunc(func(o *OTLPConfig) {
+		o.DialOpts = append(o.DialOpts, opts...)
+	})
+}
+
 // OTLP returns an Initializer for exporting traces via OTLP.
 func OTLP(opts ...OTLPOption) Initializer {
 	c := OTLPConfig{
@@ -78,21 +102,26 @@ func (cfg OTLPConfig) Init() (trace.TracerProvider, error) {
 		return nil, err
 	}
 
+	opts := []otlptracegrpc.Option{
+		otlptracegrpc.WithEndpoint(cfg.Target),
+	}
+	if slices.Contains(supportedCompressors, cfg.Compressor) {
+		opts = append(opts, otlptracegrpc.WithCompressor(cfg.Compressor))
+	}
+	if cfg.TransportCredentials == nil {
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	} else {
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(cfg.TransportCredentials))
+	}
+	if len(cfg.DialOpts) > 0 {
+		opts = append(opts, otlptracegrpc.WithDialOption(cfg.DialOpts...))
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	conn, err := grpc.DialContext(
-		ctx,
-		cfg.Target,
-		grpc.WithTransportCredentials(cfg.TransportCredentials),
-		grpc.WithBlock(),
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	// Set up a trace exporter
-	traceExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
+	traceExporter, err := otlptracegrpc.New(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
