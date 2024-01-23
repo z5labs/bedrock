@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      # Give the default GITHUB_TOKEN write permission to commit and push the
+      # added or changed files to the repository.
+      contents: write
+    steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
+        - uses: actions/setup-go@v5
+          with:
+            go-version: '1.21'
+
+        - name: Lint Go Code
+          uses: golangci/golangci-lint-action@v3
+          with:
+            version: latest
+            skip-cache: false
+            skip-pkg-cache: false
+            skip-build-cache: false
+            args: --timeout 3m --verbose --print-issued-lines=true --skip-dirs example --skip-files ".*_test.go"
+
+        - name: Build
+          run: go build ./...
+
+        - name: Test
+          run: go test -race -cover ./...
+
+        - name: Login to GitHub Container Registry
+          uses: docker/login-action@v3
+          with:
+            registry: ghcr.io
+            username: ${{ github.actor }}
+            password: ${{ secrets.GITHUB_TOKEN }}
+
+        - name: Build example container images
+          uses: goreleaser/goreleaser-action@v5
+          with:
+            distribution: goreleaser
+            version: latest
+            args: release --clean
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
