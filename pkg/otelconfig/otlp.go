@@ -13,7 +13,6 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -91,17 +90,6 @@ func OTLP(opts ...OTLPOption) Initializer {
 
 // Init implements Initializer interface.
 func (cfg OTLPConfig) Init() (trace.TracerProvider, error) {
-	res, err := resource.New(
-		context.Background(),
-		resource.WithTelemetrySDK(),
-		resource.WithAttributes(
-			semconv.ServiceName(cfg.Common.ServiceName),
-		),
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(cfg.Target),
 	}
@@ -124,6 +112,17 @@ func (cfg OTLPConfig) Init() (trace.TracerProvider, error) {
 	traceExporter, err := otlptracegrpc.New(ctx, opts...)
 	if err != nil {
 		return nil, err
+	}
+
+	res := cfg.Resource
+	if res == nil {
+		res, err = resource.New(
+			context.Background(),
+			resource.WithTelemetrySDK(),
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Register the trace exporter with a TracerProvider, using a batch
