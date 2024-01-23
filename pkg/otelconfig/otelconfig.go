@@ -14,13 +14,12 @@ import (
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // Common is the config for configuring any Initializer.
 type Common struct {
-	ServiceName string `config:"serviceName"`
+	Resource *resource.Resource
 }
 
 // CommonOption are options which can be used to configure any Initializer.
@@ -44,10 +43,10 @@ func (f commonOptionFunc) ApplyLocal(cfg *LocalConfig) {
 	f(&cfg.Common)
 }
 
-// ServiceName configures the resource service name.
-func ServiceName(name string) CommonOption {
+// Resource configures the resource to be attached to each trace.
+func Resource(r *resource.Resource) CommonOption {
 	return commonOptionFunc(func(c *Common) {
-		c.ServiceName = name
+		c.Resource = r
 	})
 }
 
@@ -98,15 +97,15 @@ func (cfg LocalConfig) Init() (trace.TracerProvider, error) {
 		return nil, err
 	}
 
-	res, err := resource.New(
-		context.Background(),
-		resource.WithTelemetrySDK(),
-		resource.WithAttributes(
-			semconv.ServiceName(cfg.Common.ServiceName),
-		),
-	)
-	if err != nil {
-		return nil, err
+	res := cfg.Resource
+	if res == nil {
+		res, err = resource.New(
+			context.Background(),
+			resource.WithTelemetrySDK(),
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	tp := sdktrace.NewTracerProvider(

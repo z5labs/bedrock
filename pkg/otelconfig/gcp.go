@@ -12,7 +12,6 @@ import (
 	"go.opentelemetry.io/contrib/detectors/gcp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -57,16 +56,16 @@ func (cfg GoogleCloudConfig) Init() (trace.TracerProvider, error) {
 		return nil, err
 	}
 
-	res, err := resource.New(
-		context.Background(),
-		resource.WithDetectors(gcp.NewDetector()),
-		resource.WithTelemetrySDK(),
-		resource.WithAttributes(
-			semconv.ServiceName(cfg.Common.ServiceName),
-		),
-	)
-	if err != nil {
-		return nil, err
+	res := cfg.Resource
+	if res == nil {
+		res, err = resource.New(
+			context.Background(),
+			resource.WithDetectors(gcp.NewDetector()),
+			resource.WithTelemetrySDK(),
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Create trace provider with the exporter.
