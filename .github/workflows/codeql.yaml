@@ -18,12 +18,19 @@ jobs:
       contents: read
       security-events: write
 
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'go' ]
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
 
     # Custom Go version because of: https://github.com/github/codeql/issues/13992#issuecomment-1711721716
     - uses: actions/setup-go@v5
