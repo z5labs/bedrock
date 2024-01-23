@@ -5,6 +5,17 @@ before:
     # You may remove this if you don't use go modules.
     - go mod tidy -v
 
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Maintenance
+      regexp: '^chore.*'
+      order: 100
+    - title: Stories
+      regexp: '^story.*'
+      order: 200
+
 builds:
   - id: echo
     env:
