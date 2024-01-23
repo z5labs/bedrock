@@ -129,6 +129,25 @@ func TestMerge(t *testing.T) {
 				return
 			}
 		})
+
+		t.Run("if the new reader contains the same key and its value is templated", func(t *testing.T) {
+			t.Setenv("TEST_HELLO", "bye")
+
+			base := strings.NewReader(`hello: world`)
+			m, err := Read(base, Language(YAML))
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			r := strings.NewReader(`hello: {{env "TEST_HELLO"}}`)
+			m, err = Merge(m, r)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "bye", m.GetString("hello")) {
+				return
+			}
+		})
 	})
 
 	t.Run("will not overwrite base value", func(t *testing.T) {
