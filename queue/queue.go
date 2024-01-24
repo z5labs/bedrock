@@ -171,7 +171,7 @@ func Concurrent[T any](c Consumer[T], p Processor[T], opts ...ConcurrentOption) 
 		log:                     slog.New(po.logHandler),
 		c:                       c,
 		p:                       p,
-		propagator:              propagation.Baggage{},
+		propagator:              propagation.TraceContext{},
 		maxConcurrentProcessors: po.maxConcurrentProcessors,
 	}
 }
