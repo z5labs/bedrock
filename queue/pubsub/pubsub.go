@@ -10,7 +10,6 @@ import (
 	"log/slog"
 
 	"github.com/z5labs/bedrock/pkg/noop"
-	"github.com/z5labs/bedrock/pkg/otelslog"
 	"github.com/z5labs/bedrock/pkg/slogfield"
 	"github.com/z5labs/bedrock/queue"
 	"golang.org/x/sync/errgroup"
@@ -74,7 +73,7 @@ func NewConsumer(opts ...ConsumerOption) *Consumer {
 		opt.applyConsumer(co)
 	}
 	return &Consumer{
-		log:              otelslog.New(co.logHandler),
+		log:              slog.New(co.logHandler),
 		pubsub:           co.pubsub,
 		subscription:     co.subscription,
 		maxNumOfMessages: co.maxNumOfMessages,
@@ -158,7 +157,7 @@ func NewBatchAcknowledgeProcessor(opts ...BatchAcknowledgeProcessorOption) *Batc
 		opt.applyProcessor(bo)
 	}
 	return &BatchAcknowledgeProcessor{
-		log:          otelslog.New(bo.logHandler),
+		log:          slog.New(bo.logHandler),
 		pubsub:       bo.pubsub,
 		subscription: bo.subscription,
 		inner:        bo.inner,

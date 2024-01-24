@@ -10,7 +10,6 @@ import (
 	"log/slog"
 
 	"github.com/z5labs/bedrock/pkg/noop"
-	"github.com/z5labs/bedrock/pkg/otelslog"
 	"github.com/z5labs/bedrock/pkg/slogfield"
 	"github.com/z5labs/bedrock/queue"
 	"github.com/z5labs/bedrock/queue/sqs/sqsslog"
@@ -103,7 +102,7 @@ func NewConsumer(opts ...ConsumerOption) *Consumer {
 		opt.applyConsumer(co)
 	}
 	return &Consumer{
-		log:               otelslog.New(co.logHandler),
+		log:               slog.New(co.logHandler),
 		sqs:               co.sqs,
 		queueUrl:          co.queueUrl,
 		maxNumOfMessages:  co.maxNumOfMessages,
@@ -192,7 +191,7 @@ func NewBatchDeleteProcessor(opts ...BatchDeleteProcessorOption) *BatchDeletePro
 		opt.applyProcessor(bo)
 	}
 	return &BatchDeleteProcessor{
-		log:      otelslog.New(bo.logHandler),
+		log:      slog.New(bo.logHandler),
 		sqs:      bo.sqs,
 		queueUrl: bo.queueUrl,
 		inner:    bo.inner,
