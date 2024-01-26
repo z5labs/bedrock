@@ -223,6 +223,7 @@ func (p *BatchDeleteProcessor) Process(ctx context.Context, msgs []types.Message
 				p.log.ErrorContext(gctx, "failed to process message", slogfield.Error(err))
 				return nil
 			}
+			p.log.InfoContext(gctx, "processed message", sqsslog.MessageId(deref(msg.MessageId)))
 			msgCh <- &msg
 			return nil
 		})
@@ -280,6 +281,14 @@ func (p *BatchDeleteProcessor) Process(ctx context.Context, msgs []types.Message
 			)
 		}
 	}
+	if len(resp.Successful) == 0 {
+		return nil
+	}
+	msgIds := make([]string, len(resp.Successful))
+	for i, e := range resp.Successful {
+		msgIds[i] = deref(e.Id)
+	}
+	p.log.InfoContext(spanCtx, "deleted messages", sqsslog.MessageIds(msgIds))
 	return nil
 }
 
