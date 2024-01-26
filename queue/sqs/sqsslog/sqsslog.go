@@ -5,11 +5,20 @@
 
 package sqsslog
 
-import "log/slog"
+import (
+	"log/slog"
+
+	"github.com/z5labs/bedrock/pkg/slogfield"
+)
 
 // MessageId returns a slog.Attr for the SQS message id.
 func MessageId(s string) slog.Attr {
 	return slog.String("sqs_message_id", s)
+}
+
+// MessageIds returns a slog.Attr for multiple SQS message ids.
+func MessageIds(ss []string) slog.Attr {
+	return slogfield.Strings("sqs_message_ids", ss)
 }
 
 // ReceiptHandle returns a slog.Attr for the SQS message receipt handle
