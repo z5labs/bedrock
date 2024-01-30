@@ -3,7 +3,7 @@ module github.com/z5labs/bedrock
 go 1.21
 
 require (
-	cloud.google.com/go/pubsub v1.35.0
+	cloud.google.com/go/pubsub v1.36.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.21.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.29.7
 	github.com/googleapis/gax-go/v2 v2.12.0
