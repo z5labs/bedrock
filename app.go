@@ -33,11 +33,19 @@ type Runtime interface {
 // Lifecycle provides the ability to hook into certain points of
 // the bedrock App.Run process.
 type Lifecycle struct {
-	preRunHooks  []func(context.Context) error
-	postRunHooks []func(context.Context) error
+	preBuildHooks []func(context.Context) error
+	preRunHooks   []func(context.Context) error
+	postRunHooks  []func(context.Context) error
 }
 
-// PreRun registers hooks to be called after the config is parsed and before Runtime.Run is called.
+// PreBuild registers hooks to be called after the config is parsed
+// and before all RuntimeBuilder.Builds are called.
+func (l *Lifecycle) PreBuild(hooks ...func(context.Context) error) {
+	l.preBuildHooks = append(l.preBuildHooks, hooks...)
+}
+
+// PreRun registers hooks to be called after all RuntimeBuilder.Builds
+// have been called and before all Runtime.Runs are called.
 func (l *Lifecycle) PreRun(hooks ...func(context.Context) error) {
 	l.preRunHooks = append(l.preRunHooks, hooks...)
 }
@@ -194,6 +202,11 @@ func buildCmd(app *App) *cobra.Command {
 			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
 			ctx = context.WithValue(ctx, lifecycleContextKey, &app.life)
 
+			err = runHooks(ctx, app.life.preBuildHooks...)
+			if err != nil {
+				return err
+			}
+
 			for i, rb := range app.rbs {
 				r, err := rb.Build(ctx)
 				if err != nil {
@@ -211,17 +224,7 @@ func buildCmd(app *App) *cobra.Command {
 			// we no longer need this slice since all runtime have been built
 			app.rbs = nil
 
-			var me multiError
-			for _, f := range app.life.preRunHooks {
-				err := f(ctx)
-				if err != nil {
-					me.errors = append(me.errors, err)
-				}
-			}
-			if len(me.errors) == 0 {
-				return nil
-			}
-			return me
+			return runHooks(ctx, app.life.preRunHooks...)
 		},
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
@@ -247,20 +250,23 @@ func buildCmd(app *App) *cobra.Command {
 			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
 			ctx = context.WithValue(ctx, lifecycleContextKey, &app.life)
 
-			var me multiError
-			for _, f := range app.life.postRunHooks {
-				err := f(ctx)
-				if err != nil {
-					me.errors = append(me.errors, err)
-				}
-			}
-
-			if len(me.errors) == 0 {
-				return nil
-			}
-			return me
+			return runHooks(ctx, app.life.postRunHooks...)
 		},
 	}
+}
+
+func runHooks(ctx context.Context, hooks ...func(context.Context) error) error {
+	var me multiError
+	for _, f := range hooks {
+		err := f(ctx)
+		if err != nil {
+			me.errors = append(me.errors, err)
+		}
+	}
+	if len(me.errors) == 0 {
+		return nil
+	}
+	return me
 }
 
 type multiError struct {
