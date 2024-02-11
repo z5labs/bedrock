@@ -14,10 +14,10 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// ManageOTel is a hook for intializing OTel on PreRun and shutting it down on PostRun.
+// ManageOTel is a hook for intializing OTel on PreBuild and shutting it down on PostRun.
 func ManageOTel(f func(context.Context) (otelconfig.Initializer, error)) func(*bedrock.Lifecycle) {
 	return func(life *bedrock.Lifecycle) {
-		life.PreRun(func(ctx context.Context) error {
+		life.PreBuild(func(ctx context.Context) error {
 			initer, err := f(ctx)
 			if err != nil {
 				return err
