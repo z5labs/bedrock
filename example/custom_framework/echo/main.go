@@ -12,5 +12,5 @@ import (
 var cfgSrc []byte
 
 func main() {
-	framework.Rest(bytes.NewReader(cfgSrc), service.New)
+	framework.Rest(bytes.NewReader(cfgSrc), service.Init)
 }

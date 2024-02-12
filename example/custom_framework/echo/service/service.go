@@ -12,7 +12,11 @@ import (
 )
 
 type Config struct {
-	framework.Config
+	// This is completely optional since none of the base config
+	// values are used by this service.
+	// This simply acts as an example for how to embed a custom framework
+	// config into your service config.
+	framework.Config `config:",squash"`
 
 	Custom string `config:"custom"`
 }
@@ -21,14 +25,14 @@ type service struct {
 	log *slog.Logger
 }
 
-func New(ctx context.Context) (http.Handler, error) {
+func Init(ctx context.Context) (http.Handler, error) {
 	var cfg Config
 	err := framework.UnmarshalConfigFromContext(ctx, &cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	logger := slog.New(cfg.LogHandler())
+	logger := slog.New(framework.LogHandler())
 
 	mux := http.NewServeMux()
 	mux.Handle("/echo", &service{
