@@ -13,6 +13,7 @@ import (
 	bdhttp "github.com/z5labs/bedrock/http"
 	"github.com/z5labs/bedrock/pkg/health"
 	"github.com/z5labs/bedrock/pkg/lifecycle"
+	"github.com/z5labs/bedrock/pkg/noop"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 	"github.com/z5labs/bedrock/pkg/otelslog"
 
@@ -36,15 +37,25 @@ type Config struct {
 	} `config:"logging"`
 }
 
-var logHandler slog.Handler
+var logHandler slog.Handler = noop.LogHandler{}
 
-func (c Config) LogHandler() slog.Handler {
-	if logHandler != nil {
-		return logHandler
+func initLogger() func(*bedrock.Lifecycle) {
+	return func(l *bedrock.Lifecycle) {
+		l.PreBuild(func(ctx context.Context) error {
+			var cfg Config
+			err := UnmarshalConfigFromContext(ctx, &cfg)
+			if err != nil {
+				return err
+			}
+			logHandler = otelslog.NewHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+				AddSource: true,
+			}))
+			return nil
+		})
 	}
-	logHandler = otelslog.NewHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		AddSource: true,
-	}))
+}
+
+func LogHandler() slog.Handler {
 	return logHandler
 }
 
@@ -59,11 +70,10 @@ func Rest(cfg io.Reader, f func(context.Context) (http.Handler, error)) error {
 			bedrock.Config(bytes.NewReader(baseCfgSrc)),
 			bedrock.Config(cfg),
 			bedrock.Hooks(
+				initLogger(),
 				lifecycle.ManageOTel(func(ctx context.Context) (otelconfig.Initializer, error) {
-					m := bedrock.ConfigFromContext(ctx)
-
 					var cfg Config
-					err := m.Unmarshal(&cfg)
+					err := UnmarshalConfigFromContext(ctx, &cfg)
 					if err != nil {
 						return nil, err
 					}
@@ -90,10 +100,8 @@ func Rest(cfg io.Reader, f func(context.Context) (http.Handler, error)) error {
 				}),
 			),
 			bedrock.WithRuntimeBuilderFunc(func(ctx context.Context) (bedrock.Runtime, error) {
-				m := bedrock.ConfigFromContext(ctx)
-
 				var cfg Config
-				err := m.Unmarshal(&cfg)
+				err := UnmarshalConfigFromContext(ctx, &cfg)
 				if err != nil {
 					return nil, err
 				}
@@ -105,7 +113,7 @@ func Rest(cfg io.Reader, f func(context.Context) (http.Handler, error)) error {
 
 				rt := bdhttp.NewRuntime(
 					bdhttp.Handle("/", h),
-					bdhttp.LogHandler(cfg.LogHandler()),
+					bdhttp.LogHandler(LogHandler()),
 					bdhttp.ListenOnPort(8080),
 					bdhttp.Liveness(&health.Liveness{}),
 					bdhttp.Readiness(&health.Readiness{}),
