@@ -14,7 +14,6 @@ import (
 	"net/http"
 
 	"github.com/z5labs/bedrock/http/httpvalidate"
-	"github.com/z5labs/bedrock/pkg/health"
 	"github.com/z5labs/bedrock/pkg/noop"
 	"github.com/z5labs/bedrock/pkg/slogfield"
 
@@ -26,8 +25,6 @@ type runtimeOptions struct {
 	port       uint
 	mux        *http.ServeMux
 	logHandler slog.Handler
-	readiness  *health.Readiness
-	liveness   *health.Liveness
 	tlsConfig  *tls.Config
 	http2Only  bool
 }
@@ -63,20 +60,6 @@ func HandleFunc(pattern string, f func(http.ResponseWriter, *http.Request)) Runt
 	return Handle(pattern, http.HandlerFunc(f))
 }
 
-// Readiness configures the health readiness metric for the HTTP service.
-func Readiness(r *health.Readiness) RuntimeOption {
-	return func(ro *runtimeOptions) {
-		ro.readiness = r
-	}
-}
-
-// Liveness configures the health liveness metric for the HTTP service.
-func Liveness(l *health.Liveness) RuntimeOption {
-	return func(ro *runtimeOptions) {
-		ro.liveness = l
-	}
-}
-
 // TLSConfig configues the HTTP server to serve HTTPS via
 // the given TLS config.
 func TLSConfig(cfg *tls.Config) RuntimeOption {
@@ -102,10 +85,6 @@ type Runtime struct {
 	tlsConfig *tls.Config
 	http2Only bool
 	h         http.Handler
-
-	started   *health.Started
-	liveness  *health.Liveness
-	readiness *health.Readiness
 }
 
 // NewRuntime returns a fully initialized HTTP runtime.
@@ -114,8 +93,6 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 		port:       8080,
 		mux:        http.NewServeMux(),
 		logHandler: noop.LogHandler{},
-		readiness:  &health.Readiness{},
-		liveness:   &health.Liveness{},
 	}
 	for _, opt := range opts {
 		opt(ros)
@@ -128,35 +105,7 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 		tlsConfig: ros.tlsConfig,
 		http2Only: ros.http2Only,
 		h:         ros.mux,
-		started:   &health.Started{},
-		liveness:  ros.liveness,
-		readiness: ros.readiness,
 	}
-
-	registerEndpoint(
-		ros.mux,
-		"/health/startup",
-		httpvalidate.Request(
-			rt.started,
-			httpvalidate.ForMethods(http.MethodGet),
-		),
-	)
-	registerEndpoint(
-		ros.mux,
-		"/health/liveness",
-		httpvalidate.Request(
-			rt.liveness,
-			httpvalidate.ForMethods(http.MethodGet),
-		),
-	)
-	registerEndpoint(
-		ros.mux,
-		"/health/readiness",
-		httpvalidate.Request(
-			rt.readiness,
-			httpvalidate.ForMethods(http.MethodGet),
-		),
-	)
 
 	return rt
 }
@@ -204,9 +153,6 @@ func (rt *Runtime) Run(ctx context.Context) error {
 		return s.Shutdown(ctx)
 	})
 	g.Go(func() error {
-		rt.started.Started()
-		rt.liveness.Alive()
-		rt.readiness.Ready()
 		rt.log.Info("started service")
 		return s.Serve(ls)
 	})
