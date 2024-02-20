@@ -11,6 +11,8 @@ import (
 
 	"github.com/z5labs/bedrock"
 	bdhttp "github.com/z5labs/bedrock/http"
+	"github.com/z5labs/bedrock/http/httphealth"
+	"github.com/z5labs/bedrock/http/httpvalidate"
 	"github.com/z5labs/bedrock/pkg/health"
 	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/noop"
@@ -35,6 +37,10 @@ type Config struct {
 	Logging struct {
 		Level slog.Level `config:"level"`
 	} `config:"logging"`
+
+	Http struct {
+		Port uint `config:"port"`
+	} `config:"http"`
 }
 
 var logHandler slog.Handler = noop.LogHandler{}
@@ -64,7 +70,7 @@ func UnmarshalConfigFromContext(ctx context.Context, v interface{}) error {
 	return m.Unmarshal(v)
 }
 
-func Rest(cfg io.Reader, f func(context.Context) (http.Handler, error)) error {
+func Rest(cfg io.Reader, f func(context.Context, *http.ServeMux) error) error {
 	return bedrock.
 		New(
 			bedrock.Config(bytes.NewReader(baseCfgSrc)),
@@ -106,17 +112,47 @@ func Rest(cfg io.Reader, f func(context.Context) (http.Handler, error)) error {
 					return nil, err
 				}
 
-				h, err := f(ctx)
+				started := &health.Started{}
+				started.Started()
+
+				liveness := &health.Liveness{}
+				liveness.Alive()
+
+				readiness := &health.Readiness{}
+				readiness.Ready()
+
+				mux := http.NewServeMux()
+				mux.Handle(
+					"/health/liveness",
+					httpvalidate.Request(
+						httphealth.NewHandler(liveness),
+						httpvalidate.ForMethods(http.MethodGet),
+					),
+				)
+				mux.Handle(
+					"/health/readiness",
+					httpvalidate.Request(
+						httphealth.NewHandler(readiness),
+						httpvalidate.ForMethods(http.MethodGet),
+					),
+				)
+				mux.Handle(
+					"/health/started",
+					httpvalidate.Request(
+						httphealth.NewHandler(started),
+						httpvalidate.ForMethods(http.MethodGet),
+					),
+				)
+
+				err = f(ctx, mux)
 				if err != nil {
 					return nil, err
 				}
 
 				rt := bdhttp.NewRuntime(
-					bdhttp.Handle("/", h),
+					bdhttp.Handle("/", mux),
 					bdhttp.LogHandler(LogHandler()),
-					bdhttp.ListenOnPort(8080),
-					bdhttp.Liveness(&health.Liveness{}),
-					bdhttp.Readiness(&health.Readiness{}),
+					bdhttp.ListenOnPort(cfg.Http.Port),
 				)
 				return rt, nil
 			}),
