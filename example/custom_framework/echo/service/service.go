@@ -25,21 +25,20 @@ type service struct {
 	log *slog.Logger
 }
 
-func Init(ctx context.Context) (http.Handler, error) {
+func Init(ctx context.Context, mux *http.ServeMux) error {
 	var cfg Config
 	err := framework.UnmarshalConfigFromContext(ctx, &cfg)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	logger := slog.New(framework.LogHandler())
 
-	mux := http.NewServeMux()
 	mux.Handle("/echo", &service{
 		log: logger,
 	})
 
-	return mux, nil
+	return nil
 }
 
 func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
