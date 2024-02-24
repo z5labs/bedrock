@@ -6,128 +6,142 @@
 package health
 
 import (
-	"net/http"
-	"net/http/httptest"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStarted_ServeHTTP(t *testing.T) {
-	t.Run("will return 200", func(t *testing.T) {
-		t.Run("if it has been started", func(t *testing.T) {
-			var s Started
-			s.Started()
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusOK, w.Result().StatusCode) {
-				return
-			}
+func TestBinary_Toggle(t *testing.T) {
+	t.Run("will make it unhealthy", func(t *testing.T) {
+		t.Run("if the current state is healthy", func(t *testing.T) {
+			var m Binary
+			m.Toggle()
+			assert.False(t, m.Healthy(context.Background()))
 		})
 	})
 
-	t.Run("will return 503", func(t *testing.T) {
-		t.Run("if it is the zero value", func(t *testing.T) {
-			var s Started
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
+	t.Run("will make it healthy", func(t *testing.T) {
+		t.Run("if the current state is unhealthy", func(t *testing.T) {
+			m := Binary{
+				unhealthy: true,
 			}
+			m.Toggle()
+			assert.True(t, m.Healthy(context.Background()))
 		})
 	})
 }
 
-func TestReadinessServeHTTP(t *testing.T) {
-	t.Run("will return 200", func(t *testing.T) {
-		t.Run("if it has been marked ready", func(t *testing.T) {
-			var s Readiness
-			s.Ready()
+type healthyMetric bool
 
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+func (m healthyMetric) Healthy(_ context.Context) bool {
+	return bool(m)
+}
 
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusOK, w.Result().StatusCode) {
-				return
-			}
-		})
+func TestAndMetric_Healthy(t *testing.T) {
+	t.Run("will return true", func(t *testing.T) {
+		testCases := []struct {
+			Name    string
+			Metrics []Metric
+		}{
+			{
+				Name:    "if there is a single healthy metric",
+				Metrics: []Metric{healthyMetric(true)},
+			},
+			{
+				Name:    "if all metrics are healthy",
+				Metrics: []Metric{healthyMetric(true), healthyMetric(true)},
+			},
+		}
+		for _, testCase := range testCases {
+			t.Run(testCase.Name, func(t *testing.T) {
+				am := And(testCase.Metrics...)
+				assert.True(t, am.Healthy(context.Background()))
+			})
+		}
 	})
 
-	t.Run("will return 503", func(t *testing.T) {
-		t.Run("if it is the zero value", func(t *testing.T) {
-			var s Readiness
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
-			}
-		})
-
-		t.Run("if it has been marked not ready", func(t *testing.T) {
-			var s Readiness
-			s.NotReady()
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
-			}
-		})
+	t.Run("will return false", func(t *testing.T) {
+		testCases := []struct {
+			Name    string
+			Metrics []Metric
+		}{
+			{
+				Name:    "if there is a single unhealthy metric",
+				Metrics: []Metric{healthyMetric(false)},
+			},
+			{
+				Name:    "if all metrics are all unhealthy",
+				Metrics: []Metric{healthyMetric(false), healthyMetric(false)},
+			},
+			{
+				Name:    "if all one of the metrics is unhealthy",
+				Metrics: []Metric{healthyMetric(true), healthyMetric(false)},
+			},
+			{
+				Name:    "if all one of the metrics is unhealthy (symmetric)",
+				Metrics: []Metric{healthyMetric(false), healthyMetric(true)},
+			},
+		}
+		for _, testCase := range testCases {
+			t.Run(testCase.Name, func(t *testing.T) {
+				am := And(testCase.Metrics...)
+				assert.False(t, am.Healthy(context.Background()))
+			})
+		}
 	})
 }
 
-func TestLiveness_ServeHTTP(t *testing.T) {
-	t.Run("will return 200", func(t *testing.T) {
-		t.Run("if it has been marked alive", func(t *testing.T) {
-			var s Liveness
-			s.Alive()
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusOK, w.Result().StatusCode) {
-				return
-			}
-		})
+func TestOrMetric_Healthy(t *testing.T) {
+	t.Run("will return true", func(t *testing.T) {
+		testCases := []struct {
+			Name    string
+			Metrics []Metric
+		}{
+			{
+				Name:    "if there is a single healthy metric",
+				Metrics: []Metric{healthyMetric(true)},
+			},
+			{
+				Name:    "if all metrics are healthy",
+				Metrics: []Metric{healthyMetric(true), healthyMetric(true)},
+			},
+			{
+				Name:    "if all one of the metrics is unhealthy",
+				Metrics: []Metric{healthyMetric(true), healthyMetric(false)},
+			},
+			{
+				Name:    "if all one of the metrics is unhealthy (symmetric)",
+				Metrics: []Metric{healthyMetric(false), healthyMetric(true)},
+			},
+		}
+		for _, testCase := range testCases {
+			t.Run(testCase.Name, func(t *testing.T) {
+				om := Or(testCase.Metrics...)
+				assert.True(t, om.Healthy(context.Background()))
+			})
+		}
 	})
 
-	t.Run("will return 503", func(t *testing.T) {
-		t.Run("if it is the zero value", func(t *testing.T) {
-			var s Liveness
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
-			}
-		})
-
-		t.Run("if it has been marked dead", func(t *testing.T) {
-			var s Liveness
-			s.Dead()
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
-			}
-		})
+	t.Run("will return false", func(t *testing.T) {
+		testCases := []struct {
+			Name    string
+			Metrics []Metric
+		}{
+			{
+				Name:    "if there is a single unhealthy metric",
+				Metrics: []Metric{healthyMetric(false)},
+			},
+			{
+				Name:    "if all metrics are all unhealthy",
+				Metrics: []Metric{healthyMetric(false), healthyMetric(false)},
+			},
+		}
+		for _, testCase := range testCases {
+			t.Run(testCase.Name, func(t *testing.T) {
+				om := Or(testCase.Metrics...)
+				assert.False(t, om.Healthy(context.Background()))
+			})
+		}
 	})
 }

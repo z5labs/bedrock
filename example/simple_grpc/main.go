@@ -48,7 +48,7 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 		brgrpc.Service(
 			registerSimpleService,
 			brgrpc.ServiceName("simple"),
-			brgrpc.Readiness(&health.Readiness{}),
+			brgrpc.Readiness(&health.Binary{}),
 		),
 		// register reflection service so you can test this example
 		// via Insomnia, Postman and any other API testing tool that
