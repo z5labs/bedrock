@@ -31,3 +31,117 @@ func TestBinary_Toggle(t *testing.T) {
 		})
 	})
 }
+
+type healthyMetric bool
+
+func (m healthyMetric) Healthy(_ context.Context) bool {
+	return bool(m)
+}
+
+func TestAndMetric_Healthy(t *testing.T) {
+	t.Run("will return true", func(t *testing.T) {
+		testCases := []struct {
+			Name    string
+			Metrics []Metric
+		}{
+			{
+				Name:    "if there is a single healthy metric",
+				Metrics: []Metric{healthyMetric(true)},
+			},
+			{
+				Name:    "if all metrics are healthy",
+				Metrics: []Metric{healthyMetric(true), healthyMetric(true)},
+			},
+		}
+		for _, testCase := range testCases {
+			t.Run(testCase.Name, func(t *testing.T) {
+				am := And(testCase.Metrics...)
+				assert.True(t, am.Healthy(context.Background()))
+			})
+		}
+	})
+
+	t.Run("will return false", func(t *testing.T) {
+		testCases := []struct {
+			Name    string
+			Metrics []Metric
+		}{
+			{
+				Name:    "if there is a single unhealthy metric",
+				Metrics: []Metric{healthyMetric(false)},
+			},
+			{
+				Name:    "if all metrics are all unhealthy",
+				Metrics: []Metric{healthyMetric(false), healthyMetric(false)},
+			},
+			{
+				Name:    "if all one of the metrics is unhealthy",
+				Metrics: []Metric{healthyMetric(true), healthyMetric(false)},
+			},
+			{
+				Name:    "if all one of the metrics is unhealthy (symmetric)",
+				Metrics: []Metric{healthyMetric(false), healthyMetric(true)},
+			},
+		}
+		for _, testCase := range testCases {
+			t.Run(testCase.Name, func(t *testing.T) {
+				am := And(testCase.Metrics...)
+				assert.False(t, am.Healthy(context.Background()))
+			})
+		}
+	})
+}
+
+func TestOrMetric_Healthy(t *testing.T) {
+	t.Run("will return true", func(t *testing.T) {
+		testCases := []struct {
+			Name    string
+			Metrics []Metric
+		}{
+			{
+				Name:    "if there is a single healthy metric",
+				Metrics: []Metric{healthyMetric(true)},
+			},
+			{
+				Name:    "if all metrics are healthy",
+				Metrics: []Metric{healthyMetric(true), healthyMetric(true)},
+			},
+			{
+				Name:    "if all one of the metrics is unhealthy",
+				Metrics: []Metric{healthyMetric(true), healthyMetric(false)},
+			},
+			{
+				Name:    "if all one of the metrics is unhealthy (symmetric)",
+				Metrics: []Metric{healthyMetric(false), healthyMetric(true)},
+			},
+		}
+		for _, testCase := range testCases {
+			t.Run(testCase.Name, func(t *testing.T) {
+				om := Or(testCase.Metrics...)
+				assert.True(t, om.Healthy(context.Background()))
+			})
+		}
+	})
+
+	t.Run("will return false", func(t *testing.T) {
+		testCases := []struct {
+			Name    string
+			Metrics []Metric
+		}{
+			{
+				Name:    "if there is a single unhealthy metric",
+				Metrics: []Metric{healthyMetric(false)},
+			},
+			{
+				Name:    "if all metrics are all unhealthy",
+				Metrics: []Metric{healthyMetric(false), healthyMetric(false)},
+			},
+		}
+		for _, testCase := range testCases {
+			t.Run(testCase.Name, func(t *testing.T) {
+				om := Or(testCase.Metrics...)
+				assert.False(t, om.Healthy(context.Background()))
+			})
+		}
+	})
+}
