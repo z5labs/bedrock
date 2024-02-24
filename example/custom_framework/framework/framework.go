@@ -112,34 +112,25 @@ func Rest(cfg io.Reader, f func(context.Context, *http.ServeMux) error) error {
 					return nil, err
 				}
 
-				started := &health.Started{}
-				started.Started()
-
-				liveness := &health.Liveness{}
-				liveness.Alive()
-
-				readiness := &health.Readiness{}
-				readiness.Ready()
-
 				mux := http.NewServeMux()
 				mux.Handle(
 					"/health/liveness",
 					httpvalidate.Request(
-						httphealth.NewHandler(liveness),
+						httphealth.NewHandler(&health.Binary{}),
 						httpvalidate.ForMethods(http.MethodGet),
 					),
 				)
 				mux.Handle(
 					"/health/readiness",
 					httpvalidate.Request(
-						httphealth.NewHandler(readiness),
+						httphealth.NewHandler(&health.Binary{}),
 						httpvalidate.ForMethods(http.MethodGet),
 					),
 				)
 				mux.Handle(
 					"/health/started",
 					httpvalidate.Request(
-						httphealth.NewHandler(started),
+						httphealth.NewHandler(&health.Binary{}),
 						httpvalidate.ForMethods(http.MethodGet),
 					),
 				)

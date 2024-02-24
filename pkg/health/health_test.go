@@ -6,128 +6,28 @@
 package health
 
 import (
-	"net/http"
-	"net/http/httptest"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStarted_ServeHTTP(t *testing.T) {
-	t.Run("will return 200", func(t *testing.T) {
-		t.Run("if it has been started", func(t *testing.T) {
-			var s Started
-			s.Started()
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusOK, w.Result().StatusCode) {
-				return
-			}
+func TestBinary_Toggle(t *testing.T) {
+	t.Run("will make it unhealthy", func(t *testing.T) {
+		t.Run("if the current state is healthy", func(t *testing.T) {
+			var m Binary
+			m.Toggle()
+			assert.False(t, m.Healthy(context.Background()))
 		})
 	})
 
-	t.Run("will return 503", func(t *testing.T) {
-		t.Run("if it is the zero value", func(t *testing.T) {
-			var s Started
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
+	t.Run("will make it healthy", func(t *testing.T) {
+		t.Run("if the current state is unhealthy", func(t *testing.T) {
+			m := Binary{
+				unhealthy: true,
 			}
-		})
-	})
-}
-
-func TestReadinessServeHTTP(t *testing.T) {
-	t.Run("will return 200", func(t *testing.T) {
-		t.Run("if it has been marked ready", func(t *testing.T) {
-			var s Readiness
-			s.Ready()
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusOK, w.Result().StatusCode) {
-				return
-			}
-		})
-	})
-
-	t.Run("will return 503", func(t *testing.T) {
-		t.Run("if it is the zero value", func(t *testing.T) {
-			var s Readiness
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
-			}
-		})
-
-		t.Run("if it has been marked not ready", func(t *testing.T) {
-			var s Readiness
-			s.NotReady()
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
-			}
-		})
-	})
-}
-
-func TestLiveness_ServeHTTP(t *testing.T) {
-	t.Run("will return 200", func(t *testing.T) {
-		t.Run("if it has been marked alive", func(t *testing.T) {
-			var s Liveness
-			s.Alive()
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusOK, w.Result().StatusCode) {
-				return
-			}
-		})
-	})
-
-	t.Run("will return 503", func(t *testing.T) {
-		t.Run("if it is the zero value", func(t *testing.T) {
-			var s Liveness
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
-			}
-		})
-
-		t.Run("if it has been marked dead", func(t *testing.T) {
-			var s Liveness
-			s.Dead()
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
-
-			s.ServeHTTP(w, req)
-			if !assert.Equal(t, http.StatusServiceUnavailable, w.Result().StatusCode) {
-				return
-			}
+			m.Toggle()
+			assert.True(t, m.Healthy(context.Background()))
 		})
 	})
 }
