@@ -95,7 +95,7 @@ func TestReadiness(t *testing.T) {
 					func(s *grpc.Server) {},
 					// No ServiceName is set so this corresponds to
 					// overall server health
-					Readiness(&health.Readiness{}),
+					Readiness(&health.Binary{}),
 				),
 			)
 			addrCh := make(chan net.Addr)
@@ -155,7 +155,7 @@ func TestReadiness(t *testing.T) {
 		})
 
 		t.Run("if the health metric is toggled from unhealthy to healthy", func(t *testing.T) {
-			var readiness health.Readiness
+			var readiness health.Binary
 			rt := NewRuntime(
 				LogHandler(noop.LogHandler{}),
 				Service(
@@ -199,8 +199,8 @@ func TestReadiness(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				readiness.NotReady()
-				readiness.Ready()
+				readiness.Toggle()
+				readiness.Toggle()
 
 				client := grpc_health_v1.NewHealthClient(conn)
 				resp, err := client.Check(gctx, &grpc_health_v1.HealthCheckRequest{
@@ -230,7 +230,7 @@ func TestReadiness(t *testing.T) {
 				Service(
 					func(s *grpc.Server) {},
 					ServiceName("test"),
-					Readiness(&health.Readiness{}),
+					Readiness(&health.Binary{}),
 				),
 			)
 			addrCh := make(chan net.Addr)
@@ -292,7 +292,7 @@ func TestReadiness(t *testing.T) {
 
 	t.Run("will return not serving", func(t *testing.T) {
 		t.Run("if the health metric returns not healthy", func(t *testing.T) {
-			var readiness health.Readiness
+			var readiness health.Binary
 			rt := NewRuntime(
 				LogHandler(noop.LogHandler{}),
 				Service(
@@ -335,7 +335,7 @@ func TestReadiness(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				readiness.NotReady()
+				readiness.Toggle()
 				<-time.After(200 * time.Millisecond)
 
 				client := grpc_health_v1.NewHealthClient(conn)

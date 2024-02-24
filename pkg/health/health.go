@@ -7,7 +7,6 @@ package health
 
 import (
 	"context"
-	"net/http"
 	"sync"
 )
 
@@ -16,109 +15,87 @@ type Metric interface {
 	Healthy(context.Context) bool
 }
 
-// Started is used for signifying that the application
-// requires a longer amount of time to initialize.
-type Started struct {
-	mu      sync.RWMutex
-	started bool
+// Binary represents a health.Metric that is either healthy or not.
+// The default value is represents a healthy state.
+type Binary struct {
+	mu        sync.Mutex
+	unhealthy bool
 }
 
-// Started marks this metric as "healthy".
-func (s *Started) Started() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.started = true
-}
-
-// Healthy implements the Metric interface.
-func (s *Started) Healthy(ctx context.Context) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.started
-}
-
-// ServeHTTP implements the http.Handler interface.
-func (s *Started) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	started := s.Healthy(req.Context())
-	if started {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	w.WriteHeader(http.StatusServiceUnavailable)
-}
-
-// Readiness is used for signifying that the application is
-// temporarily unable to serve traffic.
-type Readiness struct {
-	mu    sync.RWMutex
-	ready bool
-}
-
-// NotReady marks this metric as "unhealthy".
-func (r *Readiness) NotReady() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.ready = false
-}
-
-// Ready marks this metric as "healthy".
-func (r *Readiness) Ready() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.ready = true
+// Toggle toggles the state of Binary.
+func (m *Binary) Toggle() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unhealthy = !m.unhealthy
 }
 
 // Healthy implements the Metric interface.
-func (r *Readiness) Healthy(ctx context.Context) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.ready
+func (m *Binary) Healthy(ctx context.Context) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return !m.unhealthy
 }
 
-// ServeHTTP implements the http.Handler interface.
-func (r *Readiness) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	ready := r.Healthy(req.Context())
-	if ready {
-		w.WriteHeader(http.StatusOK)
-		return
+// AndMetric represents multiple Metrics all and'd together.
+type AndMetric struct {
+	metrics []Metric
+}
+
+// And returns a Metric where all the underlying Metrics healthy
+// states are joined together via the logical and (&&) operator.
+func And(metrics ...Metric) AndMetric {
+	return AndMetric{
+		metrics: metrics,
 	}
-	w.WriteHeader(http.StatusServiceUnavailable)
-}
-
-// Liveness is used for signifying that the application has transitioned
-// to a broken state, and cannot recover execpt by being restarted.
-type Liveness struct {
-	mu    sync.RWMutex
-	alive bool
-}
-
-// Dead marks this metric as "unhealthy".
-func (l *Liveness) Dead() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.alive = false
-}
-
-// Alive marks this metric as "healthy".
-func (l *Liveness) Alive() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.alive = true
 }
 
 // Healthy implements the Metric interface.
-func (l *Liveness) Healthy(ctx context.Context) bool {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.alive
+func (m AndMetric) Healthy(ctx context.Context) bool {
+	for _, metric := range m.metrics {
+		if !metric.Healthy(ctx) {
+			return false
+		}
+	}
+	return true
 }
 
-// ServeHTTP implements the http.Handler interface.
-func (l *Liveness) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	alive := l.Healthy(req.Context())
-	if alive {
-		w.WriteHeader(http.StatusOK)
-		return
+// OrMetric represents multiple Metrics all or'd together.
+type OrMetric struct {
+	metrics []Metric
+}
+
+// Or returns a Metric where all the underlying Metrics healthy
+// states are joined together via the logical or (||) operator.
+func Or(metrics ...Metric) OrMetric {
+	return OrMetric{
+		metrics: metrics,
 	}
-	w.WriteHeader(http.StatusServiceUnavailable)
+}
+
+// Healthy implements the Metric interface.
+func (m OrMetric) Healthy(ctx context.Context) bool {
+	for _, metric := range m.metrics {
+		if metric.Healthy(ctx) {
+			return true
+		}
+	}
+	return false
+}
+
+// NotMetric represents the not'd value of the unerlying Metric.
+type NotMetric struct {
+	metric Metric
+}
+
+// And returns a Metric where the underlying Metric healthy state
+// is negated with the logical not (!) operator.
+func Not(metric Metric) NotMetric {
+	return NotMetric{
+		metric: metric,
+	}
+}
+
+// Healthy implements the Metric interface.
+func (m NotMetric) Healthy(ctx context.Context) bool {
+	return !m.metric.Healthy(ctx)
 }

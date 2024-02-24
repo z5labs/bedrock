@@ -65,7 +65,7 @@ func TransportCredentials(tc credentials.TransportCredentials) RuntimeOption {
 
 type serviceOptions struct {
 	name      string
-	readiness *health.Readiness
+	readiness health.Metric
 }
 
 // ServiceOption are options for configuring the gRPC health service.
@@ -79,9 +79,9 @@ func ServiceName(name string) ServiceOption {
 }
 
 // Readiness configures the health readiness metric for the gRPC service.
-func Readiness(readiness *health.Readiness) ServiceOption {
+func Readiness(m health.Metric) ServiceOption {
 	return func(so *serviceOptions) {
-		so.readiness = readiness
+		so.readiness = m
 	}
 }
 
@@ -89,7 +89,7 @@ func Readiness(readiness *health.Readiness) ServiceOption {
 func Service(f func(*grpc.Server), opts ...ServiceOption) RuntimeOption {
 	return func(ro *runtimeOptions) {
 		so := serviceOptions{
-			readiness: &health.Readiness{},
+			readiness: &health.Binary{},
 		}
 		for _, opt := range opts {
 			opt(&so)
@@ -103,7 +103,7 @@ func Service(f func(*grpc.Server), opts ...ServiceOption) RuntimeOption {
 
 type serviceHealthMonitor struct {
 	name      string
-	readiness *health.Readiness
+	readiness health.Metric
 }
 
 type grpcServer interface {
@@ -177,7 +177,6 @@ func (rt *Runtime) Run(ctx context.Context) error {
 		monitor := monitor
 		g.Go(func() error {
 			healthy := true
-			monitor.readiness.Ready()
 			rt.health.SetServingStatus(monitor.name, grpc_health_v1.HealthCheckResponse_SERVING)
 			for {
 				select {
