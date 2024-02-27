@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/pubsub v1.36.1
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.21.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.31.0
-	github.com/googleapis/gax-go/v2 v2.12.1
+	github.com/googleapis/gax-go/v2 v2.12.2
 	github.com/hashicorp/go-retryablehttp v0.7.5
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/sony/gobreaker v0.5.0
