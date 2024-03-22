@@ -111,6 +111,15 @@ func WithRuntimeBuilderFunc(f func(context.Context) (Runtime, error)) Option {
 	}
 }
 
+// ConfigTemplateFunc registers the given template func with
+// the underlying config reader so it can be used in config
+// source templates.
+func ConfigTemplateFunc(name string, f any) Option {
+	return func(a *App) {
+		a.cfgTmplFuncs = append(a.cfgTmplFuncs, config.TemplateFunc(name, f))
+	}
+}
+
 // Config registers a config source with the application.
 // If used multiple times, subsequent configs will be merged
 // with the very first Config provided. The subsequent configs
@@ -137,10 +146,11 @@ func Hooks(fs ...func(*Lifecycle)) Option {
 //   - Running your Runtime(s) and propogating any OS interrupts
 //     via context.Context cancellation
 type App struct {
-	name    string
-	cfgSrcs []io.Reader
-	rbs     []RuntimeBuilder
-	life    Lifecycle
+	name         string
+	cfgTmplFuncs []config.ReadOption
+	cfgSrcs      []io.Reader
+	rbs          []RuntimeBuilder
+	life         Lifecycle
 }
 
 // New returns a fully initialized App.
@@ -181,13 +191,15 @@ func buildCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
+
+			cfgReadOpts := append([]config.ReadOption{config.Language(config.YAML)}, app.cfgTmplFuncs...)
 			for i, cfgSrc := range app.cfgSrcs {
 				b, err := readAllAndTryClose(cfgSrc)
 				if err != nil {
 					return err
 				}
 
-				cfg, err = config.Merge(cfg, bytes.NewReader(b), config.Language(config.YAML))
+				cfg, err = config.Merge(cfg, bytes.NewReader(b), cfgReadOpts...)
 				if err != nil {
 					return err
 				}
@@ -196,8 +208,9 @@ func buildCmd(app *App) *cobra.Command {
 				// need that config source and it can be collected
 				app.cfgSrcs[i] = nil
 			}
-			// we no longer need this slice since all configs have been merged
+			// we no longer need these slices since all configs have been merged
 			app.cfgSrcs = nil
+			app.cfgTmplFuncs = nil
 
 			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
 			ctx = context.WithValue(ctx, lifecycleContextKey, &app.life)
