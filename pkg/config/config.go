@@ -10,7 +10,6 @@ import (
 	"encoding"
 	"errors"
 	"io"
-	"os"
 	"reflect"
 	"strings"
 	"text/template"
@@ -45,18 +44,24 @@ func Language(lang LanguageType) ReadOption {
 	}
 }
 
+// TemplateFunc allows you to register template functions which
+// can be used in the config source template.
+func TemplateFunc(name string, f any) ReadOption {
+	return func(r *reader) {
+		r.tmplFuncs[name] = f
+	}
+}
+
 type reader struct {
-	lang LanguageType
-	env  map[string]string
+	lang      LanguageType
+	tmplFuncs template.FuncMap
 }
 
 // Read parses the data from r and stores the config values in the returned Manager.
 func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
-	env := mapEnv(os.Environ())
-
 	rd := reader{
-		lang: YAML,
-		env:  env,
+		lang:      YAML,
+		tmplFuncs: make(template.FuncMap),
 	}
 	for _, opt := range opts {
 		opt(&rd)
@@ -77,10 +82,9 @@ func Merge(m Manager, r io.Reader, opts ...ReadOption) (Manager, error) {
 		return Read(r, opts...)
 	}
 
-	env := mapEnv(os.Environ())
 	rd := reader{
-		lang: YAML,
-		env:  env,
+		lang:      YAML,
+		tmplFuncs: make(template.FuncMap),
 	}
 	for _, opt := range opts {
 		opt(&rd)
@@ -188,19 +192,7 @@ func (rd reader) renderTemplate(dst io.Writer, src io.Reader) error {
 	}
 	s := sb.String()
 
-	funcs := template.FuncMap{
-		"env": func(key string) string {
-			return rd.env[key]
-		},
-		"default": func(def any, v string) any {
-			if len(v) == 0 {
-				return def
-			}
-			return v
-		},
-	}
-
-	tmpl, err := template.New("config").Funcs(funcs).Parse(s)
+	tmpl, err := template.New("config").Funcs(rd.tmplFuncs).Parse(s)
 	if err != nil {
 		return err
 	}
@@ -221,17 +213,4 @@ func (rd reader) read(v *viper.Viper, r io.Reader) error {
 		return err
 	}
 	return nil
-}
-
-// envVars = pairs formatted with a '=' between the key and value
-func mapEnv(envVars []string) map[string]string {
-	envs := make(map[string]string, len(envVars))
-	for _, envVar := range envVars {
-		key, value, ok := strings.Cut(envVar, "=")
-		if !ok {
-			continue
-		}
-		envs[key] = value
-	}
-	return envs
 }

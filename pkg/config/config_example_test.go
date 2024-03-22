@@ -7,7 +7,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 )
@@ -42,51 +41,6 @@ func ExampleRead_toml() {
 	r := strings.NewReader(`hello = "world"`)
 
 	m, err := Read(r, Language(TOML))
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	fmt.Println(m.GetString("hello"))
-	// Output: world
-}
-
-func ExampleRead_env() {
-	os.Setenv("HELLO", "world")
-	defer os.Unsetenv("HELLO")
-
-	r := strings.NewReader(`hello: {{env "HELLO"}}`)
-
-	m, err := Read(r, Language(YAML))
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	fmt.Println(m.GetString("hello"))
-	// Output: world
-}
-
-func ExampleRead_emptyEnvWithDefault() {
-	r := strings.NewReader(`hello: {{env "HELLO" | default "bye"}}`)
-
-	m, err := Read(r, Language(YAML))
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	fmt.Println(m.GetString("hello"))
-	// Output: bye
-}
-
-func ExampleRead_nonEmptyEnvWithDefault() {
-	os.Setenv("HELLO", "world")
-	defer os.Unsetenv("HELLO")
-
-	r := strings.NewReader(`hello: {{env "HELLO" | default "bye"}}`)
-
-	m, err := Read(r, Language(YAML))
 	if err != nil {
 		fmt.Println(err)
 		return
