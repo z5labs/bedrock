@@ -131,8 +131,6 @@ func TestMerge(t *testing.T) {
 		})
 
 		t.Run("if the new reader contains the same key and its value is templated", func(t *testing.T) {
-			t.Setenv("TEST_HELLO", "bye")
-
 			base := strings.NewReader(`hello: world`)
 			m, err := Read(base, Language(YAML))
 			if !assert.Nil(t, err) {
@@ -140,7 +138,9 @@ func TestMerge(t *testing.T) {
 			}
 
 			r := strings.NewReader(`hello: {{env "TEST_HELLO"}}`)
-			m, err = Merge(m, r)
+			m, err = Merge(m, r, TemplateFunc("env", func(_ string) string {
+				return "bye"
+			}))
 			if !assert.Nil(t, err) {
 				return
 			}
@@ -295,21 +295,6 @@ func TestManager_Unmarshal(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, 10, cfg.Value.N) {
-				return
-			}
-		})
-	})
-}
-
-func TestMapEnv(t *testing.T) {
-	t.Run("will ignore malformed pairs", func(t *testing.T) {
-		t.Run("if there is no '=' separating the key and value", func(t *testing.T) {
-			pairs := []string{"hello=world", "good bye"}
-			env := mapEnv(pairs)
-			if !assert.Less(t, len(env), len(pairs)) {
-				return
-			}
-			if !assert.Contains(t, env, "hello") {
 				return
 			}
 		})
