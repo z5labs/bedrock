@@ -1,6 +1,6 @@
 module github.com/z5labs/bedrock
 
-go 1.21
+go 1.22.0
 
 require (
 	cloud.google.com/go/pubsub v1.37.0
