@@ -243,7 +243,9 @@ func TestBatchDeleteProcessor_Process(t *testing.T) {
 
 		t.Run("if sqs successfully deleted all messages", func(t *testing.T) {
 			client := sqsBatchDeleteClientFunc(func(ctx context.Context, dmbi *sqs.DeleteMessageBatchInput, f ...func(*sqs.Options)) (*sqs.DeleteMessageBatchOutput, error) {
-				resp := &sqs.DeleteMessageBatchOutput{}
+				resp := &sqs.DeleteMessageBatchOutput{
+					Successful: make([]types.DeleteMessageBatchResultEntry, 10),
+				}
 				return resp, nil
 			})
 

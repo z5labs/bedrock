@@ -28,7 +28,7 @@ func ReceiptHandle(s string) slog.Attr {
 
 // MessageAttributes returns a slog.Attr for the SQS message attributes.
 func MessageAttributes(m map[string]string) slog.Attr {
-	attrs := make([]any, len(m))
+	attrs := make([]any, 0, len(m))
 	for key, val := range m {
 		attrs = append(attrs, slog.String(key, val))
 	}
