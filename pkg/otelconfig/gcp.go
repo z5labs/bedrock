@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/api/option"
 )
 
 // GoogleCloudConfig is the config for the Google Cloud Initializer.
@@ -51,7 +52,10 @@ func GoogleCloud(opts ...GoogleCloudOption) Initializer {
 
 // Init implements the Initializer interface.
 func (cfg GoogleCloudConfig) Init() (trace.TracerProvider, error) {
-	exporter, err := texporter.New(texporter.WithProjectID(cfg.ProjectId))
+	exporter, err := texporter.New(
+		texporter.WithProjectID(cfg.ProjectId),
+		texporter.WithTraceClientOptions([]option.ClientOption{option.WithTelemetryDisabled()}),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -68,13 +72,6 @@ func (cfg GoogleCloudConfig) Init() (trace.TracerProvider, error) {
 		}
 	}
 
-	// Create trace provider with the exporter.
-	//
-	// By default it uses AlwaysSample() which samples all traces.
-	// In a production environment or high QPS setup please use
-	// probabilistic sampling.
-	// Example:
-	//   tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.0001)), ...)
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),

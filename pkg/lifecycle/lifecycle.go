@@ -12,6 +12,7 @@ import (
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // ManageOTel is a hook for intializing OTel on PreBuild and shutting it down on PostRun.
@@ -27,6 +28,8 @@ func ManageOTel(f func(context.Context) (otelconfig.Initializer, error)) func(*b
 				return err
 			}
 			otel.SetTracerProvider(tp)
+			// need to set this so traces can propagate
+			otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 			return nil
 		})
 
