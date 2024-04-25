@@ -31,10 +31,11 @@ type service struct {
 }
 
 type runtimeOptions struct {
-	port       uint
-	logHandler slog.Handler
-	tc         credentials.TransportCredentials
-	services   []service
+	port          uint
+	logHandler    slog.Handler
+	tc            credentials.TransportCredentials
+	services      []service
+	serverOptions []grpc.ServerOption
 }
 
 // RuntimeOption are options for configuring the gRPC runtime.
@@ -60,6 +61,34 @@ func LogHandler(h slog.Handler) RuntimeOption {
 func TransportCredentials(tc credentials.TransportCredentials) RuntimeOption {
 	return func(ro *runtimeOptions) {
 		ro.tc = tc
+	}
+}
+
+// UnaryInterceptor configures the gRPC server for one unary interceptors, please refer to grpc.UnaryInterceptor for more information
+func UnaryInterceptor(f grpc.UnaryServerInterceptor) RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.serverOptions = append(ro.serverOptions, grpc.UnaryInterceptor(f))
+	}
+}
+
+// ChainUnaryInterceptor configures the gRPC server for multiple unary interceptors, please refer to grpc.ChainUnaryInterceptor for more information
+func ChainUnaryInterceptor(interceptors ...grpc.UnaryServerInterceptor) RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.serverOptions = append(ro.serverOptions, grpc.ChainUnaryInterceptor(interceptors...))
+	}
+}
+
+// StreamInterceptor configures the gRPC server for one server interceptor, please refer to grpc.StreamInterceptor for more information
+func StreamInterceptor(i grpc.StreamServerInterceptor) RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.serverOptions = append(ro.serverOptions, grpc.StreamInterceptor(i))
+	}
+}
+
+// ChainStreamInterceptor configires the gRPC server for multiple server interceptors, please refer to grpc.ChainStreamInterceptor for more information
+func ChainStreamInterceptor(interceptors ...grpc.StreamServerInterceptor) RuntimeOption {
+	return func(ro *runtimeOptions) {
+		ro.serverOptions = append(ro.serverOptions, grpc.ChainStreamInterceptor(interceptors...))
 	}
 }
 
@@ -127,9 +156,10 @@ type Runtime struct {
 // NewRuntime returns a fully initialized gRPC Runtime.
 func NewRuntime(opts ...RuntimeOption) *Runtime {
 	ro := &runtimeOptions{
-		port:       8090,
-		logHandler: noop.LogHandler{},
-		tc:         insecure.NewCredentials(),
+		port:          8090,
+		logHandler:    noop.LogHandler{},
+		tc:            insecure.NewCredentials(),
+		serverOptions: []grpc.ServerOption{},
 	}
 	for _, opt := range opts {
 		opt(ro)
@@ -137,10 +167,14 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 
 	var healthMonitors []serviceHealthMonitor
 	s := grpc.NewServer(
-		grpc.StatsHandler(otelgrpc.NewServerHandler(
-			otelgrpc.WithMessageEvents(otelgrpc.ReceivedEvents, otelgrpc.SentEvents),
-		)),
-		grpc.Creds(ro.tc),
+		append(ro.serverOptions,
+			[]grpc.ServerOption{
+				grpc.StatsHandler(otelgrpc.NewServerHandler(
+					otelgrpc.WithMessageEvents(otelgrpc.ReceivedEvents, otelgrpc.SentEvents),
+				)),
+				grpc.Creds(ro.tc),
+			}...,
+		)...,
 	)
 	for _, svc := range ro.services {
 		svc.registerFunc(s)
