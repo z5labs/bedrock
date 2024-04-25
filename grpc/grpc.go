@@ -167,12 +167,14 @@ func NewRuntime(opts ...RuntimeOption) *Runtime {
 
 	var healthMonitors []serviceHealthMonitor
 	s := grpc.NewServer(
-		append(ro.serverOptions, []grpc.ServerOption{
-			grpc.StatsHandler(otelgrpc.NewServerHandler(
-				otelgrpc.WithMessageEvents(otelgrpc.ReceivedEvents, otelgrpc.SentEvents),
-			)),
-			grpc.Creds(ro.tc),
-		}...)...,
+		append(ro.serverOptions,
+			[]grpc.ServerOption{
+				grpc.StatsHandler(otelgrpc.NewServerHandler(
+					otelgrpc.WithMessageEvents(otelgrpc.ReceivedEvents, otelgrpc.SentEvents),
+				)),
+				grpc.Creds(ro.tc),
+			}...,
+		)...,
 	)
 	for _, svc := range ro.services {
 		svc.registerFunc(s)
