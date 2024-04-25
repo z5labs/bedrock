@@ -13,7 +13,7 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.9.0
-	go.opentelemetry.io/contrib/detectors/gcp v1.25.0
+	go.opentelemetry.io/contrib/detectors/gcp v1.26.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.50.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.50.0
 	go.opentelemetry.io/otel v1.26.0
@@ -29,8 +29,7 @@ require (
 )
 
 require (
-	cloud.google.com/go/compute v1.24.0 // indirect
-	cloud.google.com/go/compute/metadata v0.2.3 // indirect
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	cloud.google.com/go/iam v1.1.6 // indirect
 	cloud.google.com/go/trace v1.10.5 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.22.0 // indirect
