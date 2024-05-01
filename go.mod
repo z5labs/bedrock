@@ -9,7 +9,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.12.3
 	github.com/hashicorp/go-retryablehttp v0.7.5
 	github.com/mitchellh/mapstructure v1.5.0
-	github.com/sony/gobreaker v0.5.0
+	github.com/sony/gobreaker v1.0.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.9.0
