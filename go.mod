@@ -5,7 +5,7 @@ go 1.22.0
 require (
 	cloud.google.com/go/pubsub v1.38.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.23.0
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.31.4
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.32.0
 	github.com/googleapis/gax-go/v2 v2.12.4
 	github.com/hashicorp/go-retryablehttp v0.7.5
 	github.com/mitchellh/mapstructure v1.5.0
