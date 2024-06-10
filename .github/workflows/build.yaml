@@ -38,7 +38,7 @@ jobs:
           run: go test -race -cover ./...
 
         - name: Build example container images
-          uses: goreleaser/goreleaser-action@v5
+          uses: goreleaser/goreleaser-action@v6
           with:
             distribution: goreleaser
             version: latest
