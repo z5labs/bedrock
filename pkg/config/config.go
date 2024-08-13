@@ -13,8 +13,9 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/mitchellh/mapstructure"
 	"github.com/z5labs/bedrock/pkg/config/key"
+
+	"github.com/go-viper/mapstructure/v2"
 )
 
 // Store represents a general key value structure.
@@ -78,7 +79,7 @@ type TypeCoercionError struct {
 
 // Error implements the error interface.
 func (e TypeCoercionError) Error() string {
-	return fmt.Sprintf("failed to coerce value from %s to %s: %e", e.from.Type().Name(), e.to.Type().Name(), e.Cause)
+	return fmt.Sprintf("failed to coerce value from %s to %s: %s", e.from.Type().Name(), e.to.Type().Name(), e.Cause)
 }
 
 // Unwrap implements the implicit interface for usage with errors.Is and errors.As.
