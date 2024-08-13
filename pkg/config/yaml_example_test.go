@@ -13,14 +13,17 @@ import (
 	"github.com/z5labs/bedrock/pkg/config/key"
 )
 
-func ExampleMap() {
-	src := Map{
-		"hello": "world",
-		"xs":    []int{1, 2, 3},
-		"a": map[string]any{
-			"b": 1.2,
-		},
-	}
+func ExampleFromYaml() {
+	r := strings.NewReader(`
+hello: world
+xs:
+  - 1
+  - 2
+  - 3
+a:
+  b: 1.2
+`)
+	src := FromYaml(r)
 
 	var kvs []struct {
 		key key.Keyer
