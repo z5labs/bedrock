@@ -15,8 +15,8 @@ cloud.google.com/go/longrunning v0.5.11 h1:Havn1kGjz3whCfoD8dxMLP73Ph5w+ODyZB9RU
 cloud.google.com/go/longrunning v0.5.11/go.mod h1:rDn7//lmlfWV1Dx6IB4RatCPenTwwmqXuiP0/RgoEO4=
 cloud.google.com/go/monitoring v1.20.3 h1:v/7MXFxYrhXLEZ9sSfwXdlTLLB/xrU7xTyYjY5acynQ=
 cloud.google.com/go/monitoring v1.20.3/go.mod h1:GPIVIdNznIdGqEjtRKQWTLcUeRnPjZW85szouimiczU=
-cloud.google.com/go/pubsub v1.40.0 h1:0LdP+zj5XaPAGtWr2V6r88VXJlmtaB/+fde1q3TU8M0=
-cloud.google.com/go/pubsub v1.40.0/go.mod h1:BVJI4sI2FyXp36KFKvFwcfDRDfR8MiLT8mMhmIhdAeA=
+cloud.google.com/go/pubsub v1.41.0 h1:ZPaM/CvTO6T+1tQOs/jJ4OEMpjtel0PTLV7j1JK+ZrI=
+cloud.google.com/go/pubsub v1.41.0/go.mod h1:g+YzC6w/3N91tzG66e2BZtp7WrpBBMXVa3Y9zVoOGpk=
 cloud.google.com/go/trace v1.10.11 h1:+Y1emOgcyGy6OdJ2KQbT4t2oecPp49GtJn8j3GM1pWo=
 cloud.google.com/go/trace v1.10.11/go.mod h1:fUr5L3wSXerNfT0f1bBg08W4axS2VbHGgYcfH4KuTXU=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
