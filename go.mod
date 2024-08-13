@@ -5,7 +5,7 @@ go 1.22.0
 require (
 	cloud.google.com/go/pubsub v1.41.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.23.0
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.32.2
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.34.3
 	github.com/googleapis/gax-go/v2 v2.13.0
 	github.com/hashicorp/go-retryablehttp v0.7.6
 	github.com/mitchellh/mapstructure v1.5.0
@@ -36,10 +36,10 @@ require (
 	cloud.google.com/go/trace v1.10.11 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.24.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.47.0 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.27.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.7 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.7 // indirect
-	github.com/aws/smithy-go v1.20.2 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.30.3 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.15 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.15 // indirect
+	github.com/aws/smithy-go v1.20.3 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
