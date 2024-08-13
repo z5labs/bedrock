@@ -13,7 +13,7 @@ import (
 	bdhttp "github.com/z5labs/bedrock/http"
 	"github.com/z5labs/bedrock/http/httphealth"
 	"github.com/z5labs/bedrock/http/httpvalidate"
-	"github.com/z5labs/bedrock/pkg/config/configtmpl"
+	"github.com/z5labs/bedrock/pkg/config"
 	"github.com/z5labs/bedrock/pkg/health"
 	"github.com/z5labs/bedrock/pkg/lifecycle"
 	"github.com/z5labs/bedrock/pkg/noop"
@@ -74,10 +74,34 @@ func UnmarshalConfigFromContext(ctx context.Context, v interface{}) error {
 func Rest(cfg io.Reader, f func(context.Context, *http.ServeMux) error) error {
 	return bedrock.
 		New(
-			bedrock.ConfigTemplateFunc("env", configtmpl.Env),
-			bedrock.ConfigTemplateFunc("default", configtmpl.Default),
-			bedrock.Config(bytes.NewReader(baseCfgSrc)),
-			bedrock.Config(cfg),
+			bedrock.Config(
+				config.NewYamlSource(
+					config.RenderTextTemplate(
+						bytes.NewReader(baseCfgSrc),
+						config.TemplateFunc("env", os.Getenv),
+						config.TemplateFunc("default", func(v any, def string) any {
+							if v == nil {
+								return def
+							}
+							return v
+						}),
+					),
+				),
+			),
+			bedrock.Config(
+				config.NewYamlSource(
+					config.RenderTextTemplate(
+						cfg,
+						config.TemplateFunc("env", os.Getenv),
+						config.TemplateFunc("default", func(v any, def string) any {
+							if v == nil {
+								return def
+							}
+							return v
+						}),
+					),
+				),
+			),
 			bedrock.Hooks(
 				initLogger(),
 				lifecycle.ManageOTel(func(ctx context.Context) (otelconfig.Initializer, error) {

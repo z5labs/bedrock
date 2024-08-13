@@ -8,9 +8,10 @@ package bedrock
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
-	"github.com/z5labs/bedrock/pkg/config/configtmpl"
+	"github.com/z5labs/bedrock/pkg/config"
 )
 
 func ExampleApp_Run() {
@@ -18,9 +19,20 @@ func ExampleApp_Run() {
 
 	app := New(
 		Name("example"),
-		ConfigTemplateFunc("env", configtmpl.Env),
-		ConfigTemplateFunc("default", configtmpl.Default),
-		Config(r),
+		Config(
+			config.NewYamlSource(
+				config.RenderTextTemplate(
+					r,
+					config.TemplateFunc("env", os.Getenv),
+					config.TemplateFunc("default", func(v any, def string) any {
+						if v == nil {
+							return def
+						}
+						return v
+					}),
+				),
+			),
+		),
 		WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
 			m := ConfigFromContext(ctx)
 			var cfg struct {
