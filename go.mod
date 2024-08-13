@@ -4,7 +4,7 @@ go 1.22.0
 
 require (
 	cloud.google.com/go/pubsub v1.41.0
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.23.0
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.24.1
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.34.3
 	github.com/googleapis/gax-go/v2 v2.13.0
 	github.com/hashicorp/go-retryablehttp v0.7.6
@@ -14,8 +14,8 @@ require (
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.9.0
 	go.opentelemetry.io/contrib/detectors/gcp v1.28.0
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.51.0
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.51.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.52.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.53.0
 	go.opentelemetry.io/otel v1.28.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.28.0
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.28.0
@@ -35,7 +35,7 @@ require (
 	cloud.google.com/go/iam v1.1.12 // indirect
 	cloud.google.com/go/trace v1.10.11 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.24.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.47.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.48.1 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.30.3 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.15 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.15 // indirect
