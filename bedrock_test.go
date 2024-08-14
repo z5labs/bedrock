@@ -11,8 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/z5labs/bedrock/pkg/config"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type configSourceFunc func(config.Store) error
