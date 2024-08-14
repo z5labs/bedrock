@@ -7,6 +7,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -148,6 +149,31 @@ func ExampleRead_json() {
 	// Output: world
 	// [1 2 3]
 	// 1.2
+}
+
+func ExampleRead_env() {
+	os.Setenv("HELLO", "world")
+	defer os.Unsetenv("HELLO")
+
+	src := FromEnv()
+
+	m, err := Read(src)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	var cfg struct {
+		Hello string `config:"HELLO"`
+	}
+	err = m.Unmarshal(&cfg)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println(cfg.Hello)
+	// Output: world
 }
 
 func ExampleRead_textTemplateRenderer() {
