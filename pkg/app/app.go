@@ -67,7 +67,9 @@ func WithLifecycleHooks(app bedrock.App, lifecycle Lifecycle) bedrock.App {
 		}
 
 		// Always run PostRun hook regardless if app returns an error or panics.
-		defer runHook(ctx, lifecycle.PostRun)
+		defer func() {
+			_ = runHook(ctx, lifecycle.PostRun)
+		}()
 
 		return app.Run(ctx)
 	})
