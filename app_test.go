@@ -41,7 +41,7 @@ func TestApp_Run(t *testing.T) {
 				return 0, readerErr
 			})
 
-			app := New(Config(config.NewYamlSource(r)))
+			app := New(Config(config.FromYaml(r)))
 			err := app.Run()
 			if !assert.Equal(t, readerErr, err) {
 				return

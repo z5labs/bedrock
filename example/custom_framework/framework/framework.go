@@ -75,7 +75,7 @@ func Rest(cfg io.Reader, f func(context.Context, *http.ServeMux) error) error {
 	return bedrock.
 		New(
 			bedrock.Config(
-				config.NewYamlSource(
+				config.FromYaml(
 					config.RenderTextTemplate(
 						bytes.NewReader(baseCfgSrc),
 						config.TemplateFunc("env", os.Getenv),
@@ -89,7 +89,7 @@ func Rest(cfg io.Reader, f func(context.Context, *http.ServeMux) error) error {
 				),
 			),
 			bedrock.Config(
-				config.NewYamlSource(
+				config.FromYaml(
 					config.RenderTextTemplate(
 						cfg,
 						config.TemplateFunc("env", os.Getenv),

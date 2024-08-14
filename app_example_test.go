@@ -20,7 +20,7 @@ func ExampleApp_Run() {
 	app := New(
 		Name("example"),
 		Config(
-			config.NewYamlSource(
+			config.FromYaml(
 				config.RenderTextTemplate(
 					r,
 					config.TemplateFunc("env", os.Getenv),
