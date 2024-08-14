@@ -234,3 +234,26 @@ func ExampleRead_textTemplateRenderer_CustomDelims() {
 	fmt.Println(cfg.Hello)
 	// Output: bob
 }
+
+func ExampleRead_fileReader() {
+	r := NewFileReader(os.DirFS("."), "testdata/config.yaml")
+
+	src := FromYaml(r)
+	m, err := Read(src)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	var cfg struct {
+		Hello string `config:"hello"`
+	}
+	err = m.Unmarshal(&cfg)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println(cfg.Hello)
+	// Output: world
+}
