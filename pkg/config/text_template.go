@@ -7,11 +7,14 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"text/template"
+
+	"github.com/z5labs/bedrock/pkg/internal/ioutil"
 )
 
 // RenderTextTemplateOption represents options for configuring the TextTemplateRenderer.
@@ -95,8 +98,11 @@ func (ttr *TextTemplateRenderer) Read(b []byte) (int, error) {
 	var err error
 	ttr.renderOnce.Do(func() {
 		var sb strings.Builder
-		_, err = io.Copy(&sb, ttr.r)
-		if err != nil {
+		_, err = ioutil.CopyAndClose(&sb, ttr.r)
+		if err != nil && !errors.Is(err, ioutil.CloseError{}) {
+			// We can ignore ioutil.CloseError because we've successfully
+			// read the file contents and closing is just a nice clean up
+			// practice to follow but not mandatory.
 			return
 		}
 

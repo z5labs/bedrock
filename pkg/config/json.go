@@ -7,8 +7,11 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+
+	"github.com/z5labs/bedrock/pkg/internal/ioutil"
 )
 
 // Json represents a Source where its underlying format is JSON.
@@ -39,8 +42,11 @@ func (e InvalidJsonError) Unwrap() error {
 
 // Apply implements the Source interface.
 func (src Json) Apply(store Store) error {
-	b, err := io.ReadAll(src.r)
-	if err != nil {
+	b, err := ioutil.ReadAllAndClose(src.r)
+	if err != nil && !errors.Is(err, ioutil.CloseError{}) {
+		// We can ignore ioutil.CloseError because we've successfully
+		// read the file contents and closing is just a nice clean up
+		// practice to follow but not mandatory.
 		return err
 	}
 

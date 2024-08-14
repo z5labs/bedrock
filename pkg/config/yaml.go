@@ -6,8 +6,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io"
+
+	"github.com/z5labs/bedrock/pkg/internal/ioutil"
 
 	"gopkg.in/yaml.v3"
 )
@@ -40,8 +43,11 @@ func (e InvalidYamlError) Unwrap() error {
 
 // Apply implements the Source interface.
 func (src Yaml) Apply(store Store) error {
-	b, err := io.ReadAll(src.r)
-	if err != nil {
+	b, err := ioutil.ReadAllAndClose(src.r)
+	if err != nil && !errors.Is(err, ioutil.CloseError{}) {
+		// We can ignore ioutil.CloseError because we've successfully
+		// read the file contents and closing is just a nice clean up
+		// practice to follow but not mandatory.
 		return err
 	}
 

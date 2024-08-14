@@ -10,8 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/z5labs/bedrock/pkg/config/key"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type readFunc func([]byte) (int, error)
