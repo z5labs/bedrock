@@ -130,7 +130,7 @@ func TestManager_Unmarshal(t *testing.T) {
 
 		t.Run("if the value is provided in int format", func(t *testing.T) {
 			src := Map{
-				"duration": 10 * time.Second,
+				"duration": int(10 * time.Second),
 			}
 
 			m, err := Read(src)
