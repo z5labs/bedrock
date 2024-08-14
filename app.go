@@ -6,11 +6,9 @@
 package bedrock
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -64,8 +62,8 @@ var (
 )
 
 // ConfigFromContext extracts a config.Manager from the given context.Context if it's present.
-func ConfigFromContext(ctx context.Context) config.Manager {
-	return ctx.Value(configContextKey).(config.Manager)
+func ConfigFromContext(ctx context.Context) *config.Manager {
+	return ctx.Value(configContextKey).(*config.Manager)
 }
 
 // LifecycleFromContext extracts a *Lifecycle from the given context.Context if it's present.
@@ -111,22 +109,13 @@ func WithRuntimeBuilderFunc(f func(context.Context) (Runtime, error)) Option {
 	}
 }
 
-// ConfigTemplateFunc registers the given template func with
-// the underlying config reader so it can be used in config
-// source templates.
-func ConfigTemplateFunc(name string, f any) Option {
-	return func(a *App) {
-		a.cfgTmplFuncs = append(a.cfgTmplFuncs, config.TemplateFunc(name, f))
-	}
-}
-
 // Config registers a config source with the application.
 // If used multiple times, subsequent configs will be merged
 // with the very first Config provided. The subsequent configs
 // values will override any previous configs values.
-func Config(r io.Reader) Option {
+func Config(src config.Source) Option {
 	return func(a *App) {
-		a.cfgSrcs = append(a.cfgSrcs, r)
+		a.cfgSrcs = append(a.cfgSrcs, src)
 	}
 }
 
@@ -146,11 +135,10 @@ func Hooks(fs ...func(*Lifecycle)) Option {
 //   - Running your Runtime(s) and propogating any OS interrupts
 //     via context.Context cancellation
 type App struct {
-	name         string
-	cfgTmplFuncs []config.ReadOption
-	cfgSrcs      []io.Reader
-	rbs          []RuntimeBuilder
-	life         Lifecycle
+	name    string
+	cfgSrcs []config.Source
+	rbs     []RuntimeBuilder
+	life    Lifecycle
 }
 
 // New returns a fully initialized App.
@@ -192,25 +180,13 @@ func buildCmd(app *App) *cobra.Command {
 		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
 			defer errRecover(&err)
 
-			cfgReadOpts := append([]config.ReadOption{config.Language(config.YAML)}, app.cfgTmplFuncs...)
-			for i, cfgSrc := range app.cfgSrcs {
-				b, err := readAllAndTryClose(cfgSrc)
-				if err != nil {
-					return err
-				}
-
-				cfg, err = config.Merge(cfg, bytes.NewReader(b), cfgReadOpts...)
-				if err != nil {
-					return err
-				}
-
-				// tell the garbage collector that we no longer
-				// need that config source and it can be collected
-				app.cfgSrcs[i] = nil
+			cfg, err := config.Read(app.cfgSrcs...)
+			if err != nil {
+				return err
 			}
+
 			// we no longer need these slices since all configs have been merged
 			app.cfgSrcs = nil
-			app.cfgTmplFuncs = nil
 
 			ctx := context.WithValue(cmd.Context(), configContextKey, cfg)
 			ctx = context.WithValue(ctx, lifecycleContextKey, &app.life)
@@ -297,17 +273,6 @@ func (m multiError) Error() string {
 	}
 
 	return strings.TrimSuffix(e, ";")
-}
-
-func readAllAndTryClose(r io.Reader) ([]byte, error) {
-	defer func() {
-		rc, ok := r.(io.ReadCloser)
-		if !ok {
-			return
-		}
-		rc.Close()
-	}()
-	return io.ReadAll(r)
 }
 
 type panicError struct {
