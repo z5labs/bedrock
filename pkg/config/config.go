@@ -1,106 +1,57 @@
-// Copyright (c) 2023 Z5Labs and Contributors
+// Copyright (c) 2024 Z5Labs and Contributors
 //
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+// Package config provides very easy to use and extensible configuration management capabilities.
 package config
 
 import (
-	"bytes"
 	"encoding"
 	"errors"
-	"io"
+	"fmt"
 	"reflect"
-	"strings"
-	"text/template"
 	"time"
 
-	"github.com/mitchellh/mapstructure"
-	"github.com/spf13/viper"
+	"github.com/z5labs/bedrock/pkg/config/key"
+
+	"github.com/go-viper/mapstructure/v2"
 )
 
-// Manager stores config values and provides helpers for
-// bridging the raw config values into Go types.
+// Store represents a general key value structure.
+type Store interface {
+	Set(key.Keyer, any) error
+}
+
+// Source defines valid config sources as those who can
+// serialize themselves into a key value like structure.
+type Source interface {
+	Apply(Store) error
+}
+
+// Manager
 type Manager struct {
-	*viper.Viper
+	store inMemoryStore
 }
 
-// ReadOption configures different properties of the reader.
-type ReadOption func(*reader)
-
-// LanguageType configures the expected language the source is encoded in.
-type LanguageType string
-
-const (
-	YAML LanguageType = "yaml"
-	JSON LanguageType = "json"
-	TOML LanguageType = "toml"
-)
-
-// Language sets which language the config source uses.
-func Language(lang LanguageType) ReadOption {
-	return func(r *reader) {
-		r.lang = lang
+// Read
+// Subsequent sources override previous sources.
+func Read(srcs ...Source) (*Manager, error) {
+	store := make(inMemoryStore)
+	for _, src := range srcs {
+		err := src.Apply(store)
+		if err != nil {
+			return nil, err
+		}
 	}
+	m := &Manager{
+		store: store,
+	}
+	return m, nil
 }
 
-// TemplateFunc allows you to register template functions which
-// can be used in the config source template.
-func TemplateFunc(name string, f any) ReadOption {
-	return func(r *reader) {
-		r.tmplFuncs[name] = f
-	}
-}
-
-type reader struct {
-	lang      LanguageType
-	tmplFuncs template.FuncMap
-}
-
-// Read parses the data from r and stores the config values in the returned Manager.
-func Read(r io.Reader, opts ...ReadOption) (Manager, error) {
-	rd := reader{
-		lang:      YAML,
-		tmplFuncs: make(template.FuncMap),
-	}
-	for _, opt := range opts {
-		opt(&rd)
-	}
-
-	v := viper.New()
-	v.SetConfigType(string(rd.lang))
-	err := rd.read(v, r)
-	if err != nil {
-		return Manager{}, err
-	}
-	return Manager{Viper: v}, nil
-}
-
-// Merge allows you to merge another config into an already existing one.
-func Merge(m Manager, r io.Reader, opts ...ReadOption) (Manager, error) {
-	if m.Viper == nil {
-		return Read(r, opts...)
-	}
-
-	rd := reader{
-		lang:      YAML,
-		tmplFuncs: make(template.FuncMap),
-	}
-	for _, opt := range opts {
-		opt(&rd)
-	}
-
-	var buf bytes.Buffer
-	err := rd.renderTemplate(&buf, r)
-	if err != nil {
-		return m, err
-	}
-
-	return m, m.MergeConfig(&buf)
-}
-
-// Unmarshal unmarshals the config into the value pointed to by v.
-func (m Manager) Unmarshal(v interface{}) error {
+// Unmarshal
+func (m *Manager) Unmarshal(v any) error {
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		TagName: "config",
 		Result:  v,
@@ -112,26 +63,32 @@ func (m Manager) Unmarshal(v interface{}) error {
 	if err != nil {
 		return err
 	}
-	return dec.Decode(m.AllSettings())
+	return dec.Decode(m.store)
 }
 
 var errInvalidDecodeCondition = errors.New("invalid decode condition")
 
-type multiError struct {
-	errors []error
+// TypeCoercionError occurs when attempting to unmarshal a config
+// value to a struct field whose type does not match the config
+// value type, up to, coercion.
+type TypeCoercionError struct {
+	from  reflect.Value
+	to    reflect.Value
+	Cause error
 }
 
-func (e multiError) Error() string {
-	ss := make([]string, len(e.errors))
-	for i, e := range e.errors {
-		ss[i] = e.Error()
-	}
-	return strings.Join(ss, "\n")
+// Error implements the error interface.
+func (e TypeCoercionError) Error() string {
+	return fmt.Sprintf("failed to coerce value from %s to %s: %s", e.from.Type().Name(), e.to.Type().Name(), e.Cause)
+}
+
+// Unwrap implements the implicit interface for usage with errors.Is and errors.As.
+func (e TypeCoercionError) Unwrap() error {
+	return e.Cause
 }
 
 func composeDecodeHooks(hs ...mapstructure.DecodeHookFunc) mapstructure.DecodeHookFuncValue {
 	return func(f, t reflect.Value) (any, error) {
-		var errs []error
 		for _, h := range hs {
 			v, err := mapstructure.DecodeHookExec(h, f, t)
 			if err == nil {
@@ -140,12 +97,13 @@ func composeDecodeHooks(hs ...mapstructure.DecodeHookFunc) mapstructure.DecodeHo
 			if err == errInvalidDecodeCondition {
 				continue
 			}
-			errs = append(errs, err)
+			return nil, TypeCoercionError{
+				from:  f,
+				to:    t,
+				Cause: err,
+			}
 		}
-		if len(errs) == 0 {
-			return f.Interface(), nil
-		}
-		return nil, multiError{errors: errs}
+		return f.Interface(), nil
 	}
 }
 
@@ -182,35 +140,4 @@ func timeDurationHookFunc() mapstructure.DecodeHookFuncType {
 			return nil, errInvalidDecodeCondition
 		}
 	}
-}
-
-func (rd reader) renderTemplate(dst io.Writer, src io.Reader) error {
-	var sb strings.Builder
-	_, err := io.Copy(&sb, src)
-	if err != nil {
-		return err
-	}
-	s := sb.String()
-
-	tmpl, err := template.New("config").Funcs(rd.tmplFuncs).Parse(s)
-	if err != nil {
-		return err
-	}
-
-	return tmpl.Execute(dst, struct{}{})
-}
-
-func (rd reader) read(v *viper.Viper, r io.Reader) error {
-	var buf bytes.Buffer
-	err := rd.renderTemplate(&buf, r)
-	if err != nil {
-		return err
-	}
-
-	v.SetConfigType(string(rd.lang))
-	err = v.ReadConfig(&buf)
-	if err != nil {
-		return err
-	}
-	return nil
 }

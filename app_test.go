@@ -8,12 +8,10 @@ package bedrock
 import (
 	"context"
 	"errors"
-	"io"
-	"strings"
 	"testing"
 
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/z5labs/bedrock/pkg/config"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -43,19 +41,9 @@ func TestApp_Run(t *testing.T) {
 				return 0, readerErr
 			})
 
-			app := New(Config(r))
+			app := New(Config(config.FromYaml(r)))
 			err := app.Run()
 			if !assert.Equal(t, readerErr, err) {
-				return
-			}
-		})
-
-		t.Run("if the config is not valid yaml", func(t *testing.T) {
-			r := strings.NewReader(`hello world`)
-
-			app := New(Config(io.NopCloser(r)))
-			err := app.Run()
-			if !assert.IsType(t, viper.ConfigParseError{}, err) {
 				return
 			}
 		})
