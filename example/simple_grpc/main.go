@@ -7,17 +7,16 @@ package main
 
 import (
 	"context"
+	"embed"
 	"log/slog"
 	"os"
 
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/example/simple_grpc/simple_grpc_pb"
 	brgrpc "github.com/z5labs/bedrock/grpc"
+	"github.com/z5labs/bedrock/pkg/config"
 	"github.com/z5labs/bedrock/pkg/health"
-	"github.com/z5labs/bedrock/pkg/lifecycle"
-	"github.com/z5labs/bedrock/pkg/otelconfig"
 
-	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -27,8 +26,6 @@ type simpleService struct {
 }
 
 func (*simpleService) Echo(ctx context.Context, req *simple_grpc_pb.EchoRequest) (*simple_grpc_pb.EchoResponse, error) {
-	_, span := otel.Tracer("main").Start(ctx, "simpleService.Echo")
-	defer span.End()
 	resp := &simple_grpc_pb.EchoResponse{
 		Message: req.Message,
 	}
@@ -39,8 +36,17 @@ func registerSimpleService(s *grpc.Server) {
 	simple_grpc_pb.RegisterSimpleServer(s, &simpleService{})
 }
 
-func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
-	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
+type Config struct {
+	Logging struct {
+		Level slog.Level `config:"level"`
+	} `config:"logging"`
+}
+
+func initRuntime(ctx context.Context, cfg Config) (bedrock.App, error) {
+	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     cfg.Logging.Level,
+	})
 
 	rt := brgrpc.NewRuntime(
 		brgrpc.ListenOnPort(9080),
@@ -60,16 +66,18 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
-func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
-	initer := otelconfig.Local()
-	return initer, nil
-}
+//go:embed config.yaml
+var configDir embed.FS
 
 func main() {
-	bedrock.New(
-		bedrock.Hooks(
-			lifecycle.ManageOTel(localOtel),
+	err := bedrock.Run(
+		context.Background(),
+		bedrock.AppBuilderFunc[Config](initRuntime),
+		config.FromYaml(
+			config.NewFileReader(configDir, "config.yaml"),
 		),
-		bedrock.WithRuntimeBuilderFunc(initRuntime),
-	).Run()
+	)
+	if err != nil {
+		slog.Default().Error("failed to run", slog.String("error", err.Error()))
+	}
 }

@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -17,16 +18,23 @@ import (
 
 	"github.com/z5labs/bedrock"
 	brhttp "github.com/z5labs/bedrock/http"
-	"github.com/z5labs/bedrock/pkg/lifecycle"
+	"github.com/z5labs/bedrock/pkg/config"
 	"github.com/z5labs/bedrock/pkg/otelconfig"
 	"github.com/z5labs/bedrock/pkg/otelslog"
 	"github.com/z5labs/bedrock/pkg/slogfield"
 	"github.com/z5labs/bedrock/queue"
+	"golang.org/x/sync/errgroup"
 
 	"go.opentelemetry.io/otel"
 )
 
-func initHttpRuntime(ctx context.Context) (bedrock.Runtime, error) {
+type Config struct {
+	Logging struct {
+		Level slog.Level `config:"level"`
+	} `config:"logging"`
+}
+
+func initHttpRuntime(ctx context.Context, cfg Config) (bedrock.App, error) {
 	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
 	logger := otelslog.New(logHandler)
 
@@ -62,8 +70,11 @@ func (f processorFunc[T]) Process(ctx context.Context, t T) error {
 	return f(ctx, t)
 }
 
-func initQueueRuntime(ctx context.Context) (bedrock.Runtime, error) {
-	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
+func initQueueRuntime(ctx context.Context, cfg Config) (bedrock.App, error) {
+	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     cfg.Logging.Level,
+	})
 	logger := otelslog.New(logHandler)
 
 	c := consumerFunc[int](func(ctx context.Context) (int, error) {
@@ -125,14 +136,34 @@ func otlpOtel(ctx context.Context) (otelconfig.Initializer, error) {
 	return initer, nil
 }
 
+//go:embed config.yaml
+var configDir embed.FS
+
 func main() {
-	bedrock.New(
-		bedrock.Hooks(
-			lifecycle.ManageOTel(otlpOtel),
-		),
-		bedrock.WithRuntimeBuilderFunc(initHttpRuntime),
-		bedrock.WithRuntimeBuilderFunc(initQueueRuntime),
-	).Run()
+	eg, egctx := errgroup.WithContext(context.Background())
+	eg.Go(func() error {
+		return bedrock.Run(
+			egctx,
+			bedrock.AppBuilderFunc[Config](initHttpRuntime),
+			config.FromYaml(
+				config.NewFileReader(configDir, "config.yaml"),
+			),
+		)
+	})
+	eg.Go(func() error {
+		return bedrock.Run(
+			egctx,
+			bedrock.AppBuilderFunc[Config](initQueueRuntime),
+			config.FromYaml(
+				config.NewFileReader(configDir, "config.yaml"),
+			),
+		)
+	})
+
+	err := eg.Wait()
+	if err != nil {
+		slog.Default().Error("failed to run", slog.String("error", err.Error()))
+	}
 }
 
 func readAllAndClose(rc io.ReadCloser) ([]byte, error) {
