@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,12 +15,20 @@ import (
 
 	"github.com/z5labs/bedrock"
 	brhttp "github.com/z5labs/bedrock/http"
-	"github.com/z5labs/bedrock/pkg/lifecycle"
-	"github.com/z5labs/bedrock/pkg/otelconfig"
+	"github.com/z5labs/bedrock/pkg/config"
 )
 
-func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
-	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
+type Config struct {
+	Logging struct {
+		Level slog.Level `config:"level"`
+	} `config:"logging"`
+}
+
+func initRuntime(ctx context.Context, cfg Config) (bedrock.App, error) {
+	logHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     cfg.Logging.Level,
+	})
 
 	rt := brhttp.NewRuntime(
 		brhttp.ListenOnPort(8080),
@@ -31,16 +40,18 @@ func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
 	return rt, nil
 }
 
-func localOtel(ctx context.Context) (otelconfig.Initializer, error) {
-	initer := otelconfig.Local()
-	return initer, nil
-}
+//go:embed config.yaml
+var configDir embed.FS
 
 func main() {
-	bedrock.New(
-		bedrock.Hooks(
-			lifecycle.ManageOTel(localOtel),
+	err := bedrock.Run(
+		context.Background(),
+		bedrock.AppBuilderFunc[Config](initRuntime),
+		config.FromYaml(
+			config.NewFileReader(configDir, "config.yaml"),
 		),
-		bedrock.WithRuntimeBuilderFunc(initRuntime),
-	).Run()
+	)
+	if err != nil {
+		slog.Default().Error("failed to run", slog.String("error", err.Error()))
+	}
 }
