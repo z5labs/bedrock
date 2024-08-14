@@ -1,4 +1,4 @@
-// Copyright (c) 2023 Z5Labs and Contributors
+// Copyright (c) 2024 Z5Labs and Contributors
 //
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
@@ -7,168 +7,37 @@ package config
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
-	"strings"
 	"testing"
-	"text/template"
 	"time"
 
-	"github.com/mitchellh/mapstructure"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
 
-type readFunc func([]byte) (int, error)
+type sourceFunc func(Store) error
 
-func (f readFunc) Read(b []byte) (int, error) {
-	return f(b)
+func (f sourceFunc) Apply(store Store) error {
+	return f(store)
 }
 
 func TestRead(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
-		t.Run("if it fails to read from the source reader", func(t *testing.T) {
-			readErr := errors.New("read error")
-			r := readFunc(func(b []byte) (int, error) {
-				return 0, readErr
+		t.Run("if one of the Sources fails to apply itself to the store", func(t *testing.T) {
+			srcErr := errors.New("failed to apply config")
+			src := sourceFunc(func(s Store) error {
+				return srcErr
 			})
 
-			_, err := Read(r)
-			if !assert.Equal(t, readErr, err) {
-				return
-			}
-		})
-
-		t.Run("if it's a malformed text template", func(t *testing.T) {
-			r := strings.NewReader(`hello: {{world`)
-
-			_, err := Read(r)
-			if !assert.Error(t, err) {
-				return
-			}
-		})
-
-		t.Run("if it fails to execute the config as a text template", func(t *testing.T) {
-			r := strings.NewReader(`hello: {{.World}}`)
-
-			_, err := Read(r, Language(YAML))
-			if !assert.IsType(t, template.ExecError{}, err) {
-				return
-			}
-		})
-
-		t.Run("if it's invalid yaml", func(t *testing.T) {
-			r := strings.NewReader(`hello`)
-
-			_, err := Read(r, Language(YAML))
-			if !assert.IsType(t, viper.ConfigParseError{}, err) {
-				return
-			}
-		})
-
-		t.Run("if it's invalid json", func(t *testing.T) {
-			r := strings.NewReader(`hello`)
-
-			_, err := Read(r, Language(JSON))
-			if !assert.IsType(t, viper.ConfigParseError{}, err) {
-				return
-			}
-		})
-
-		t.Run("if it's invalid toml", func(t *testing.T) {
-			r := strings.NewReader(`hello`)
-
-			_, err := Read(r, Language(TOML))
-			if !assert.IsType(t, viper.ConfigParseError{}, err) {
-				return
-			}
-		})
-	})
-}
-
-func TestMerge(t *testing.T) {
-	t.Run("will return an error", func(t *testing.T) {
-		t.Run("if it fails to read the first config", func(t *testing.T) {
-			var cfg Manager
-			r := strings.NewReader(`hello`)
-			_, err := Merge(cfg, r, Language(YAML))
-			if !assert.IsType(t, viper.ConfigParseError{}, err) {
-				return
-			}
-		})
-
-		t.Run("if it viper fails to read from the io.Reader", func(t *testing.T) {
-			base := strings.NewReader(`hello: world`)
-			m, err := Read(base, Language(YAML))
-			if !assert.Nil(t, err) {
-				return
-			}
-
-			r := strings.NewReader(`hello`)
-			_, err = Merge(m, r)
-			if !assert.IsType(t, viper.ConfigParseError{}, err) {
+			_, err := Read(src)
+			if !assert.ErrorIs(t, err, srcErr) {
 				return
 			}
 		})
 	})
 
-	t.Run("will overwrite base value", func(t *testing.T) {
-		t.Run("if the new reader contains the same key", func(t *testing.T) {
-			base := strings.NewReader(`hello: world`)
-			m, err := Read(base, Language(YAML))
-			if !assert.Nil(t, err) {
-				return
-			}
+	t.Run("will override config values", func(t *testing.T) {
+		t.Run("if multiple sources are provided", func(t *testing.T) {
 
-			r := strings.NewReader(`hello: bye`)
-			m, err = Merge(m, r)
-			if !assert.Nil(t, err) {
-				return
-			}
-			if !assert.Equal(t, "bye", m.GetString("hello")) {
-				return
-			}
-		})
-
-		t.Run("if the new reader contains the same key and its value is templated", func(t *testing.T) {
-			base := strings.NewReader(`hello: world`)
-			m, err := Read(base, Language(YAML))
-			if !assert.Nil(t, err) {
-				return
-			}
-
-			r := strings.NewReader(`hello: {{env "TEST_HELLO"}}`)
-			m, err = Merge(m, r, TemplateFunc("env", func(_ string) string {
-				return "bye"
-			}))
-			if !assert.Nil(t, err) {
-				return
-			}
-			if !assert.Equal(t, "bye", m.GetString("hello")) {
-				return
-			}
-		})
-	})
-
-	t.Run("will not overwrite base value", func(t *testing.T) {
-		t.Run("if the new reader does not contain the same key", func(t *testing.T) {
-			base := strings.NewReader(`hello: world`)
-			m, err := Read(base, Language(YAML))
-			if !assert.Nil(t, err) {
-				return
-			}
-
-			r := strings.NewReader(`good: bye`)
-			m, err = Merge(m, r)
-			if !assert.Nil(t, err) {
-				return
-			}
-			if !assert.Equal(t, "world", m.GetString("hello")) {
-				return
-			}
-			if !assert.Equal(t, "bye", m.GetString("good")) {
-				return
-			}
 		})
 	})
 }
@@ -197,8 +66,11 @@ func (x UnmarshalTextFailure) UnmarshalText(b []byte) error {
 func TestManager_Unmarshal(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
 		t.Run("if a nil result is provided", func(t *testing.T) {
-			r := strings.NewReader(`hello: world`)
-			m, err := Read(r, Language(YAML))
+			src := Map{
+				"hello": "world",
+			}
+
+			m, err := Read(src)
 			if !assert.Nil(t, err) {
 				return
 			}
@@ -211,8 +83,11 @@ func TestManager_Unmarshal(t *testing.T) {
 		})
 
 		t.Run("if the encoding.TextUnmarshaler fails to UnmarshalText", func(t *testing.T) {
-			r := strings.NewReader(`value: "10"`)
-			m, err := Read(r, Language(YAML))
+			src := Map{
+				"value": "10",
+			}
+
+			m, err := Read(src)
 			if !assert.Nil(t, err) {
 				return
 			}
@@ -224,16 +99,7 @@ func TestManager_Unmarshal(t *testing.T) {
 			if !assert.Error(t, err) {
 				return
 			}
-
-			var me *mapstructure.Error
-			if !assert.ErrorAs(t, err, &me) {
-				return
-			}
-			errs := me.WrappedErrors()
-			if !assert.Len(t, errs, 1) {
-				return
-			}
-			if !assert.Contains(t, errs[0].Error(), unmarshalErr.Error()) {
+			if !assert.ErrorIs(t, err, unmarshalErr) {
 				return
 			}
 		})
@@ -241,8 +107,11 @@ func TestManager_Unmarshal(t *testing.T) {
 
 	t.Run("will unmarshal time.Duration", func(t *testing.T) {
 		t.Run("if the value is provided in string format", func(t *testing.T) {
-			r := strings.NewReader(`duration: 10s`)
-			m, err := Read(r, Language(YAML))
+			src := Map{
+				"duration": "10s",
+			}
+
+			m, err := Read(src)
 			if !assert.Nil(t, err) {
 				return
 			}
@@ -260,8 +129,11 @@ func TestManager_Unmarshal(t *testing.T) {
 		})
 
 		t.Run("if the value is provided in int format", func(t *testing.T) {
-			r := strings.NewReader(fmt.Sprintf(`duration: %d`, 10*time.Second))
-			m, err := Read(r, Language(YAML))
+			src := Map{
+				"duration": int(10 * time.Second),
+			}
+
+			m, err := Read(src)
 			if !assert.Nil(t, err) {
 				return
 			}
@@ -281,8 +153,11 @@ func TestManager_Unmarshal(t *testing.T) {
 
 	t.Run("will unmarshal encoding.TextUnmarshaler", func(t *testing.T) {
 		t.Run("if the value is a string", func(t *testing.T) {
-			r := strings.NewReader(`value: "10"`)
-			m, err := Read(r, Language(YAML))
+			src := Map{
+				"value": "10",
+			}
+
+			m, err := Read(src)
 			if !assert.Nil(t, err) {
 				return
 			}
