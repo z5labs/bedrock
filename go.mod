@@ -10,7 +10,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.13.0
 	github.com/hashicorp/go-retryablehttp v0.7.6
 	github.com/sony/gobreaker v1.0.0
-	github.com/spf13/cobra v1.8.0
+	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.9.0
 	go.opentelemetry.io/contrib/detectors/gcp v1.28.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.52.0
