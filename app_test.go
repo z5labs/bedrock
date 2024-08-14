@@ -8,247 +8,123 @@ package bedrock
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/z5labs/bedrock/pkg/config"
-	"go.opentelemetry.io/otel/trace"
 )
 
-type readerFunc func([]byte) (int, error)
+type configSourceFunc func(config.Store) error
 
-func (f readerFunc) Read(b []byte) (int, error) {
-	return f(b)
+func (f configSourceFunc) Apply(store config.Store) error {
+	return f(store)
 }
 
-type otelInitFunc func() (trace.TracerProvider, error)
+var unmarshalErr = errors.New("failed to unmarshal")
 
-func (f otelInitFunc) Init() (trace.TracerProvider, error) {
-	return f()
+type UnmarshalTextFailure struct{}
+
+func (x UnmarshalTextFailure) UnmarshalText(b []byte) error {
+	return unmarshalErr
 }
 
-type runtimeFunc func(context.Context) error
-
-func (f runtimeFunc) Run(ctx context.Context) error {
-	return f(ctx)
-}
-
-func TestApp_Run(t *testing.T) {
+func TestRun(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
-		t.Run("if the config reader fails to read", func(t *testing.T) {
-			readerErr := errors.New("failed to read")
-			r := readerFunc(func(b []byte) (int, error) {
-				return 0, readerErr
+		t.Run("if the config.Source(s) fail to be read", func(t *testing.T) {
+			srcErr := errors.New("failed to apply config")
+			src := configSourceFunc(func(s config.Store) error {
+				return srcErr
 			})
 
-			app := New(Config(config.FromYaml(r)))
-			err := app.Run()
-			if !assert.Equal(t, readerErr, err) {
+			type myConfig struct{}
+			b := AppBuilderFunc[myConfig](func(ctx context.Context, cfg myConfig) (App, error) {
+				return nil, nil
+			})
+
+			err := Run(context.Background(), b, src)
+
+			var ierr ConfigReadError
+			if !assert.ErrorAs(t, err, &ierr) {
+				return
+			}
+			if !assert.NotEmpty(t, ierr.Error()) {
+				return
+			}
+			if !assert.ErrorIs(t, ierr, srcErr) {
 				return
 			}
 		})
 
-		t.Run("if a pre run lifecycle hook returns an error", func(t *testing.T) {
-			lifeErr := errors.New("failed to life")
-			app := New(
-				Hooks(
-					func(life *Lifecycle) {
-						life.PreRun(func(ctx context.Context) error {
-							return lifeErr
-						})
-					},
-				),
-				WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
-					rt := runtimeFunc(func(ctx context.Context) error {
-						return nil
-					})
-					return rt, nil
-				}),
-			)
+		t.Run("if the config.Manager fails to unmarshal the custom config", func(t *testing.T) {
+			type myConfig struct {
+				Value UnmarshalTextFailure `config:"value"`
+			}
+			b := AppBuilderFunc[myConfig](func(ctx context.Context, cfg myConfig) (App, error) {
+				return nil, nil
+			})
 
-			err := app.Run()
-			var me multiError
-			if !assert.ErrorAs(t, err, &me) {
+			err := Run(context.Background(), b, config.FromYaml(strings.NewReader(`value: hello`)))
+
+			var ierr ConfigUnmarshalError
+			if !assert.ErrorAs(t, err, &ierr) {
 				return
 			}
-			if !assert.NotEmpty(t, me.Error()) {
+			if !assert.NotEmpty(t, ierr.Error()) {
 				return
 			}
-			if !assert.Len(t, me.errors, 1) {
-				return
-			}
-			if !assert.Equal(t, lifeErr, me.errors[0]) {
+			if !assert.ErrorIs(t, ierr, unmarshalErr) {
 				return
 			}
 		})
 
-		t.Run("if the runtime builder fails to build", func(t *testing.T) {
+		t.Run("if the AppBuilder fails to build the App", func(t *testing.T) {
+			type myConfig struct {
+				Value string `config:"value"`
+			}
+
 			buildErr := errors.New("failed to build")
-			app := New(WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
+			b := AppBuilderFunc[myConfig](func(ctx context.Context, cfg myConfig) (App, error) {
 				return nil, buildErr
-			}))
+			})
 
-			err := app.Run()
-			if !assert.Equal(t, buildErr, err) {
+			err := Run(context.Background(), b, config.FromYaml(strings.NewReader(`value: hello`)))
+
+			var ierr AppBuildError
+			if !assert.ErrorAs(t, err, &ierr) {
+				return
+			}
+			if !assert.NotEmpty(t, ierr.Error()) {
+				return
+			}
+			if !assert.ErrorIs(t, ierr, buildErr) {
 				return
 			}
 		})
 
-		t.Run("if the runtime builder returns a nil runtime", func(t *testing.T) {
-			app := New(WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
-				return nil, nil
-			}))
-
-			err := app.Run()
-			if !assert.Equal(t, errNilRuntime, err) {
-				return
-			}
-		})
-
-		t.Run("if the runtime builder panics with a non-error", func(t *testing.T) {
-			app := New(WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
-				panic("hello")
-				return nil, nil
-			}))
-
-			err := app.Run()
-			if !assert.IsType(t, panicError{}, err) {
-				return
+		t.Run("if the App fails to run", func(t *testing.T) {
+			type myConfig struct {
+				Value string `config:"value"`
 			}
 
-			perr := err.(panicError)
-			if !assert.NotEmpty(t, perr.Error()) {
-				return
-			}
-			if !assert.Equal(t, "hello", perr.v) {
-				return
-			}
-		})
-
-		t.Run("if the runtime builder panics with an error", func(t *testing.T) {
-			buildErr := errors.New("failed to build")
-			app := New(WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
-				panic(buildErr)
-				return nil, nil
-			}))
-
-			err := app.Run()
-			if !assert.Equal(t, buildErr, err) {
-				return
-			}
-		})
-
-		t.Run("if the runtime run method returns an error", func(t *testing.T) {
-			runErr := errors.New("failed to run")
-			app := New(WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
-				rtFunc := runtimeFunc(func(ctx context.Context) error {
+			runErr := errors.New("failed to build")
+			b := AppBuilderFunc[myConfig](func(ctx context.Context, cfg myConfig) (App, error) {
+				app := appFunc(func(ctx context.Context) error {
 					return runErr
 				})
-				return rtFunc, nil
-			}))
+				return app, nil
+			})
 
-			err := app.Run()
-			if !assert.Equal(t, runErr, err) {
+			err := Run(context.Background(), b, config.FromYaml(strings.NewReader(`value: hello`)))
+
+			var ierr AppRunError
+			if !assert.ErrorAs(t, err, &ierr) {
 				return
 			}
-		})
-
-		t.Run("if one of the runtimes run methods returns an error", func(t *testing.T) {
-			runErr := errors.New("failed to run")
-			app := New(
-				WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
-					rtFunc := runtimeFunc(func(ctx context.Context) error {
-						return runErr
-					})
-					return rtFunc, nil
-				}),
-				WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
-					rtFunc := runtimeFunc(func(ctx context.Context) error {
-						<-ctx.Done()
-						return nil
-					})
-					return rtFunc, nil
-				}),
-			)
-
-			err := app.Run()
-			if !assert.Equal(t, runErr, err) {
+			if !assert.NotEmpty(t, ierr.Error()) {
 				return
 			}
-		})
-
-		t.Run("if the runtime run method panics", func(t *testing.T) {
-			runErr := errors.New("failed to run")
-			app := New(WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
-				rtFunc := runtimeFunc(func(ctx context.Context) error {
-					panic(runErr)
-					return nil
-				})
-				return rtFunc, nil
-			}))
-
-			err := app.Run()
-			if !assert.Equal(t, runErr, err) {
-				return
-			}
-		})
-
-		t.Run("if one of the runtimes run methods panics", func(t *testing.T) {
-			runErr := errors.New("failed to run")
-			app := New(
-				WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
-					rtFunc := runtimeFunc(func(ctx context.Context) error {
-						panic(runErr)
-						return nil
-					})
-					return rtFunc, nil
-				}),
-				WithRuntimeBuilderFunc(func(_ context.Context) (Runtime, error) {
-					rtFunc := runtimeFunc(func(ctx context.Context) error {
-						<-ctx.Done()
-						return nil
-					})
-					return rtFunc, nil
-				}),
-			)
-
-			err := app.Run()
-			if !assert.Equal(t, runErr, err) {
-				return
-			}
-		})
-
-		t.Run("if a lifecycle post run hook returns an error", func(t *testing.T) {
-			finalizeErr := errors.New("failed to finalize")
-			app := New(
-				Hooks(
-					func(life *Lifecycle) {
-						life.PostRun(func(ctx context.Context) error {
-							return finalizeErr
-						})
-					},
-				),
-				WithRuntimeBuilderFunc(func(ctx context.Context) (Runtime, error) {
-					rt := runtimeFunc(func(ctx context.Context) error {
-						return nil
-					})
-					return rt, nil
-				}),
-			)
-
-			err := app.Run()
-			if !assert.IsType(t, multiError{}, err) {
-				return
-			}
-
-			merr := err.(multiError)
-			if !assert.NotEmpty(t, merr.Error()) {
-				return
-			}
-			if !assert.Len(t, merr.errors, 1) {
-				return
-			}
-			if !assert.Equal(t, finalizeErr, merr.errors[0]) {
+			if !assert.ErrorIs(t, ierr, runErr) {
 				return
 			}
 		})
