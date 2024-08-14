@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -274,17 +273,6 @@ func (m multiError) Error() string {
 	}
 
 	return strings.TrimSuffix(e, ";")
-}
-
-func readAllAndTryClose(r io.Reader) ([]byte, error) {
-	defer func() {
-		rc, ok := r.(io.ReadCloser)
-		if !ok {
-			return
-		}
-		rc.Close()
-	}()
-	return io.ReadAll(r)
 }
 
 type panicError struct {
