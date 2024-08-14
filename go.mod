@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.34.3
 	github.com/go-viper/mapstructure/v2 v2.1.0
 	github.com/googleapis/gax-go/v2 v2.13.0
-	github.com/hashicorp/go-retryablehttp v0.7.6
+	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/sony/gobreaker v1.0.0
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.9.0
