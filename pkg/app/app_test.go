@@ -41,7 +41,7 @@ func TestWithLifecycleHooks(t *testing.T) {
 
 			preRunErr := errors.New("failed to pre run")
 			app := WithLifecycleHooks(base, Lifecycle{
-				PreRun: runFunc(func(ctx context.Context) error {
+				PreRun: LifecycleHookFunc(func(ctx context.Context) error {
 					return preRunErr
 				}),
 			})
@@ -74,7 +74,7 @@ func TestWithLifecycleHooks(t *testing.T) {
 			})
 
 			app := WithLifecycleHooks(base, Lifecycle{
-				PostRun: runFunc(func(ctx context.Context) error {
+				PostRun: LifecycleHookFunc(func(ctx context.Context) error {
 					return errors.New("failed to post run")
 				}),
 			})
