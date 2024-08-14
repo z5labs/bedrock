@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/z5labs/bedrock/example/custom_framework/framework"
 	"github.com/z5labs/bedrock/pkg/slogfield"
@@ -25,14 +26,11 @@ type service struct {
 	log *slog.Logger
 }
 
-func Init(ctx context.Context, mux *http.ServeMux) error {
-	var cfg Config
-	err := framework.UnmarshalConfigFromContext(ctx, &cfg)
-	if err != nil {
-		return err
-	}
-
-	logger := slog.New(framework.LogHandler())
+func Init(ctx context.Context, cfg Config, mux *http.ServeMux) error {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     cfg.Logging.Level,
+		AddSource: true,
+	}))
 
 	mux.Handle("/echo", &service{
 		log: logger,
