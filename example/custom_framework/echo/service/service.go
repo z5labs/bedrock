@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/z5labs/bedrock/example/custom_framework/framework"
-	"github.com/z5labs/bedrock/pkg/slogfield"
 )
 
 type Config struct {
@@ -44,7 +43,7 @@ func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	b, err := readAllAndClose(r.Body)
 	if err != nil {
-		s.log.ErrorContext(ctx, "failed to read request", slogfield.Error(err))
+		s.log.ErrorContext(ctx, "failed to read request", slog.String("error", err.Error()))
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -52,7 +51,7 @@ func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	n, err := io.Copy(w, bytes.NewReader(b))
 	if err != nil {
-		s.log.ErrorContext(ctx, "failed to write response body", slogfield.Error(err))
+		s.log.ErrorContext(ctx, "failed to write response body", slog.String("error", err.Error()))
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -60,8 +59,8 @@ func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.log.ErrorContext(
 			ctx,
 			"failed to write entire response body",
-			slogfield.Int64("bytes_written", n),
-			slogfield.Int("total_bytes", len(b)),
+			slog.Any("bytes_written", n),
+			slog.Int("total_bytes", len(b)),
 		)
 	}
 }

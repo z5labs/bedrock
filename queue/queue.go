@@ -11,7 +11,6 @@ import (
 	"log/slog"
 
 	"github.com/z5labs/bedrock/pkg/noop"
-	"github.com/z5labs/bedrock/pkg/slogfield"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -91,7 +90,7 @@ func (rt *SequentialRuntime[T]) Run(ctx context.Context) error {
 			continue
 		}
 		if err != nil {
-			rt.log.ErrorContext(spanCtx, "failed to consume", slogfield.Error(err))
+			rt.log.ErrorContext(spanCtx, "failed to consume", slog.String("error", err.Error()))
 			span.End()
 			continue
 		}
@@ -105,7 +104,7 @@ func (rt *SequentialRuntime[T]) Run(ctx context.Context) error {
 
 		err = process(spanCtx, rt.p, item.value)
 		if err != nil {
-			rt.log.ErrorContext(spanCtx, "failed to process", slogfield.Error(err))
+			rt.log.ErrorContext(spanCtx, "failed to process", slog.String("error", err.Error()))
 		}
 		span.End()
 	}
@@ -215,7 +214,7 @@ func (rt *ConcurrentRuntime[T]) consumeItems(ctx context.Context, itemCh chan<- 
 				continue
 			}
 			if err != nil {
-				rt.log.ErrorContext(spanCtx, "failed to consume", slogfield.Error(err))
+				rt.log.ErrorContext(spanCtx, "failed to consume", slog.String("error", err.Error()))
 				span.End()
 				continue
 			}
@@ -264,7 +263,7 @@ func (rt *ConcurrentRuntime[T]) processItem(ctx context.Context, i *item[T]) fun
 
 		err := process(spanCtx, rt.p, i.value)
 		if err != nil {
-			rt.log.ErrorContext(spanCtx, "failed to process", slogfield.Error(err))
+			rt.log.ErrorContext(spanCtx, "failed to process", slog.String("error", err.Error()))
 		}
 		return nil
 	}

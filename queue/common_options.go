@@ -7,8 +7,6 @@ package queue
 
 import (
 	"log/slog"
-
-	"github.com/z5labs/bedrock/pkg/otelslog"
 )
 
 type commonOptions struct {
@@ -34,6 +32,6 @@ func (f commonOptionFunc) applyPipe(po *concurrentOptions) {
 // LogHandler configures the underlying slog.Handler.
 func LogHandler(h slog.Handler) CommonOption {
 	return commonOptionFunc(func(co *commonOptions) {
-		co.logHandler = otelslog.NewHandler(h)
+		co.logHandler = h
 	})
 }
