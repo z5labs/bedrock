@@ -1,8 +1,7 @@
-# Copyright (c) 2023 Z5Labs and Contributors
+# Copyright (c) 2024 Z5Labs and Contributors
 # 
 # This software is released under the MIT License.
 # https://opensource.org/licenses/MIT
 
-FROM scratch
-COPY otlp /
-ENTRYPOINT ["/otlp"]
+logging:
+  level: info
