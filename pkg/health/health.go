@@ -16,7 +16,7 @@ type Metric interface {
 }
 
 // Binary represents a health.Metric that is either healthy or not.
-// The default value is represents a healthy state.
+// The default value represents a healthy state.
 type Binary struct {
 	mu        sync.Mutex
 	unhealthy bool
