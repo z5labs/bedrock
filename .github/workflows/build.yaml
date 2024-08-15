@@ -2,15 +2,19 @@ name: CI
 
 on:
   push:
-    branches: 
+    branches:
       - "main"
     paths:
       - '**.go'
+      - 'go.mod'
+      - 'go.sum'
   pull_request:
-    branches: 
+    branches:
       - "main"
     paths:
       - '**.go'
+      - 'go.mod'
+      - 'go.sum'
 
 jobs:
   build:
