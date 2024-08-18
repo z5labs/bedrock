@@ -32,9 +32,6 @@ func ListenOn(port uint) Option {
 	}
 }
 
-// Empty
-type Empty struct{}
-
 // Endpoint
 func Endpoint[Req, Resp any](e *endpoint.Endpoint[Req, Resp]) Option {
 	return func(app *App) {

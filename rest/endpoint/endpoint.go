@@ -16,6 +16,9 @@ import (
 	"github.com/swaggest/openapi-go"
 )
 
+// Empty
+type Empty struct{}
+
 // Handler
 type Handler[Req, Resp any] interface {
 	Handle(context.Context, Req) (Resp, error)
@@ -29,9 +32,17 @@ func (f HandlerFunc[Req, Resp]) Handle(ctx context.Context, req Req) (Resp, erro
 	return f(ctx, req)
 }
 
+// ErrorHandler
+type ErrorHandler interface {
+	HandleError(context.Context, http.ResponseWriter, error)
+}
+
 type options struct {
 	defaultStatusCode int
+	validators        []func(*http.Request) error
+	injectors         []func(context.Context, *http.Request) context.Context
 	openapi           []func(openapi.OperationContext)
+	errHandler        ErrorHandler
 }
 
 // Option
@@ -47,6 +58,8 @@ type Endpoint[Req, Resp any] struct {
 
 	statusCode int
 	handler    Handler[Req, Resp]
+
+	errHandler ErrorHandler
 
 	openapi []func(openapi.OperationContext)
 }
@@ -123,11 +136,33 @@ func ReturnsWith[Resp any](status int) Option {
 	}
 }
 
+// OnError
+func OnError(eh ErrorHandler) Option {
+	return func(o *options) {
+		o.errHandler = eh
+	}
+}
+
+type errorHandlerFunc func(context.Context, http.ResponseWriter, error)
+
+func (f errorHandlerFunc) HandleError(ctx context.Context, w http.ResponseWriter, err error) {
+	f(ctx, w, err)
+}
+
+var defaultErrorStatusCode = http.StatusInternalServerError
+
 // New initializes an Endpoint.
 func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
 	o := &options{
 		defaultStatusCode: DefaultStatusCode,
+		validators: []func(*http.Request) error{
+			validateMethod(method),
+		},
+		errHandler: errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
+			w.WriteHeader(defaultErrorStatusCode)
+		}),
 	}
+
 	var req Req
 	if _, ok := any(req).(ContentTyper); ok {
 		opts = append(opts, Accepts[Req]())
@@ -151,24 +186,31 @@ func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp
 	return &Endpoint[Req, Resp]{
 		method:     method,
 		pattern:    pattern,
+		injectors:  o.injectors,
+		validators: o.validators,
 		statusCode: o.defaultStatusCode,
 		handler:    handler,
+		errHandler: o.errHandler,
 		openapi:    o.openapi,
 	}
 }
 
+// Get returns an Endpoint configured for handling HTTP GET requests.
 func Get[Req, Resp any](pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
 	return New(http.MethodGet, pattern, handler, opts...)
 }
 
+// Post returns an Endpoint configured for handling HTTP POST requests.
 func Post[Req, Resp any](pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
 	return New(http.MethodPost, pattern, handler, opts...)
 }
 
+// Put returns an Endpoint configured for handling HTTP PUT requests.
 func Put[Req, Resp any](pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
 	return New(http.MethodPut, pattern, handler, opts...)
 }
 
+// Delete returns an Endpoint configured for handling HTTP DELETE requests.
 func Delete[Req, Resp any](pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
 	return New(http.MethodDelete, pattern, handler, opts...)
 }
@@ -195,30 +237,30 @@ func (e *Endpoint[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	// [ ] propogate query params, path variables, and headers via context
 	// [ ] custom response body and status code control for errors
 	// [x] marshal response body
+	ctx := inject(r.Context(), r, e.injectors...)
 
 	err := validateRequest(r, e.validators...)
 	if err != nil {
-		// TODO
+		e.errHandler.HandleError(ctx, w, err)
 		return
 	}
 
 	var req Req
 	err = unmarshal(r.Body, &req)
 	if err != nil {
-		// TODO
+		e.errHandler.HandleError(ctx, w, err)
 		return
 	}
 
 	err = validate(req)
 	if err != nil {
-		// TODO
+		e.errHandler.HandleError(ctx, w, err)
 		return
 	}
 
-	ctx := inject(r.Context(), r, e.injectors...)
 	resp, err := e.handler.Handle(ctx, req)
 	if err != nil {
-		// TODO
+		e.errHandler.HandleError(ctx, w, err)
 		return
 	}
 
@@ -229,14 +271,14 @@ func (e *Endpoint[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	b, err := bm.MarshalBinary()
 	if err != nil {
-		// TODO
+		e.errHandler.HandleError(ctx, w, err)
 		return
 	}
 
 	w.WriteHeader(e.statusCode)
 	_, err = io.Copy(w, bytes.NewReader(b))
 	if err != nil {
-		// TODO
+		e.errHandler.HandleError(ctx, w, err)
 		return
 	}
 }

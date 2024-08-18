@@ -67,8 +67,8 @@ func TestOpenApi(t *testing.T) {
 					endpoint.New(
 						method,
 						pattern,
-						endpoint.HandlerFunc[JsonContent, Empty](func(_ context.Context, _ JsonContent) (Empty, error) {
-							return Empty{}, nil
+						endpoint.HandlerFunc[JsonContent, endpoint.Empty](func(_ context.Context, _ JsonContent) (endpoint.Empty, error) {
+							return endpoint.Empty{}, nil
 						}),
 					),
 				),
@@ -184,7 +184,7 @@ func TestOpenApi(t *testing.T) {
 					endpoint.New(
 						method,
 						pattern,
-						endpoint.HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
+						endpoint.HandlerFunc[endpoint.Empty, JsonContent](func(_ context.Context, _ endpoint.Empty) (JsonContent, error) {
 							return JsonContent{}, nil
 						}),
 					),
@@ -292,7 +292,7 @@ func TestOpenApi(t *testing.T) {
 		})
 	})
 
-	t.Run("will set a empty response body", func(t *testing.T) {
+	t.Run("will set a endpoint.Empty response body", func(t *testing.T) {
 		t.Run("if the response type does not implement ContentTyper", func(t *testing.T) {
 			addrCh := make(chan net.Addr)
 			method := strings.ToLower(http.MethodPost)
@@ -304,8 +304,8 @@ func TestOpenApi(t *testing.T) {
 					endpoint.New(
 						method,
 						pattern,
-						endpoint.HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
-							return Empty{}, nil
+						endpoint.HandlerFunc[endpoint.Empty, endpoint.Empty](func(_ context.Context, _ endpoint.Empty) (endpoint.Empty, error) {
+							return endpoint.Empty{}, nil
 						}),
 					),
 				),
@@ -378,8 +378,8 @@ func TestOpenApi(t *testing.T) {
 					endpoint.New(
 						method,
 						pattern,
-						endpoint.HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
-							return Empty{}, nil
+						endpoint.HandlerFunc[endpoint.Empty, endpoint.Empty](func(_ context.Context, _ endpoint.Empty) (endpoint.Empty, error) {
+							return endpoint.Empty{}, nil
 						}),
 						endpoint.Returns(statusCode),
 					),
@@ -468,8 +468,8 @@ func TestOpenApi(t *testing.T) {
 					endpoint.New(
 						method,
 						pattern,
-						endpoint.HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
-							return Empty{}, nil
+						endpoint.HandlerFunc[endpoint.Empty, endpoint.Empty](func(_ context.Context, _ endpoint.Empty) (endpoint.Empty, error) {
+							return endpoint.Empty{}, nil
 						}),
 						endpoint.StatusCode(statusCode),
 					),
