@@ -32,6 +32,10 @@ func (JsonContent) ContentType() string {
 	return "application/json"
 }
 
+func (x *JsonContent) UnmarshalBinary(b []byte) error {
+	return json.Unmarshal(b, x)
+}
+
 func (x JsonContent) MarshalBinary() ([]byte, error) {
 	return json.Marshal(x)
 }
