@@ -8,6 +8,7 @@ package endpoint
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 )
 
 func validateRequest(r *http.Request, validators ...func(*http.Request) error) error {
@@ -45,9 +46,53 @@ func validateMethod(method string) func(*http.Request) error {
 	}
 }
 
+// InvalidHeaderError
+type InvalidHeaderError struct {
+	Header string
+}
+
+// Error implements the [error] interface.
+func (e InvalidHeaderError) Error() string {
+	return fmt.Sprintf("received invalid header for endpoint: %s", e.Header)
+}
+
+// ServeHTTP implements the [http.Handler] interface.
+func (InvalidHeaderError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusBadRequest)
+}
+
+// MissingRequiredHeaderError
+type MissingRequiredHeaderError struct {
+	Header string
+}
+
+// Error implements the [error] interface.
+func (e MissingRequiredHeaderError) Error() string {
+	return fmt.Sprintf("missing required header for endpoint: %s", e.Header)
+}
+
+// ServeHTTP implements the [http.Handler] interface.
+func (MissingRequiredHeaderError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusBadRequest)
+}
+
 func validateHeader(h Header) func(*http.Request) error {
+	var pattern *regexp.Regexp
+	if h.Pattern != "" {
+		pattern = regexp.MustCompile(h.Pattern)
+	}
+
 	return func(r *http.Request) error {
-		// TODO
+		val := r.Header.Get(h.Name)
+		if pattern != nil && !pattern.MatchString(val) {
+			return InvalidHeaderError{Header: h.Name}
+		}
+		if !h.Required {
+			return nil
+		}
+		if val == "" {
+			return MissingRequiredHeaderError{Header: h.Name}
+		}
 		return nil
 	}
 }

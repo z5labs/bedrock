@@ -243,7 +243,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 		})
 
-		t.Run("if the http request is missing a required header", func(t *testing.T) {
+		t.Run("if a required http header is missing", func(t *testing.T) {
 			pattern := "/"
 
 			e := Get(
@@ -251,13 +251,40 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				noopHandler{},
 				Headers(
 					Header{
-						Name: "Authorization",
+						Name:     "Authorization",
+						Required: true,
 					},
 				),
 			)
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+				return
+			}
+		})
+
+		t.Run("if a http header does not match its expected pattern", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				noopHandler{},
+				Headers(
+					Header{
+						Name:    "Authorization",
+						Pattern: "^[a-zA-Z]*$",
+					},
+				),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r.Header.Set("Authorization", "abc123")
 
 			e.ServeHTTP(w, r)
 
