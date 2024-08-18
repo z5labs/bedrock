@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,6 +46,26 @@ func (httpError) Error() string {
 
 func (e httpError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(e.status)
+}
+
+type FailUnmarshalBinary struct{}
+
+var errUnmarshalBinary = errors.New("failed to unmarshal from binary")
+
+func (*FailUnmarshalBinary) UnmarshalBinary(b []byte) error {
+	return errUnmarshalBinary
+}
+
+type InvalidRequest struct{}
+
+func (*InvalidRequest) UnmarshalBinary(b []byte) error {
+	return nil
+}
+
+var errInvalidRequest = errors.New("invalid request")
+
+func (InvalidRequest) Validate() error {
+	return errInvalidRequest
 }
 
 func TestEndpoint_ServeHTTP(t *testing.T) {
@@ -361,6 +382,66 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 			resp := w.Result()
 			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+				return
+			}
+		})
+
+		t.Run("if the request body fails to unmarshal", func(t *testing.T) {
+			pattern := "/"
+
+			var caughtError error
+			e := Post(
+				pattern,
+				HandlerFunc[FailUnmarshalBinary, Empty](func(_ context.Context, _ FailUnmarshalBinary) (Empty, error) {
+					return Empty{}, nil
+				}),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{}`))
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+			if !assert.Equal(t, errUnmarshalBinary, caughtError) {
+				return
+			}
+		})
+
+		t.Run("if the unmarshaled request body is invalid", func(t *testing.T) {
+			pattern := "/"
+
+			var caughtError error
+			e := Post(
+				pattern,
+				HandlerFunc[InvalidRequest, Empty](func(_ context.Context, _ InvalidRequest) (Empty, error) {
+					return Empty{}, nil
+				}),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{}`))
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+			if !assert.Equal(t, errInvalidRequest, caughtError) {
 				return
 			}
 		})
