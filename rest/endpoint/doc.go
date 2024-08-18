@@ -3,12 +3,5 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-package rest
-
-import (
-	"testing"
-)
-
-func TestHandle(t *testing.T) {
-
-}
+// Package endpoint wraps generic RPC style code into a RESTful HTTP endpoint handler.
+package endpoint

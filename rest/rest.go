@@ -14,6 +14,7 @@ import (
 	"net/http"
 
 	"github.com/swaggest/openapi-go/openapi3"
+	"github.com/z5labs/bedrock/rest/endpoint"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -28,6 +29,24 @@ type Option func(*App)
 func ListenOn(port uint) Option {
 	return func(a *App) {
 		a.port = port
+	}
+}
+
+// Empty
+type Empty struct{}
+
+// Endpoint
+func Endpoint[Req, Resp any](e *endpoint.Endpoint[Req, Resp]) Option {
+	return func(app *App) {
+		oc, err := app.openapi.NewOperationContext(e.Method(), e.Pattern())
+		if err != nil {
+			panic(err)
+		}
+		defer app.openapi.AddOperation(oc)
+
+		e.OpenApi(oc)
+
+		app.mux.Handle(e.Pattern(), e)
 	}
 }
 
