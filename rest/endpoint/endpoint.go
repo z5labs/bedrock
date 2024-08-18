@@ -48,7 +48,6 @@ type options struct {
 
 	defaultStatusCode int
 	validators        []func(*http.Request) error
-	injectors         []func(context.Context, *http.Request) context.Context
 	errHandler        ErrorHandler
 
 	schemas     map[string]*openapi3.Schema
@@ -293,10 +292,18 @@ func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp
 		opt(o)
 	}
 
+	var injectors []func(context.Context, *http.Request) context.Context
+	if len(o.headers) > 0 {
+		injectors = append(injectors, injectHeaders)
+	}
+	if len(o.queryParams) > 0 {
+		injectors = append(injectors, injectQueryParams)
+	}
+
 	return &Endpoint[Req, Resp]{
 		method:     method,
 		pattern:    pattern,
-		injectors:  o.injectors,
+		injectors:  injectors,
 		validators: o.validators,
 		statusCode: o.defaultStatusCode,
 		handler:    handler,

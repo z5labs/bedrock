@@ -17,9 +17,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/z5labs/bedrock/rest/endpoint"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/swaggest/openapi-go/openapi3"
-	"github.com/z5labs/bedrock/rest/endpoint"
 	"golang.org/x/sync/errgroup"
 )
 

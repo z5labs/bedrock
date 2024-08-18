@@ -171,6 +171,27 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 	})
 
 	t.Run("will return non-success http status code", func(t *testing.T) {
+		t.Run("if the underlying Handler returns an error", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
+					return Empty{}, errors.New("failed")
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+		})
+
 		t.Run("if a custom error handler is set", func(t *testing.T) {
 			pattern := "/"
 			errStatusCode := http.StatusServiceUnavailable
