@@ -43,6 +43,11 @@ func Init(ctx context.Context, cfg Config) (bedrock.App, error) {
 			endpoint.Post(
 				"/echo",
 				echoService,
+				endpoint.Headers(
+					endpoint.Header{
+						Name: "Authorization",
+					},
+				),
 			),
 		),
 	)

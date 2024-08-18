@@ -8,13 +8,15 @@ package rest
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 
-	"github.com/swaggest/openapi-go/openapi3"
 	"github.com/z5labs/bedrock/rest/endpoint"
+
+	"github.com/swaggest/openapi-go/openapi3"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -35,13 +37,7 @@ func ListenOn(port uint) Option {
 // Endpoint
 func Endpoint[Req, Resp any](e *endpoint.Endpoint[Req, Resp]) Option {
 	return func(app *App) {
-		oc, err := app.openapi.NewOperationContext(e.Method(), e.Pattern())
-		if err != nil {
-			panic(err)
-		}
-		defer app.openapi.AddOperation(oc)
-
-		e.OpenApi(oc)
+		e.OpenApi(app.spec)
 
 		app.mux.Handle(e.Pattern(), e)
 	}
@@ -50,24 +46,24 @@ func Endpoint[Req, Resp any](e *endpoint.Endpoint[Req, Resp]) Option {
 // App is a [bedrock.App] implementation to help simplify
 // building RESTful applications.
 type App struct {
-	port    uint
-	openapi *openapi3.Reflector
-	mux     *http.ServeMux
+	port uint
+	spec *openapi3.Spec
+	mux  *http.ServeMux
 
-	listen func(network, addr string) (net.Listener, error)
+	listen      func(network, addr string) (net.Listener, error)
+	marshalJSON func(any) ([]byte, error)
 }
 
 // NewApp initializes a [App].
 func NewApp(opts ...Option) *App {
 	app := &App{
 		port: 80,
-		openapi: &openapi3.Reflector{
-			Spec: &openapi3.Spec{
-				Openapi: "3.0.3",
-			},
+		spec: &openapi3.Spec{
+			Openapi: "3.0.3",
 		},
-		mux:    http.NewServeMux(),
-		listen: net.Listen,
+		mux:         http.NewServeMux(),
+		listen:      net.Listen,
+		marshalJSON: json.Marshal,
 	}
 	for _, opt := range opts {
 		opt(app)
@@ -77,7 +73,7 @@ func NewApp(opts ...Option) *App {
 
 // Run implements the [bedrock.App] interface.
 func (app *App) Run(ctx context.Context) error {
-	spec, err := app.openapi.Spec.MarshalJSON()
+	spec, err := app.marshalJSON(app.spec)
 	if err != nil {
 		return err
 	}

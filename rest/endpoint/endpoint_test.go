@@ -8,6 +8,7 @@ package endpoint
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -173,20 +174,22 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a custom error handler is set", func(t *testing.T) {
 			pattern := "/"
 			errStatusCode := http.StatusServiceUnavailable
-			if !assert.NotEqual(t, defaultErrorStatusCode, errStatusCode) {
+			if !assert.NotEqual(t, DefaultErrorStatusCode, errStatusCode) {
 				return
 			}
 
 			e := Get(
 				pattern,
-				noopHandler{},
+				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
+					return Empty{}, errors.New("failed")
+				}),
 				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
 					w.WriteHeader(errStatusCode)
 				})),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
 
 			e.ServeHTTP(w, r)
 
@@ -199,7 +202,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the underlying error implements http.Handler", func(t *testing.T) {
 			pattern := "/"
 			errStatusCode := http.StatusServiceUnavailable
-			if !assert.NotEqual(t, defaultErrorStatusCode, errStatusCode) {
+			if !assert.NotEqual(t, DefaultErrorStatusCode, errStatusCode) {
 				return
 			}
 
@@ -235,7 +238,31 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, defaultErrorStatusCode, resp.StatusCode) {
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
+				return
+			}
+		})
+
+		t.Run("if the http request is missing a required header", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				noopHandler{},
+				Headers(
+					Header{
+						Name: "Authorization",
+					},
+				),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
 				return
 			}
 		})

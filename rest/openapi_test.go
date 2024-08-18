@@ -292,7 +292,7 @@ func TestOpenApi(t *testing.T) {
 		})
 	})
 
-	t.Run("will set a endpoint.Empty response body", func(t *testing.T) {
+	t.Run("will set a empty response body", func(t *testing.T) {
 		t.Run("if the response type does not implement ContentTyper", func(t *testing.T) {
 			addrCh := make(chan net.Addr)
 			method := strings.ToLower(http.MethodPost)
