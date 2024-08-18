@@ -332,26 +332,24 @@ func Delete[Req, Resp any](pattern string, handler Handler[Req, Resp], opts ...O
 	return New(http.MethodDelete, pattern, handler, opts...)
 }
 
+// Method returns the HTTP method which this endpoint
+// is configured to handle requests for.
 func (e *Endpoint[Req, Resp]) Method() string {
 	return e.method
 }
 
+// Pattern returns HTTP path pattern for this endpoint.
 func (e *Endpoint[Req, Resp]) Pattern() string {
 	return e.pattern
 }
 
+// OpenApi allows the endpoint to register itself with an OpenAPI spec.
 func (e *Endpoint[Req, Resp]) OpenApi(spec *openapi3.Spec) {
 	e.openapi(spec)
 }
 
 // ServeHTTP implements the [http.Handler] interface.
 func (e *Endpoint[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// [x] validate raw http request i.e. query params, headers, etc.
-	// [x] unmarshal request body
-	// [x] validate request body
-	// [ ] propogate query params, path variables, and headers via context
-	// [x] custom response body and status code control for errors
-	// [x] marshal response body
 	ctx := inject(r.Context(), r, e.injectors...)
 
 	err := validateRequest(r, e.validators...)

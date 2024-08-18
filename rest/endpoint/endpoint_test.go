@@ -68,6 +68,14 @@ func (InvalidRequest) Validate() error {
 	return errInvalidRequest
 }
 
+type FailMarshalBinary struct{}
+
+var errMarshalBinary = errors.New("failed to marshal to binary")
+
+func (FailMarshalBinary) MarshalBinary() ([]byte, error) {
+	return nil, errMarshalBinary
+}
+
 func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return the default success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler succeeds with an empty response", func(t *testing.T) {
@@ -442,6 +450,36 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, errInvalidRequest, caughtError) {
+				return
+			}
+		})
+
+		t.Run("if the response body fails to marshal itself to binary", func(t *testing.T) {
+			pattern := "/"
+
+			var caughtError error
+			e := Post(
+				pattern,
+				HandlerFunc[Empty, FailMarshalBinary](func(_ context.Context, _ Empty) (FailMarshalBinary, error) {
+					return FailMarshalBinary{}, nil
+				}),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{}`))
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+			if !assert.Equal(t, errMarshalBinary, caughtError) {
 				return
 			}
 		})
