@@ -97,9 +97,53 @@ func validateHeader(h Header) func(*http.Request) error {
 	}
 }
 
+// InvalidQueryParamError
+type InvalidQueryParamError struct {
+	Param string
+}
+
+// Error implements the [error] interface.
+func (e InvalidQueryParamError) Error() string {
+	return fmt.Sprintf("received invalid query param for endpoint: %s", e.Param)
+}
+
+// ServeHTTP implements the [http.Handler] interface.
+func (InvalidQueryParamError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusBadRequest)
+}
+
+// MissingRequiredQueryParamError
+type MissingRequiredQueryParamError struct {
+	Param string
+}
+
+// Error implements the [error] interface.
+func (e MissingRequiredQueryParamError) Error() string {
+	return fmt.Sprintf("missing required query param for endpoint: %s", e.Param)
+}
+
+// ServeHTTP implements the [http.Handler] interface.
+func (MissingRequiredQueryParamError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusBadRequest)
+}
+
 func validateQueryParam(qp QueryParam) func(*http.Request) error {
+	var pattern *regexp.Regexp
+	if qp.Pattern != "" {
+		pattern = regexp.MustCompile(qp.Pattern)
+	}
+
 	return func(r *http.Request) error {
-		// TODO
+		val := r.URL.Query().Get(qp.Name)
+		if pattern != nil && !pattern.MatchString(val) {
+			return InvalidQueryParamError{Param: qp.Name}
+		}
+		if !qp.Required {
+			return nil
+		}
+		if val == "" {
+			return MissingRequiredQueryParamError{Param: qp.Name}
+		}
 		return nil
 	}
 }

@@ -293,5 +293,55 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 		})
+
+		t.Run("if a required query param is missing", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				noopHandler{},
+				QueryParams(
+					QueryParam{
+						Name:     "test",
+						Required: true,
+					},
+				),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+				return
+			}
+		})
+
+		t.Run("if a query param does not match its expected pattern", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				noopHandler{},
+				QueryParams(
+					QueryParam{
+						Name:    "test",
+						Pattern: "^[a-zA-Z]*$",
+					},
+				),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern+"?test=abc123", nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+				return
+			}
+		})
 	})
 }
