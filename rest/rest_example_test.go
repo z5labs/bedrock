@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/z5labs/bedrock/rest/endpoint"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -47,30 +48,36 @@ func (echoService) Handle(ctx context.Context, req EchoRequest) (EchoResponse, e
 	return EchoResponse{Msg: req.Msg}, nil
 }
 
+// this is quick hack to dynamically allocate a local address
+// for this example only. This is not apart of the public
+// package API and instead, the option, ListenOn should be used
+// to configure the HTTP server port.
+func listenOnRandomPort(addrCh chan<- net.Addr) Option {
+	return func(a *App) {
+		a.listen = func(network, addr string) (net.Listener, error) {
+			defer close(addrCh)
+
+			ls, err := net.Listen(network, ":0")
+			if err != nil {
+				return nil, err
+			}
+
+			addrCh <- ls.Addr()
+			return ls, nil
+		}
+	}
+}
+
 func Example() {
 	addrCh := make(chan net.Addr)
 
 	app := NewApp(
-		// this is quick hack to dynamically allocate a local address
-		// for this example only. This is not apart of the public
-		// package API and instead, the option, ListenOn should be used
-		// to configure the HTTP server port.
-		func(a *App) {
-			a.listen = func(network, addr string) (net.Listener, error) {
-				ls, err := net.Listen(network, ":0")
-				if err != nil {
-					return nil, err
-				}
-				defer close(addrCh)
-
-				addrCh <- ls.Addr()
-				return ls, nil
-			}
-		},
-		Handle(
-			http.MethodPost,
-			"/",
-			echoService{},
+		listenOnRandomPort(addrCh),
+		Endpoint(
+			endpoint.Post(
+				"/",
+				echoService{},
+			),
 		),
 	)
 

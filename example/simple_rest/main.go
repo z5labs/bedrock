@@ -10,8 +10,9 @@ import (
 	"embed"
 	"log/slog"
 
+	"github.com/z5labs/bedrock/example/simple_rest/app"
+
 	"github.com/z5labs/bedrock"
-	"github.com/z5labs/bedrock/example/simple_rest/service"
 	"github.com/z5labs/bedrock/pkg/config"
 )
 
@@ -21,7 +22,7 @@ var configDir embed.FS
 func main() {
 	err := bedrock.Run(
 		context.Background(),
-		bedrock.AppBuilderFunc[service.Config](service.Init),
+		bedrock.AppBuilderFunc[app.Config](app.Init),
 		config.FromYaml(
 			config.NewFileReader(configDir, "config.yaml"),
 		),
