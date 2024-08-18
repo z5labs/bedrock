@@ -34,7 +34,7 @@ func (f HandlerFunc[Req, Resp]) Handle(ctx context.Context, req Req) (Resp, erro
 
 // ErrorHandler
 type ErrorHandler interface {
-	HandleError(context.Context, http.ResponseWriter, error)
+	HandleError(http.ResponseWriter, error)
 }
 
 type options struct {
@@ -143,10 +143,10 @@ func OnError(eh ErrorHandler) Option {
 	}
 }
 
-type errorHandlerFunc func(context.Context, http.ResponseWriter, error)
+type errorHandlerFunc func(http.ResponseWriter, error)
 
-func (f errorHandlerFunc) HandleError(ctx context.Context, w http.ResponseWriter, err error) {
-	f(ctx, w, err)
+func (f errorHandlerFunc) HandleError(w http.ResponseWriter, err error) {
+	f(w, err)
 }
 
 var defaultErrorStatusCode = http.StatusInternalServerError
@@ -158,7 +158,7 @@ func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp
 		validators: []func(*http.Request) error{
 			validateMethod(method),
 		},
-		errHandler: errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
+		errHandler: errorHandlerFunc(func(w http.ResponseWriter, err error) {
 			w.WriteHeader(defaultErrorStatusCode)
 		}),
 	}
@@ -235,52 +235,62 @@ func (e *Endpoint[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	// [x] unmarshal request body
 	// [x] validate request body
 	// [ ] propogate query params, path variables, and headers via context
-	// [ ] custom response body and status code control for errors
+	// [x] custom response body and status code control for errors
 	// [x] marshal response body
 	ctx := inject(r.Context(), r, e.injectors...)
 
 	err := validateRequest(r, e.validators...)
 	if err != nil {
-		e.errHandler.HandleError(ctx, w, err)
+		e.handleError(w, r, err)
 		return
 	}
 
 	var req Req
 	err = unmarshal(r.Body, &req)
 	if err != nil {
-		e.errHandler.HandleError(ctx, w, err)
+		e.handleError(w, r, err)
 		return
 	}
 
 	err = validate(req)
 	if err != nil {
-		e.errHandler.HandleError(ctx, w, err)
+		e.handleError(w, r, err)
 		return
 	}
 
 	resp, err := e.handler.Handle(ctx, req)
 	if err != nil {
-		e.errHandler.HandleError(ctx, w, err)
+		e.handleError(w, r, err)
 		return
 	}
 
 	bm, ok := any(resp).(encoding.BinaryMarshaler)
 	if !ok {
+		w.WriteHeader(e.statusCode)
 		return
 	}
 
 	b, err := bm.MarshalBinary()
 	if err != nil {
-		e.errHandler.HandleError(ctx, w, err)
+		e.handleError(w, r, err)
 		return
 	}
 
 	w.WriteHeader(e.statusCode)
 	_, err = io.Copy(w, bytes.NewReader(b))
 	if err != nil {
-		e.errHandler.HandleError(ctx, w, err)
+		e.handleError(w, r, err)
 		return
 	}
+}
+
+func (e *Endpoint[Req, Resp]) handleError(w http.ResponseWriter, r *http.Request, err error) {
+	if h, ok := err.(http.Handler); ok {
+		h.ServeHTTP(w, r)
+		return
+	}
+
+	e.errHandler.HandleError(w, err)
 }
 
 func validateRequest(r *http.Request, validators ...func(*http.Request) error) error {
@@ -339,5 +349,22 @@ func inject(ctx context.Context, r *http.Request, injectors ...func(context.Cont
 	for _, injector := range injectors {
 		ctx = injector(ctx, r)
 	}
+	return ctx
+}
+
+type injectKey string
+
+var (
+	injectQueryParamsKey = injectKey("injectQueryParamsKey")
+	injectHeadersKey     = injectKey("injectHeadersKey")
+)
+
+func injectQueryParams(ctx context.Context, r *http.Request) context.Context {
+	ctx = context.WithValue(ctx, injectQueryParamsKey, r.URL.Query())
+	return ctx
+}
+
+func injectHeaders(ctx context.Context, r *http.Request) context.Context {
+	ctx = context.WithValue(ctx, injectHeadersKey, r.Header)
 	return ctx
 }
