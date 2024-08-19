@@ -128,6 +128,11 @@ func QueryParams(qps ...QueryParam) Option {
 				In:       openapi3.ParameterInQuery,
 				Name:     qp.Name,
 				Required: ptr.Ref(qp.Required),
+				Schema: &openapi3.SchemaOrRef{
+					Schema: &openapi3.Schema{
+						Type: ptr.Ref(openapi3.SchemaTypeString),
+					},
+				},
 			})
 
 			o.validators = append(o.validators, validateQueryParam(qp))

@@ -12,7 +12,8 @@ import (
 func setOpenApiSpec(o *options) func(*openapi3.Spec) {
 	return compose(
 		addSchemas(o.schemas),
-		addHeaders(o.method, o.pattern, o.headers...),
+		addParameters(o.method, o.pattern, o.headers...),
+		addParameters(o.method, o.pattern, o.queryParams...),
 		addRequestBody(o.method, o.pattern, o.request),
 		addResponses(o.method, o.pattern, o.responses),
 	)
@@ -54,9 +55,9 @@ func addSchemas(schemas map[string]*openapi3.Schema) func(*openapi3.Spec) {
 	}
 }
 
-func addHeaders(method, pattern string, headers ...*openapi3.Parameter) func(*openapi3.Spec) {
+func addParameters(method, pattern string, params ...*openapi3.Parameter) func(*openapi3.Spec) {
 	return func(s *openapi3.Spec) {
-		if len(headers) == 0 {
+		if len(params) == 0 {
 			return
 		}
 
@@ -78,9 +79,9 @@ func addHeaders(method, pattern string, headers ...*openapi3.Parameter) func(*op
 			opVal = openapi3.Operation{}
 		}
 
-		for _, h := range headers {
+		for _, param := range params {
 			opVal.Parameters = append(opVal.Parameters, openapi3.ParameterOrRef{
-				Parameter: h,
+				Parameter: param,
 			})
 		}
 
