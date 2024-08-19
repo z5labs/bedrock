@@ -43,6 +43,19 @@ builds:
     main: example/simple_queue/main.go
     binary: simple_queue
 
+  - id: simple_rest
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v3
+    main: example/simple_rest/main.go
+    binary: simple_rest
+
 dockers:
   - id: echo
     goos: linux
@@ -73,6 +86,25 @@ dockers:
       - "ghcr.io/z5labs/bedrock/example/simple_queue:latest"
       - "ghcr.io/z5labs/bedrock/example/simple_queue:{{ .Tag }}"
     dockerfile: example/simple_queue/Containerfile
+    use: docker
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64"
+
+  - id: simple_rest
+    goos: linux
+    goarch: amd64
+    goamd64: v3
+    ids:
+      - simple_rest
+    image_templates:
+      - "ghcr.io/z5labs/bedrock/example/simple_rest:latest"
+      - "ghcr.io/z5labs/bedrock/example/simple_rest:{{ .Tag }}"
+    dockerfile: example/simple_rest/Containerfile
     use: docker
     build_flag_templates:
       - "--pull"

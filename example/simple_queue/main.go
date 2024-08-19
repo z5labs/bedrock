@@ -13,6 +13,7 @@ import (
 	"os"
 
 	"github.com/z5labs/bedrock"
+	"github.com/z5labs/bedrock/pkg/app"
 	"github.com/z5labs/bedrock/pkg/config"
 	"github.com/z5labs/bedrock/queue"
 )
@@ -58,7 +59,7 @@ func initRuntime(ctx context.Context, cfg Config) (bedrock.App, error) {
 		processor,
 		queue.LogHandler(logHandler),
 	)
-	return rt, nil
+	return app.WithSignalNotifications(rt, os.Interrupt, os.Kill), nil
 }
 
 //go:embed config.yaml
