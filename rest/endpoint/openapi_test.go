@@ -14,11 +14,157 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/z5labs/bedrock/pkg/ptr"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/swaggest/openapi-go/openapi3"
 )
 
 func TestEndpoint_OpenApi(t *testing.T) {
+	t.Run("will set non-required header parameter", func(t *testing.T) {
+		t.Run("if a header is provided with the Headers option", func(t *testing.T) {
+			method := strings.ToLower(http.MethodPost)
+			pattern := "/"
+			header := Header{
+				Name:     "MyHeader",
+				Required: true,
+			}
+
+			e := New(
+				method,
+				pattern,
+				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
+					return Empty{}, nil
+				}),
+				Headers(header),
+			)
+
+			refSpec := &openapi3.Spec{
+				Openapi: "3.0.3",
+			}
+			e.OpenApi(refSpec)
+
+			b, err := json.Marshal(refSpec)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var spec openapi3.Spec
+			err = json.Unmarshal(b, &spec)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			pathItems := spec.Paths.MapOfPathItemValues
+			if !assert.Len(t, pathItems, 1) {
+				return
+			}
+			if !assert.Contains(t, pathItems, pattern) {
+				return
+			}
+
+			ops := pathItems[pattern].MapOfOperationValues
+			if !assert.Len(t, ops, 1) {
+				return
+			}
+			if !assert.Contains(t, ops, method) {
+				return
+			}
+
+			op := ops[method]
+			params := op.Parameters
+			if !assert.Len(t, params, 1) {
+				return
+			}
+
+			param := params[0].Parameter
+			if !assert.NotNil(t, param) {
+				return
+			}
+			if !assert.Equal(t, openapi3.ParameterInHeader, param.In) {
+				return
+			}
+			if !assert.Equal(t, header.Name, param.Name) {
+				return
+			}
+			if !assert.Equal(t, header.Required, ptr.Deref(param.Required)) {
+				return
+			}
+		})
+	})
+
+	t.Run("will set required header parameter", func(t *testing.T) {
+		t.Run("if a header is provided with the Headers option", func(t *testing.T) {
+			method := strings.ToLower(http.MethodPost)
+			pattern := "/"
+			header := Header{
+				Name:     "MyHeader",
+				Required: true,
+			}
+
+			e := New(
+				method,
+				pattern,
+				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
+					return Empty{}, nil
+				}),
+				Headers(header),
+			)
+
+			refSpec := &openapi3.Spec{
+				Openapi: "3.0.3",
+			}
+			e.OpenApi(refSpec)
+
+			b, err := json.Marshal(refSpec)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var spec openapi3.Spec
+			err = json.Unmarshal(b, &spec)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			pathItems := spec.Paths.MapOfPathItemValues
+			if !assert.Len(t, pathItems, 1) {
+				return
+			}
+			if !assert.Contains(t, pathItems, pattern) {
+				return
+			}
+
+			ops := pathItems[pattern].MapOfOperationValues
+			if !assert.Len(t, ops, 1) {
+				return
+			}
+			if !assert.Contains(t, ops, method) {
+				return
+			}
+
+			op := ops[method]
+			params := op.Parameters
+			if !assert.Len(t, params, 1) {
+				return
+			}
+
+			param := params[0].Parameter
+			if !assert.NotNil(t, param) {
+				return
+			}
+			if !assert.Equal(t, openapi3.ParameterInHeader, param.In) {
+				return
+			}
+			if !assert.Equal(t, header.Name, param.Name) {
+				return
+			}
+			if !assert.Equal(t, header.Required, ptr.Deref(param.Required)) {
+				return
+			}
+		})
+	})
+
 	t.Run("will set request body type", func(t *testing.T) {
 		t.Run("if the request type implements ContentTyper interface", func(t *testing.T) {
 			method := strings.ToLower(http.MethodPost)

@@ -12,6 +12,7 @@ import (
 func setOpenApiSpec(o *options) func(*openapi3.Spec) {
 	return compose(
 		addSchemas(o.schemas),
+		addHeaders(o.method, o.pattern, o.headers...),
 		addRequestBody(o.method, o.pattern, o.request),
 		addResponses(o.method, o.pattern, o.responses),
 	)
@@ -50,6 +51,41 @@ func addSchemas(schemas map[string]*openapi3.Schema) func(*openapi3.Spec) {
 				Schema: schema,
 			}
 		}
+	}
+}
+
+func addHeaders(method, pattern string, headers ...*openapi3.Parameter) func(*openapi3.Spec) {
+	return func(s *openapi3.Spec) {
+		if len(headers) == 0 {
+			return
+		}
+
+		if s.Paths.MapOfPathItemValues == nil {
+			s.Paths.MapOfPathItemValues = make(map[string]openapi3.PathItem)
+		}
+
+		pathItemVals := s.Paths.MapOfPathItemValues
+		pathItem, ok := pathItemVals[pattern]
+		if !ok {
+			pathItem = openapi3.PathItem{
+				MapOfOperationValues: make(map[string]openapi3.Operation),
+			}
+		}
+
+		opVals := pathItem.MapOfOperationValues
+		opVal, ok := opVals[method]
+		if !ok {
+			opVal = openapi3.Operation{}
+		}
+
+		for _, h := range headers {
+			opVal.Parameters = append(opVal.Parameters, openapi3.ParameterOrRef{
+				Parameter: h,
+			})
+		}
+
+		opVals[method] = opVal
+		pathItemVals[pattern] = pathItem
 	}
 }
 

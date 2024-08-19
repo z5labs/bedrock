@@ -101,6 +101,11 @@ func Headers(hs ...Header) Option {
 				In:       openapi3.ParameterInHeader,
 				Name:     h.Name,
 				Required: ptr.Ref(h.Required),
+				Schema: &openapi3.SchemaOrRef{
+					Schema: &openapi3.Schema{
+						Type: ptr.Ref(openapi3.SchemaTypeString),
+					},
+				},
 			})
 
 			o.validators = append(o.validators, validateHeader(h))
