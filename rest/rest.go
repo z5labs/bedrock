@@ -17,6 +17,7 @@ import (
 	"github.com/z5labs/bedrock/rest/endpoint"
 
 	"github.com/swaggest/openapi-go/openapi3"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -34,12 +35,16 @@ func ListenOn(port uint) Option {
 	}
 }
 
-// Endpoint
+// Endpoint registers the provided [endpoint.Endpoint] with both
+// the App wide OpenAPI Spec and with the App wide HTTP Server.
 func Endpoint[Req, Resp any](e *endpoint.Endpoint[Req, Resp]) Option {
 	return func(app *App) {
 		e.OpenApi(app.spec)
 
-		app.mux.Handle(e.Pattern(), e)
+		app.mux.Handle(
+			e.Pattern(),
+			otelhttp.WithRouteTag(e.Pattern(), e),
+		)
 	}
 }
 
@@ -90,7 +95,11 @@ func (app *App) Run(ctx context.Context) error {
 	}()
 
 	httpServer := &http.Server{
-		Handler: app.mux,
+		Handler: otelhttp.NewHandler(
+			app.mux,
+			"server",
+			otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
+		),
 	}
 
 	eg, egctx := errgroup.WithContext(ctx)
