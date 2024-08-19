@@ -53,7 +53,6 @@ type options struct {
 	schemas     map[string]*openapi3.Schema
 	headers     []*openapi3.Parameter
 	queryParams []*openapi3.Parameter
-	pathParams  []*openapi3.Parameter
 	request     *openapi3.RequestBody
 	responses   *openapi3.Responses
 }

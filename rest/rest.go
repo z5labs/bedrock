@@ -83,7 +83,7 @@ func (app *App) Run(ctx context.Context) error {
 		return err
 	}
 	app.mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		io.Copy(w, bytes.NewReader(spec))
+		_, _ = io.Copy(w, bytes.NewReader(spec))
 	})
 
 	ls, err := app.listen("tcp", fmt.Sprintf(":%d", app.port))
