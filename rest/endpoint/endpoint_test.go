@@ -80,6 +80,98 @@ func (FailMarshalBinary) MarshalBinary() ([]byte, error) {
 	return nil, errMarshalBinary
 }
 
+func TestGet(t *testing.T) {
+	t.Run("will return 405 http status code", func(t *testing.T) {
+		t.Run("if a non GET method is used to call its returned endpoint", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				noopHandler{},
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
+				return
+			}
+		})
+	})
+}
+
+func TestPost(t *testing.T) {
+	t.Run("will return 405 http status code", func(t *testing.T) {
+		t.Run("if a non POST method is used to call its returned endpoint", func(t *testing.T) {
+			pattern := "/"
+
+			e := Post(
+				pattern,
+				noopHandler{},
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
+				return
+			}
+		})
+	})
+}
+
+func TestPut(t *testing.T) {
+	t.Run("will return 405 http status code", func(t *testing.T) {
+		t.Run("if a non PUT method is used to call its returned endpoint", func(t *testing.T) {
+			pattern := "/"
+
+			e := Put(
+				pattern,
+				noopHandler{},
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
+				return
+			}
+		})
+	})
+}
+
+func TestDelete(t *testing.T) {
+	t.Run("will return 405 http status code", func(t *testing.T) {
+		t.Run("if a non DELETE method is used to call its returned endpoint", func(t *testing.T) {
+			pattern := "/"
+
+			e := Delete(
+				pattern,
+				noopHandler{},
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
+				return
+			}
+		})
+	})
+}
+
 func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return the default success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler succeeds with an empty response", func(t *testing.T) {
@@ -132,6 +224,131 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, "hello, world", jsonResp.Value) {
+				return
+			}
+		})
+	})
+
+	t.Run("will inject path params", func(t *testing.T) {
+		t.Run("if a valid http.ServeMux path param pattern is used", func(t *testing.T) {
+			pattern := "/{id}"
+
+			e := Get(
+				pattern,
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
+					v := PathValue(ctx, "id")
+					return JsonContent{Value: v}, nil
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/abc123", nil)
+
+			// for path params a http.ServeMux must be used since
+			// Endpoint doesn't support it directly
+			mux := http.NewServeMux()
+			mux.Handle(pattern, e)
+			mux.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var jsonResp JsonContent
+			err = json.Unmarshal(b, &jsonResp)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "abc123", jsonResp.Value) {
+				return
+			}
+		})
+	})
+
+	t.Run("will inject headers", func(t *testing.T) {
+		t.Run("if a header is configured with the Headers option", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
+					v := HeaderValue(ctx, "test-header")
+					return JsonContent{Value: v}, nil
+				}),
+				Headers(Header{
+					Name: "test-header",
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r.Header.Set("test-header", "hello, world")
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var jsonResp JsonContent
+			err = json.Unmarshal(b, &jsonResp)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "hello, world", jsonResp.Value) {
+				return
+			}
+		})
+	})
+
+	t.Run("will inject query params", func(t *testing.T) {
+		t.Run("if a query param is configured with the QueryParams option", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
+					v := QueryValue(ctx, "test-query")
+					return JsonContent{Value: v}, nil
+				}),
+				QueryParams(QueryParam{
+					Name: "test-query",
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern+"?test-query=abc123", nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var jsonResp JsonContent
+			err = json.Unmarshal(b, &jsonResp)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "abc123", jsonResp.Value) {
 				return
 			}
 		})

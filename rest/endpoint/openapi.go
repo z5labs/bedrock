@@ -12,6 +12,7 @@ import (
 func setOpenApiSpec(o *options) func(*openapi3.Spec) {
 	return compose(
 		addSchemas(o.schemas),
+		addParameters(o.method, o.pattern, o.pathParams...),
 		addParameters(o.method, o.pattern, o.headers...),
 		addParameters(o.method, o.pattern, o.queryParams...),
 		addRequestBody(o.method, o.pattern, o.request),

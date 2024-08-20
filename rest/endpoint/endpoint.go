@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/z5labs/bedrock/pkg/ptr"
 
@@ -51,6 +52,7 @@ type options struct {
 	errHandler        ErrorHandler
 
 	schemas     map[string]*openapi3.Schema
+	pathParams  []*openapi3.Parameter
 	headers     []*openapi3.Parameter
 	queryParams []*openapi3.Parameter
 	request     *openapi3.RequestBody
@@ -82,6 +84,55 @@ const DefaultStatusCode = http.StatusOK
 func StatusCode(statusCode int) Option {
 	return func(ho *options) {
 		ho.defaultStatusCode = statusCode
+	}
+}
+
+type pathParam struct {
+	name string
+}
+
+func parsePathParams(s string) []pathParam {
+	var params []pathParam
+	var found bool
+	for {
+		if len(s) == 0 {
+			return params
+		}
+
+		_, s, found = strings.Cut(s, "{")
+		if !found {
+			return params
+		}
+
+		i := strings.IndexByte(s, '}')
+		if i == -1 {
+			return params
+		}
+
+		param := s[:i]
+		s = s[i:]
+
+		name := strings.TrimSuffix(param, ".")
+		params = append(params, pathParam{
+			name: name,
+		})
+	}
+}
+
+func pathParams(ps ...pathParam) Option {
+	return func(o *options) {
+		for _, p := range ps {
+			o.pathParams = append(o.pathParams, &openapi3.Parameter{
+				In:       openapi3.ParameterInPath,
+				Name:     p.name,
+				Required: ptr.Ref(true),
+				Schema: &openapi3.SchemaOrRef{
+					Schema: &openapi3.Schema{
+						Type: ptr.Ref(openapi3.SchemaTypeString),
+					},
+				},
+			})
+		}
 	}
 }
 
@@ -270,6 +321,7 @@ func (f errorHandlerFunc) HandleError(w http.ResponseWriter, err error) {
 	f(w, err)
 }
 
+// DefaultErrorStatusCode
 const DefaultErrorStatusCode = http.StatusInternalServerError
 
 // New initializes an Endpoint.
@@ -287,6 +339,26 @@ func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp
 		schemas: make(map[string]*openapi3.Schema),
 	}
 
+	for _, opt := range withBuiltinOptions[Req, Resp](pattern, opts...) {
+		opt(o)
+	}
+
+	return &Endpoint[Req, Resp]{
+		method:     method,
+		pattern:    pattern,
+		injectors:  initInjectors(o),
+		validators: o.validators,
+		statusCode: o.defaultStatusCode,
+		handler:    handler,
+		errHandler: o.errHandler,
+		openapi:    setOpenApiSpec(o),
+	}
+}
+
+func withBuiltinOptions[Req, Resp any](pattern string, opts ...Option) []Option {
+	parsedPathParams := parsePathParams(pattern)
+	opts = append(opts, pathParams(parsedPathParams...))
+
 	var req Req
 	if _, ok := any(req).(ContentTyper); ok {
 		opts = append(opts, Accepts[Req]())
@@ -303,28 +375,21 @@ func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp
 		})
 	}
 
-	for _, opt := range opts {
-		opt(o)
-	}
+	return opts
+}
 
+func initInjectors(o *options) []injector {
 	injectors := []injector{injectResponseHeaders}
+	for _, p := range o.pathParams {
+		injectors = append(injectors, injectPathParam(p.Name))
+	}
 	if len(o.headers) > 0 {
 		injectors = append(injectors, injectHeaders)
 	}
 	if len(o.queryParams) > 0 {
 		injectors = append(injectors, injectQueryParams)
 	}
-
-	return &Endpoint[Req, Resp]{
-		method:     method,
-		pattern:    pattern,
-		injectors:  injectors,
-		validators: o.validators,
-		statusCode: o.defaultStatusCode,
-		handler:    handler,
-		errHandler: o.errHandler,
-		openapi:    setOpenApiSpec(o),
-	}
+	return injectors
 }
 
 // Get returns an Endpoint configured for handling HTTP GET requests.
