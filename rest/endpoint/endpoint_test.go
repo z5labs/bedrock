@@ -137,6 +137,131 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 	})
 
+	t.Run("will inject path params", func(t *testing.T) {
+		t.Run("if a valid http.ServeMux path param pattern is used", func(t *testing.T) {
+			pattern := "/{id}"
+
+			e := Get(
+				pattern,
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
+					v := PathValue(ctx, "id")
+					return JsonContent{Value: v}, nil
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/abc123", nil)
+
+			// for path params a http.ServeMux must be used since
+			// Endpoint doesn't support it directly
+			mux := http.NewServeMux()
+			mux.Handle(pattern, e)
+			mux.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var jsonResp JsonContent
+			err = json.Unmarshal(b, &jsonResp)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "abc123", jsonResp.Value) {
+				return
+			}
+		})
+	})
+
+	t.Run("will inject headers", func(t *testing.T) {
+		t.Run("if a header is configured with the Headers option", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
+					v := HeaderValue(ctx, "test-header")
+					return JsonContent{Value: v}, nil
+				}),
+				Headers(Header{
+					Name: "test-header",
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r.Header.Set("test-header", "hello, world")
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var jsonResp JsonContent
+			err = json.Unmarshal(b, &jsonResp)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "hello, world", jsonResp.Value) {
+				return
+			}
+		})
+	})
+
+	t.Run("will inject query params", func(t *testing.T) {
+		t.Run("if a query param is configured with the QueryParams option", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
+					v := QueryValue(ctx, "test-query")
+					return JsonContent{Value: v}, nil
+				}),
+				QueryParams(QueryParam{
+					Name: "test-query",
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern+"?test-query=abc123", nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var jsonResp JsonContent
+			err = json.Unmarshal(b, &jsonResp)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "abc123", jsonResp.Value) {
+				return
+			}
+		})
+	})
+
 	t.Run("will return custom success http status code", func(t *testing.T) {
 		t.Run("if the StatusCode option is used and the underlying Handler succeeds with an empty response", func(t *testing.T) {
 			pattern := "/"
