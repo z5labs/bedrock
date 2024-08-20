@@ -321,10 +321,41 @@ func (f errorHandlerFunc) HandleError(w http.ResponseWriter, err error) {
 	f(w, err)
 }
 
+// DefaultErrorStatusCode
 const DefaultErrorStatusCode = http.StatusInternalServerError
 
 // New initializes an Endpoint.
 func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
+	o := &options{
+		method:            method,
+		pattern:           pattern,
+		defaultStatusCode: DefaultStatusCode,
+		validators: []func(*http.Request) error{
+			validateMethod(method),
+		},
+		errHandler: errorHandlerFunc(func(w http.ResponseWriter, err error) {
+			w.WriteHeader(DefaultErrorStatusCode)
+		}),
+		schemas: make(map[string]*openapi3.Schema),
+	}
+
+	for _, opt := range withBuiltinOptions[Req, Resp](pattern, opts...) {
+		opt(o)
+	}
+
+	return &Endpoint[Req, Resp]{
+		method:     method,
+		pattern:    pattern,
+		injectors:  initInjectors(o),
+		validators: o.validators,
+		statusCode: o.defaultStatusCode,
+		handler:    handler,
+		errHandler: o.errHandler,
+		openapi:    setOpenApiSpec(o),
+	}
+}
+
+func withBuiltinOptions[Req, Resp any](pattern string, opts ...Option) []Option {
 	parsedPathParams := parsePathParams(pattern)
 	opts = append(opts, pathParams(parsedPathParams...))
 
@@ -344,26 +375,13 @@ func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp
 		})
 	}
 
-	o := &options{
-		method:            method,
-		pattern:           pattern,
-		defaultStatusCode: DefaultStatusCode,
-		validators: []func(*http.Request) error{
-			validateMethod(method),
-		},
-		errHandler: errorHandlerFunc(func(w http.ResponseWriter, err error) {
-			w.WriteHeader(DefaultErrorStatusCode)
-		}),
-		schemas: make(map[string]*openapi3.Schema),
-	}
+	return opts
+}
 
-	for _, opt := range opts {
-		opt(o)
-	}
-
+func initInjectors(o *options) []injector {
 	injectors := []injector{injectResponseHeaders}
-	for _, p := range parsedPathParams {
-		injectors = append(injectors, injectPathParam(p.name))
+	for _, p := range o.pathParams {
+		injectors = append(injectors, injectPathParam(p.Name))
 	}
 	if len(o.headers) > 0 {
 		injectors = append(injectors, injectHeaders)
@@ -371,17 +389,7 @@ func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp
 	if len(o.queryParams) > 0 {
 		injectors = append(injectors, injectQueryParams)
 	}
-
-	return &Endpoint[Req, Resp]{
-		method:     method,
-		pattern:    pattern,
-		injectors:  injectors,
-		validators: o.validators,
-		statusCode: o.defaultStatusCode,
-		handler:    handler,
-		errHandler: o.errHandler,
-		openapi:    setOpenApiSpec(o),
-	}
+	return injectors
 }
 
 // Get returns an Endpoint configured for handling HTTP GET requests.
