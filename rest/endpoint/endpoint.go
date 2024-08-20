@@ -66,7 +66,7 @@ type Endpoint[Req, Resp any] struct {
 	pattern string
 
 	validators []func(*http.Request) error
-	injectors  []func(context.Context, *http.Request) context.Context
+	injectors  []injector
 
 	statusCode int
 	handler    Handler[Req, Resp]
@@ -307,7 +307,7 @@ func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp
 		opt(o)
 	}
 
-	var injectors []func(context.Context, *http.Request) context.Context
+	injectors := []injector{injectResponseHeaders}
 	if len(o.headers) > 0 {
 		injectors = append(injectors, injectHeaders)
 	}
@@ -365,7 +365,7 @@ func (e *Endpoint[Req, Resp]) OpenApi(spec *openapi3.Spec) {
 
 // ServeHTTP implements the [http.Handler] interface.
 func (e *Endpoint[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := inject(r.Context(), r, e.injectors...)
+	ctx := inject(r.Context(), w, r, e.injectors...)
 
 	err := validateRequest(r, e.validators...)
 	if err != nil {
@@ -402,6 +402,10 @@ func (e *Endpoint[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		e.handleError(w, r, err)
 		return
+	}
+
+	if ct, ok := any(resp).(ContentTyper); ok {
+		w.Header().Set("Content-Type", ct.ContentType())
 	}
 
 	w.WriteHeader(e.statusCode)

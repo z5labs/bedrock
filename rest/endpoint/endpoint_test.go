@@ -510,4 +510,69 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("will return response header", func(t *testing.T) {
+		t.Run("if the response body implements ContentTyper", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
+					return JsonContent{Value: "hello, world"}, nil
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+			if !assert.Equal(t, JsonContent{}.ContentType(), resp.Header.Get("Content-Type")) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var content JsonContent
+			err = json.Unmarshal(b, &content)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "hello, world", content.Value) {
+				return
+			}
+		})
+
+		t.Run("if the underlying Handler sets a custom response header using the context", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				HandlerFunc[Empty, Empty](func(ctx context.Context, _ Empty) (Empty, error) {
+					SetResponseHeader(ctx, "Content-Type", "test-content-type")
+					return Empty{}, nil
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+			if !assert.Equal(t, "test-content-type", resp.Header.Get("Content-Type")) {
+				return
+			}
+		})
+	})
 }
