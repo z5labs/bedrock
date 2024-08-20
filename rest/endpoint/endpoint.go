@@ -156,6 +156,12 @@ func Accepts[Req any]() Option {
 		var req Req
 		if ct, ok := any(req).(ContentTyper); ok {
 			contentType = ct.ContentType()
+
+			o.validators = append(o.validators, validateHeader(Header{
+				Name:     "Content-Type",
+				Pattern:  fmt.Sprintf("^%s$", contentType),
+				Required: true,
+			}))
 		}
 
 		var reflector jsonschema.Reflector

@@ -398,6 +398,28 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 		})
 
+		t.Run("if the request content type header does not match the content type from ContentTyper", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ JsonContent) (Empty, error) {
+					return Empty{}, nil
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r.Header.Add("Content-Type", "application/xml")
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+				return
+			}
+		})
+
 		t.Run("if the request body fails to unmarshal", func(t *testing.T) {
 			pattern := "/"
 
