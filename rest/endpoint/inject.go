@@ -53,7 +53,6 @@ func QueryValue(ctx context.Context, name string) string {
 	if !ok {
 		return ""
 	}
-
 	return vals.Get(name)
 }
 
