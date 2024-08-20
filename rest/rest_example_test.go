@@ -73,7 +73,8 @@ func Example() {
 
 	app := NewApp(
 		listenOnRandomPort(addrCh),
-		Endpoint(
+		Handle(
+			"/",
 			endpoint.Post(
 				"/",
 				echoService{},
