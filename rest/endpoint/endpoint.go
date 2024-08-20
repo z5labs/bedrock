@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/z5labs/bedrock/pkg/ptr"
 
@@ -51,6 +52,7 @@ type options struct {
 	errHandler        ErrorHandler
 
 	schemas     map[string]*openapi3.Schema
+	pathParams  []*openapi3.Parameter
 	headers     []*openapi3.Parameter
 	queryParams []*openapi3.Parameter
 	request     *openapi3.RequestBody
@@ -82,6 +84,55 @@ const DefaultStatusCode = http.StatusOK
 func StatusCode(statusCode int) Option {
 	return func(ho *options) {
 		ho.defaultStatusCode = statusCode
+	}
+}
+
+type pathParam struct {
+	name string
+}
+
+func parsePathParams(s string) []pathParam {
+	var params []pathParam
+	var found bool
+	for {
+		if len(s) == 0 {
+			return params
+		}
+
+		_, s, found = strings.Cut(s, "{")
+		if !found {
+			return params
+		}
+
+		i := strings.IndexByte(s, '}')
+		if i == -1 {
+			return params
+		}
+
+		param := s[:i]
+		s = s[i:]
+
+		name := strings.TrimSuffix(param, ".")
+		params = append(params, pathParam{
+			name: name,
+		})
+	}
+}
+
+func pathParams(ps ...pathParam) Option {
+	return func(o *options) {
+		for _, p := range ps {
+			o.pathParams = append(o.pathParams, &openapi3.Parameter{
+				In:       openapi3.ParameterInPath,
+				Name:     p.name,
+				Required: ptr.Ref(true),
+				Schema: &openapi3.SchemaOrRef{
+					Schema: &openapi3.Schema{
+						Type: ptr.Ref(openapi3.SchemaTypeString),
+					},
+				},
+			})
+		}
 	}
 }
 
@@ -274,18 +325,8 @@ const DefaultErrorStatusCode = http.StatusInternalServerError
 
 // New initializes an Endpoint.
 func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
-	o := &options{
-		method:            method,
-		pattern:           pattern,
-		defaultStatusCode: DefaultStatusCode,
-		validators: []func(*http.Request) error{
-			validateMethod(method),
-		},
-		errHandler: errorHandlerFunc(func(w http.ResponseWriter, err error) {
-			w.WriteHeader(DefaultErrorStatusCode)
-		}),
-		schemas: make(map[string]*openapi3.Schema),
-	}
+	parsedPathParams := parsePathParams(pattern)
+	opts = append(opts, pathParams(parsedPathParams...))
 
 	var req Req
 	if _, ok := any(req).(ContentTyper); ok {
@@ -303,11 +344,27 @@ func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp
 		})
 	}
 
+	o := &options{
+		method:            method,
+		pattern:           pattern,
+		defaultStatusCode: DefaultStatusCode,
+		validators: []func(*http.Request) error{
+			validateMethod(method),
+		},
+		errHandler: errorHandlerFunc(func(w http.ResponseWriter, err error) {
+			w.WriteHeader(DefaultErrorStatusCode)
+		}),
+		schemas: make(map[string]*openapi3.Schema),
+	}
+
 	for _, opt := range opts {
 		opt(o)
 	}
 
 	injectors := []injector{injectResponseHeaders}
+	for _, p := range parsedPathParams {
+		injectors = append(injectors, injectPathParam(p.name))
+	}
 	if len(o.headers) > 0 {
 		injectors = append(injectors, injectHeaders)
 	}
