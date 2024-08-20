@@ -14,8 +14,6 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/z5labs/bedrock/rest/endpoint"
-
 	"github.com/swaggest/openapi-go/openapi3"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/sync/errgroup"
@@ -35,15 +33,23 @@ func ListenOn(port uint) Option {
 	}
 }
 
-// Endpoint registers the provided [endpoint.Endpoint] with both
-// the App wide OpenAPI Spec and with the App wide HTTP Server.
-func Endpoint[Req, Resp any](e *endpoint.Endpoint[Req, Resp]) Option {
+// Handler represents anything that can handle HTTP requests
+// and provide OpenAPI documentation for itself.
+type Handler interface {
+	http.Handler
+
+	OpenApi(*openapi3.Spec)
+}
+
+// Handler registers the provider [Handler] with both
+// the App wide OpenAPI spec and the App wide HTTP server.
+func Handle(pattern string, h Handler) Option {
 	return func(app *App) {
-		e.OpenApi(app.spec)
+		h.OpenApi(app.spec)
 
 		app.mux.Handle(
-			e.Pattern(),
-			otelhttp.WithRouteTag(e.Pattern(), e),
+			pattern,
+			otelhttp.WithRouteTag(pattern, h),
 		)
 	}
 }
