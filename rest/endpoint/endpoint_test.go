@@ -80,6 +80,98 @@ func (FailMarshalBinary) MarshalBinary() ([]byte, error) {
 	return nil, errMarshalBinary
 }
 
+func TestGet(t *testing.T) {
+	t.Run("will return 405 http status code", func(t *testing.T) {
+		t.Run("if a non GET method is used to call its returned endpoint", func(t *testing.T) {
+			pattern := "/"
+
+			e := Get(
+				pattern,
+				noopHandler{},
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
+				return
+			}
+		})
+	})
+}
+
+func TestPost(t *testing.T) {
+	t.Run("will return 405 http status code", func(t *testing.T) {
+		t.Run("if a non POST method is used to call its returned endpoint", func(t *testing.T) {
+			pattern := "/"
+
+			e := Post(
+				pattern,
+				noopHandler{},
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
+				return
+			}
+		})
+	})
+}
+
+func TestPut(t *testing.T) {
+	t.Run("will return 405 http status code", func(t *testing.T) {
+		t.Run("if a non PUT method is used to call its returned endpoint", func(t *testing.T) {
+			pattern := "/"
+
+			e := Put(
+				pattern,
+				noopHandler{},
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
+				return
+			}
+		})
+	})
+}
+
+func TestDelete(t *testing.T) {
+	t.Run("will return 405 http status code", func(t *testing.T) {
+		t.Run("if a non DELETE method is used to call its returned endpoint", func(t *testing.T) {
+			pattern := "/"
+
+			e := Delete(
+				pattern,
+				noopHandler{},
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
+				return
+			}
+		})
+	})
+}
+
 func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return the default success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler succeeds with an empty response", func(t *testing.T) {
