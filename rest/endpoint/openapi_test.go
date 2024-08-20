@@ -21,6 +21,73 @@ import (
 )
 
 func TestEndpoint_OpenApi(t *testing.T) {
+	t.Run("will required path parameter", func(t *testing.T) {
+		t.Run("if a http.ServeMux path parameter pattern is used", func(t *testing.T) {
+			method := strings.ToLower(http.MethodPost)
+			pattern := "/{id}"
+
+			e := New(
+				method,
+				pattern,
+				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
+					return Empty{}, nil
+				}),
+			)
+
+			refSpec := &openapi3.Spec{
+				Openapi: "3.0.3",
+			}
+			e.OpenApi(refSpec)
+
+			b, err := json.Marshal(refSpec)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var spec openapi3.Spec
+			err = json.Unmarshal(b, &spec)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			pathItems := spec.Paths.MapOfPathItemValues
+			if !assert.Len(t, pathItems, 1) {
+				return
+			}
+			if !assert.Contains(t, pathItems, pattern) {
+				return
+			}
+
+			ops := pathItems[pattern].MapOfOperationValues
+			if !assert.Len(t, ops, 1) {
+				return
+			}
+			if !assert.Contains(t, ops, method) {
+				return
+			}
+
+			op := ops[method]
+			params := op.Parameters
+			if !assert.Len(t, params, 1) {
+				return
+			}
+
+			param := params[0].Parameter
+			if !assert.NotNil(t, param) {
+				return
+			}
+			if !assert.Equal(t, openapi3.ParameterInPath, param.In) {
+				return
+			}
+			if !assert.Equal(t, "id", param.Name) {
+				return
+			}
+			if !assert.True(t, ptr.Deref(param.Required)) {
+				return
+			}
+		})
+	})
+
 	t.Run("will set non-required header parameter", func(t *testing.T) {
 		t.Run("if a header is provided with the Headers option", func(t *testing.T) {
 			method := strings.ToLower(http.MethodPost)
