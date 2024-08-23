@@ -40,18 +40,6 @@ func (x JsonContent) MarshalBinary() ([]byte, error) {
 	return json.Marshal(x)
 }
 
-type httpError struct {
-	status int
-}
-
-func (httpError) Error() string {
-	return ""
-}
-
-func (e httpError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(e.status)
-}
-
 type FailUnmarshalBinary struct{}
 
 var errUnmarshalBinary = errors.New("failed to unmarshal from binary")
@@ -355,30 +343,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 		})
 
-		t.Run("if the underlying error implements http.Handler", func(t *testing.T) {
-			errStatusCode := http.StatusServiceUnavailable
-			if !assert.NotEqual(t, DefaultErrorStatusCode, errStatusCode) {
-				return
-			}
-
-			e := New(
-				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
-					return Empty{}, httpError{status: errStatusCode}
-				}),
-			)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
-
-			e.ServeHTTP(w, r)
-
-			resp := w.Result()
-			if !assert.Equal(t, errStatusCode, resp.StatusCode) {
-				return
-			}
-		})
-
 		t.Run("if a required http header is missing", func(t *testing.T) {
+			var caughtError error
 			e := New(
 				noopHandler{},
 				Headers(
@@ -387,6 +353,11 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Required: true,
 					},
 				),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
@@ -395,12 +366,21 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var herr MissingRequiredHeaderError
+			if !assert.ErrorAs(t, caughtError, &herr) {
+				return
+			}
+			if !assert.NotEmpty(t, herr.Error()) {
 				return
 			}
 		})
 
 		t.Run("if a http header does not match its expected pattern", func(t *testing.T) {
+			var caughtError error
 			e := New(
 				noopHandler{},
 				Headers(
@@ -409,6 +389,11 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Pattern: "^[a-zA-Z]*$",
 					},
 				),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
@@ -418,12 +403,21 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var herr InvalidHeaderError
+			if !assert.ErrorAs(t, caughtError, &herr) {
+				return
+			}
+			if !assert.NotEmpty(t, herr.Error()) {
 				return
 			}
 		})
 
 		t.Run("if a required query param is missing", func(t *testing.T) {
+			var caughtError error
 			e := New(
 				noopHandler{},
 				QueryParams(
@@ -432,6 +426,11 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Required: true,
 					},
 				),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
@@ -440,12 +439,21 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var qerr MissingRequiredQueryParamError
+			if !assert.ErrorAs(t, caughtError, &qerr) {
+				return
+			}
+			if !assert.NotEmpty(t, qerr.Error()) {
 				return
 			}
 		})
 
 		t.Run("if a query param does not match its expected pattern", func(t *testing.T) {
+			var caughtError error
 			e := New(
 				noopHandler{},
 				QueryParams(
@@ -454,6 +462,11 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Pattern: "^[a-zA-Z]*$",
 					},
 				),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
@@ -462,16 +475,30 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var qerr InvalidQueryParamError
+			if !assert.ErrorAs(t, caughtError, &qerr) {
+				return
+			}
+			if !assert.NotEmpty(t, qerr.Error()) {
 				return
 			}
 		})
 
 		t.Run("if the request content type header does not match the content type from ContentTyper", func(t *testing.T) {
+			var caughtError error
 			e := New(
 				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ JsonContent) (Empty, error) {
 					return Empty{}, nil
 				}),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
@@ -481,7 +508,15 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var herr InvalidHeaderError
+			if !assert.ErrorAs(t, caughtError, &herr) {
+				return
+			}
+			if !assert.NotEmpty(t, herr.Error()) {
 				return
 			}
 		})

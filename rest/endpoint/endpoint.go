@@ -351,26 +351,26 @@ func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request
 
 	err := validateRequest(r, op.validators...)
 	if err != nil {
-		op.handleError(w, r, err)
+		op.errHandler.HandleError(w, err)
 		return
 	}
 
 	var req Req
 	err = unmarshal(r.Body, &req)
 	if err != nil {
-		op.handleError(w, r, err)
+		op.errHandler.HandleError(w, err)
 		return
 	}
 
 	err = validate(req)
 	if err != nil {
-		op.handleError(w, r, err)
+		op.errHandler.HandleError(w, err)
 		return
 	}
 
 	resp, err := op.handler.Handle(ctx, req)
 	if err != nil {
-		op.handleError(w, r, err)
+		op.errHandler.HandleError(w, err)
 		return
 	}
 
@@ -382,7 +382,7 @@ func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request
 
 	b, err := bm.MarshalBinary()
 	if err != nil {
-		op.handleError(w, r, err)
+		op.errHandler.HandleError(w, err)
 		return
 	}
 
@@ -393,18 +393,9 @@ func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(op.statusCode)
 	_, err = io.Copy(w, bytes.NewReader(b))
 	if err != nil {
-		op.handleError(w, r, err)
+		op.errHandler.HandleError(w, err)
 		return
 	}
-}
-
-func (op *Operation[Req, Resp]) handleError(w http.ResponseWriter, r *http.Request, err error) {
-	if h, ok := err.(http.Handler); ok {
-		h.ServeHTTP(w, r)
-		return
-	}
-
-	op.errHandler.HandleError(w, err)
 }
 
 func unmarshal[Req any](r io.ReadCloser, req *Req) error {

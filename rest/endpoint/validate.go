@@ -31,11 +31,6 @@ func (e InvalidHeaderError) Error() string {
 	return fmt.Sprintf("received invalid header for endpoint: %s", e.Header)
 }
 
-// ServeHTTP implements the [http.Handler] interface.
-func (InvalidHeaderError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusBadRequest)
-}
-
 // MissingRequiredHeaderError
 type MissingRequiredHeaderError struct {
 	Header string
@@ -44,11 +39,6 @@ type MissingRequiredHeaderError struct {
 // Error implements the [error] interface.
 func (e MissingRequiredHeaderError) Error() string {
 	return fmt.Sprintf("missing required header for endpoint: %s", e.Header)
-}
-
-// ServeHTTP implements the [http.Handler] interface.
-func (MissingRequiredHeaderError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusBadRequest)
 }
 
 func validateHeader(h Header) func(*http.Request) error {
@@ -82,11 +72,6 @@ func (e InvalidQueryParamError) Error() string {
 	return fmt.Sprintf("received invalid query param for endpoint: %s", e.Param)
 }
 
-// ServeHTTP implements the [http.Handler] interface.
-func (InvalidQueryParamError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusBadRequest)
-}
-
 // MissingRequiredQueryParamError
 type MissingRequiredQueryParamError struct {
 	Param string
@@ -95,11 +80,6 @@ type MissingRequiredQueryParamError struct {
 // Error implements the [error] interface.
 func (e MissingRequiredQueryParamError) Error() string {
 	return fmt.Sprintf("missing required query param for endpoint: %s", e.Param)
-}
-
-// ServeHTTP implements the [http.Handler] interface.
-func (MissingRequiredQueryParamError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusBadRequest)
 }
 
 func validateQueryParam(qp QueryParam) func(*http.Request) error {
