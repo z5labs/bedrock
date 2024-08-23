@@ -39,10 +39,9 @@ func Init(ctx context.Context, cfg Config) (bedrock.App, error) {
 
 	restApp := rest.NewApp(
 		rest.ListenOn(cfg.Http.Port),
-		rest.Handle(
-			"/echo",
-			endpoint.Post(
-				"/echo",
+		rest.Endpoint(
+			"POST /echo",
+			endpoint.New(
 				echoService,
 				endpoint.Headers(
 					endpoint.Header{
