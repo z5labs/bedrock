@@ -8,6 +8,7 @@ package app
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 
 	"github.com/z5labs/bedrock"
@@ -40,8 +41,9 @@ func Init(ctx context.Context, cfg Config) (bedrock.App, error) {
 	restApp := rest.NewApp(
 		rest.ListenOn(cfg.Http.Port),
 		rest.Endpoint(
-			"POST /echo",
-			endpoint.New(
+			http.MethodPost,
+			"/echo",
+			endpoint.NewOperation(
 				echoService,
 				endpoint.Headers(
 					endpoint.Header{

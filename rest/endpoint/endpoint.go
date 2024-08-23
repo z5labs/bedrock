@@ -48,7 +48,7 @@ type options struct {
 	validators        []func(*http.Request) error
 	errHandler        ErrorHandler
 
-	openapi *openapi3.Operation
+	openapi openapi3.Operation
 }
 
 // Option
@@ -64,7 +64,7 @@ type Operation[Req, Resp any] struct {
 
 	errHandler ErrorHandler
 
-	openapi *openapi3.Operation
+	openapi openapi3.Operation
 }
 
 const DefaultStatusCode = http.StatusOK
@@ -271,8 +271,8 @@ func (f errorHandlerFunc) HandleError(w http.ResponseWriter, err error) {
 // DefaultErrorStatusCode
 const DefaultErrorStatusCode = http.StatusInternalServerError
 
-// New initializes an Endpoint.
-func New[Req, Resp any](handler Handler[Req, Resp], opts ...Option) *Operation[Req, Resp] {
+// NewOperation initializes a Operation.
+func NewOperation[Req, Resp any](handler Handler[Req, Resp], opts ...Option) *Operation[Req, Resp] {
 	o := &options{
 		defaultStatusCode: DefaultStatusCode,
 		pathParams:        make(map[PathParam]struct{}),
@@ -281,7 +281,7 @@ func New[Req, Resp any](handler Handler[Req, Resp], opts ...Option) *Operation[R
 		errHandler: errorHandlerFunc(func(w http.ResponseWriter, err error) {
 			w.WriteHeader(DefaultErrorStatusCode)
 		}),
-		openapi: &openapi3.Operation{
+		openapi: openapi3.Operation{
 			Responses: openapi3.Responses{
 				MapOfResponseOrRefValues: make(map[string]openapi3.ResponseOrRef),
 			},
@@ -336,7 +336,7 @@ func initInjectors(o *options) []injector {
 	return injectors
 }
 
-func (op *Operation[Req, Resp]) OpenApi() *openapi3.Operation {
+func (op *Operation[Req, Resp]) OpenApi() openapi3.Operation {
 	return op.openapi
 }
 

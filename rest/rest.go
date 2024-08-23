@@ -38,19 +38,42 @@ func ListenOn(port uint) Option {
 type Operation interface {
 	http.Handler
 
-	OpenApi() *openapi3.Operation
+	OpenApi() openapi3.Operation
 }
 
 // Endpoint registers the [Operation] with both
 // the App wide OpenAPI spec and the App wide HTTP server.
-func Endpoint(pattern string, op Operation) Option {
+func Endpoint(method, pattern string, op Operation) Option {
 	return func(app *App) {
-		// h.OpenApi(app.spec)
+		err := app.spec.AddOperation(method, pattern, op.OpenApi())
+		if err != nil {
+			panic(err)
+		}
 
 		app.mux.Handle(
 			pattern,
 			otelhttp.WithRouteTag(pattern, op),
 		)
+	}
+}
+
+// Title sets the title of the API in its OpenAPI spec.
+//
+// In order for your OpenAPI spec to be fully compliant
+// with other tooling, this option is required.
+func Title(s string) Option {
+	return func(a *App) {
+		a.spec.Info.Title = s
+	}
+}
+
+// Version sets the API version in its OpenAPI spec.
+//
+// In order for your OpenAPI spec to be fully compliant
+// with other tooling, this option is required.
+func Version(s string) Option {
+	return func(a *App) {
+		a.spec.Info.Version = s
 	}
 }
 

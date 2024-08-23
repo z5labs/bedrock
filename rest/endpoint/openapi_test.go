@@ -21,7 +21,7 @@ import (
 func TestEndpoint_OpenApi(t *testing.T) {
 	t.Run("will required path parameter", func(t *testing.T) {
 		t.Run("if a http.ServeMux path parameter pattern is used", func(t *testing.T) {
-			e := New(
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -70,7 +70,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 				Required: true,
 			}
 
-			e := New(
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -116,7 +116,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 				Required: true,
 			}
 
-			e := New(
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -161,7 +161,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 				Name: "myparam",
 			}
 
-			e := New(
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -207,7 +207,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 				Required: true,
 			}
 
-			e := New(
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -248,7 +248,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set request body type", func(t *testing.T) {
 		t.Run("if the request type implements ContentTyper interface", func(t *testing.T) {
-			e := New(
+			e := NewOperation(
 				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ JsonContent) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -305,7 +305,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set response body type", func(t *testing.T) {
 		t.Run("if the response type implements ContentTyper interface", func(t *testing.T) {
-			e := New(
+			e := NewOperation(
 				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
 					return JsonContent{}, nil
 				}),
@@ -365,7 +365,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set a empty response body", func(t *testing.T) {
 		t.Run("if the response type does not implement ContentTyper", func(t *testing.T) {
-			e := New(
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -404,7 +404,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 		t.Run("if the Returns option is used with a http status code", func(t *testing.T) {
 			statusCode := http.StatusBadRequest
 
-			e := New(
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -458,7 +458,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 				return
 			}
 
-			e := New(
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),

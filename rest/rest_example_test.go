@@ -73,9 +73,12 @@ func Example() {
 
 	app := NewApp(
 		listenOnRandomPort(addrCh),
+		Title("Example"),
+		Version("v0.0.0"),
 		Endpoint(
+			http.MethodPost,
 			"/",
-			endpoint.New(
+			endpoint.NewOperation(
 				echoService{},
 			),
 		),
