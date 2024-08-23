@@ -22,8 +22,8 @@ type Empty struct{}
 
 type noopHandler struct{}
 
-func (noopHandler) Handle(_ context.Context, _ Empty) (Empty, error) {
-	return Empty{}, nil
+func (noopHandler) Handle(_ context.Context, _ *Empty) (*Empty, error) {
+	return &Empty{}, nil
 }
 
 type JsonContent struct {
@@ -88,8 +88,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 		t.Run("if the underlying Handler succeeds with a encoding.BinaryMarshaler response", func(t *testing.T) {
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
-					return JsonContent{Value: "hello, world"}, nil
+				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
+					return &JsonContent{Value: "hello, world"}, nil
 				}),
 			)
 
@@ -122,9 +122,9 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will inject path params", func(t *testing.T) {
 		t.Run("if a valid http.ServeMux path param pattern is used", func(t *testing.T) {
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
 					v := PathValue(ctx, "id")
-					return JsonContent{Value: v}, nil
+					return &JsonContent{Value: v}, nil
 				}),
 				PathParams(PathParam{
 					Name: "id",
@@ -164,9 +164,9 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will inject headers", func(t *testing.T) {
 		t.Run("if a header is configured with the Headers option", func(t *testing.T) {
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
 					v := HeaderValue(ctx, "test-header")
-					return JsonContent{Value: v}, nil
+					return &JsonContent{Value: v}, nil
 				}),
 				Headers(Header{
 					Name: "test-header",
@@ -203,9 +203,9 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will inject query params", func(t *testing.T) {
 		t.Run("if a query param is configured with the QueryParams option", func(t *testing.T) {
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
 					v := QueryValue(ctx, "test-query")
-					return JsonContent{Value: v}, nil
+					return &JsonContent{Value: v}, nil
 				}),
 				QueryParams(QueryParam{
 					Name: "test-query",
@@ -268,8 +268,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
-					return JsonContent{Value: "hello, world"}, nil
+				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
+					return &JsonContent{Value: "hello, world"}, nil
 				}),
 				StatusCode(statusCode),
 			)
@@ -303,8 +303,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return non-success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler returns an error", func(t *testing.T) {
 			e := NewOperation(
-				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
-					return Empty{}, errors.New("failed")
+				HandlerFunc[Empty, Empty](func(_ context.Context, _ *Empty) (*Empty, error) {
+					return nil, errors.New("failed")
 				}),
 			)
 
@@ -326,8 +326,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
-					return Empty{}, errors.New("failed")
+				HandlerFunc[Empty, Empty](func(_ context.Context, _ *Empty) (*Empty, error) {
+					return nil, errors.New("failed")
 				}),
 				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
 					w.WriteHeader(errStatusCode)
@@ -493,8 +493,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the request content type header does not match the content type from ContentTyper", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ JsonContent) (Empty, error) {
-					return Empty{}, nil
+				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ *JsonContent) (*Empty, error) {
+					return &Empty{}, nil
 				}),
 				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
 					caughtError = err
@@ -526,8 +526,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the request body fails to unmarshal", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[FailUnmarshalBinary, Empty](func(_ context.Context, _ FailUnmarshalBinary) (Empty, error) {
-					return Empty{}, nil
+				HandlerFunc[FailUnmarshalBinary, Empty](func(_ context.Context, _ *FailUnmarshalBinary) (*Empty, error) {
+					return &Empty{}, nil
 				}),
 				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
 					caughtError = err
@@ -553,8 +553,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the unmarshaled request body is invalid", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[InvalidRequest, Empty](func(_ context.Context, _ InvalidRequest) (Empty, error) {
-					return Empty{}, nil
+				HandlerFunc[InvalidRequest, Empty](func(_ context.Context, _ *InvalidRequest) (*Empty, error) {
+					return &Empty{}, nil
 				}),
 				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
 					caughtError = err
@@ -580,8 +580,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the response body fails to marshal itself to binary", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[Empty, FailMarshalBinary](func(_ context.Context, _ Empty) (FailMarshalBinary, error) {
-					return FailMarshalBinary{}, nil
+				HandlerFunc[Empty, FailMarshalBinary](func(_ context.Context, _ *Empty) (*FailMarshalBinary, error) {
+					return &FailMarshalBinary{}, nil
 				}),
 				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
 					caughtError = err
@@ -608,8 +608,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return response header", func(t *testing.T) {
 		t.Run("if the response body implements ContentTyper", func(t *testing.T) {
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
-					return JsonContent{Value: "hello, world"}, nil
+				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
+					return &JsonContent{Value: "hello, world"}, nil
 				}),
 			)
 
@@ -643,9 +643,9 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 		t.Run("if the underlying Handler sets a custom response header using the context", func(t *testing.T) {
 			e := NewOperation(
-				HandlerFunc[Empty, Empty](func(ctx context.Context, _ Empty) (Empty, error) {
+				HandlerFunc[Empty, Empty](func(ctx context.Context, _ *Empty) (*Empty, error) {
 					SetResponseHeader(ctx, "Content-Type", "test-content-type")
-					return Empty{}, nil
+					return &Empty{}, nil
 				}),
 			)
 

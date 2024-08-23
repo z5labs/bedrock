@@ -44,8 +44,8 @@ func (resp EchoResponse) MarshalBinary() ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func (echoService) Handle(ctx context.Context, req EchoRequest) (EchoResponse, error) {
-	return EchoResponse{Msg: req.Msg}, nil
+func (echoService) Handle(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
+	return &EchoResponse{Msg: req.Msg}, nil
 }
 
 // this is quick hack to dynamically allocate a local address

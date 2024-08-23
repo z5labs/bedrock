@@ -27,6 +27,6 @@ func (Response) ContentType() string {
 	return "application/json"
 }
 
-func (resp Response) MarshalBinary() ([]byte, error) {
+func (resp *Response) MarshalBinary() ([]byte, error) {
 	return json.Marshal(resp)
 }

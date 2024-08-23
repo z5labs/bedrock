@@ -23,14 +23,14 @@ import (
 
 // Handler
 type Handler[Req, Resp any] interface {
-	Handle(context.Context, Req) (Resp, error)
+	Handle(context.Context, *Req) (*Resp, error)
 }
 
 // HandlerFunc
-type HandlerFunc[Req, Resp any] func(context.Context, Req) (Resp, error)
+type HandlerFunc[Req, Resp any] func(context.Context, *Req) (*Resp, error)
 
 // Handle implements the [Handler] interface.
-func (f HandlerFunc[Req, Resp]) Handle(ctx context.Context, req Req) (Resp, error) {
+func (f HandlerFunc[Req, Resp]) Handle(ctx context.Context, req *Req) (*Resp, error) {
 	return f(ctx, req)
 }
 
@@ -366,7 +366,7 @@ func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	resp, err := op.handler.Handle(ctx, req)
+	resp, err := op.handler.Handle(ctx, &req)
 	if err != nil {
 		op.handleError(ctx, w, err)
 		return
@@ -426,7 +426,7 @@ func validate[Req any](ctx context.Context, req Req) error {
 	return err
 }
 
-func (op *Operation[Req, Resp]) writeResponse(ctx context.Context, w http.ResponseWriter, resp Resp) error {
+func (op *Operation[Req, Resp]) writeResponse(ctx context.Context, w http.ResponseWriter, resp *Resp) error {
 	_, span := otel.Tracer("endpoint").Start(ctx, "Operation.writeResponse")
 	defer span.End()
 
