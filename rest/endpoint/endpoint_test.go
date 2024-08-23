@@ -6,6 +6,7 @@
 package endpoint
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,8 +39,29 @@ func (x *JsonContent) UnmarshalBinary(b []byte) error {
 	return json.Unmarshal(b, x)
 }
 
-func (x JsonContent) MarshalBinary() ([]byte, error) {
+func (x *JsonContent) MarshalBinary() ([]byte, error) {
 	return json.Marshal(x)
+}
+
+type ReaderContent struct {
+	r io.Reader
+}
+
+func (ReaderContent) ContentType() string {
+	return "application/octet"
+}
+
+func (x *ReaderContent) ReadFrom(r io.Reader) (int64, error) {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return 0, err
+	}
+	x.r = bytes.NewReader(b)
+	return int64(len(b)), nil
+}
+
+func (x *ReaderContent) WriteTo(w io.Writer) (int64, error) {
+	return io.Copy(w, x.r)
 }
 
 type FailUnmarshalBinary struct{}
@@ -66,7 +88,7 @@ type FailMarshalBinary struct{}
 
 var errMarshalBinary = errors.New("failed to marshal to binary")
 
-func (FailMarshalBinary) MarshalBinary() ([]byte, error) {
+func (*FailMarshalBinary) MarshalBinary() ([]byte, error) {
 	return nil, errMarshalBinary
 }
 
@@ -82,6 +104,33 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 			resp := w.Result()
 			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+		})
+
+		t.Run("if the underlying Handler succeeds with a io.WriterTo response", func(t *testing.T) {
+			e := NewOperation(
+				HandlerFunc[ReaderContent, ReaderContent](func(_ context.Context, req *ReaderContent) (*ReaderContent, error) {
+					return &ReaderContent{r: req.r}, nil
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello, world"))
+			r.Header.Set("Content-Type", ReaderContent{}.ContentType())
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "hello, world", string(b)) {
 				return
 			}
 		})
@@ -315,6 +364,60 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 			resp := w.Result()
 			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+		})
+
+		t.Run("if the underlying Handler returns a nil encoding.Marshaler", func(t *testing.T) {
+			var caughtError error
+			e := NewOperation(
+				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
+					return nil, nil
+				}),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+			if !assert.ErrorIs(t, ErrNilHandlerResponse, caughtError) {
+				return
+			}
+		})
+
+		t.Run("if the underlying Handler return a nil io.WriterTo", func(t *testing.T) {
+			var caughtError error
+			e := NewOperation(
+				HandlerFunc[Empty, ReaderContent](func(_ context.Context, _ *Empty) (*ReaderContent, error) {
+					return nil, nil
+				}),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+			if !assert.ErrorIs(t, ErrNilHandlerResponse, caughtError) {
 				return
 			}
 		})

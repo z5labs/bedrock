@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -426,16 +427,29 @@ func validate[Req any](ctx context.Context, req Req) error {
 	return err
 }
 
+// ErrNilHandlerResponse
+var ErrNilHandlerResponse = errors.New("received nil for response that is expected to be in response body")
+
 func (op *Operation[Req, Resp]) writeResponse(ctx context.Context, w http.ResponseWriter, resp *Resp) error {
 	_, span := otel.Tracer("endpoint").Start(ctx, "Operation.writeResponse")
 	defer span.End()
 
 	switch x := any(resp).(type) {
 	case io.WriterTo:
+		if resp == nil {
+			span.RecordError(ErrNilHandlerResponse)
+			return ErrNilHandlerResponse
+		}
+
 		_, err := x.WriteTo(w)
 		span.RecordError(err)
 		return err
 	case encoding.BinaryMarshaler:
+		if resp == nil {
+			span.RecordError(ErrNilHandlerResponse)
+			return ErrNilHandlerResponse
+		}
+
 		b, err := x.MarshalBinary()
 		if err != nil {
 			span.RecordError(err)
