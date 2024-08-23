@@ -30,8 +30,8 @@ func NewService(opts ...Option) *Service {
 	return s
 }
 
-func (s *Service) Handle(ctx context.Context, req Request) (Response, error) {
+func (s *Service) Handle(ctx context.Context, req *Request) (*Response, error) {
 	s.log.InfoContext(ctx, "echoing back to client", slog.String("msg", req.Msg))
 
-	return Response{Msg: req.Msg}, nil
+	return &Response{Msg: req.Msg}, nil
 }
