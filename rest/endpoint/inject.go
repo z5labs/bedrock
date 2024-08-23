@@ -9,11 +9,16 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+
+	"go.opentelemetry.io/otel"
 )
 
 type injector func(context.Context, http.ResponseWriter, *http.Request) context.Context
 
 func inject(ctx context.Context, w http.ResponseWriter, r *http.Request, injectors ...injector) context.Context {
+	_, span := otel.Tracer("endpoint").Start(ctx, "inject")
+	defer span.End()
+
 	for _, injector := range injectors {
 		ctx = injector(ctx, w, r)
 	}
