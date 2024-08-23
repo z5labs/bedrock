@@ -21,31 +21,6 @@ func validateRequest(r *http.Request, validators ...func(*http.Request) error) e
 	return nil
 }
 
-// InvalidMethodError represents when a request was sent to an endpoint
-// for the incorrect method.
-type InvalidMethodError struct {
-	Method string
-}
-
-// Error implements [error] interface.
-func (e InvalidMethodError) Error() string {
-	return fmt.Sprintf("received invalid method for endpoint: %s", e.Method)
-}
-
-// ServeHTTP implements the [http.Handler] interface.
-func (InvalidMethodError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusMethodNotAllowed)
-}
-
-func validateMethod(method string) func(*http.Request) error {
-	return func(r *http.Request) error {
-		if r.Method == method {
-			return nil
-		}
-		return InvalidMethodError{Method: r.Method}
-	}
-}
-
 // InvalidHeaderError
 type InvalidHeaderError struct {
 	Header string

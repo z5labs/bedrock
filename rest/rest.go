@@ -33,23 +33,23 @@ func ListenOn(port uint) Option {
 	}
 }
 
-// Handler represents anything that can handle HTTP requests
+// Operation represents anything that can handle HTTP requests
 // and provide OpenAPI documentation for itself.
-type Handler interface {
+type Operation interface {
 	http.Handler
 
-	OpenApi(*openapi3.Spec)
+	OpenApi() *openapi3.Operation
 }
 
-// Handler registers the provider [Handler] with both
+// Endpoint registers the [Operation] with both
 // the App wide OpenAPI spec and the App wide HTTP server.
-func Handle(pattern string, h Handler) Option {
+func Endpoint(pattern string, op Operation) Option {
 	return func(app *App) {
-		h.OpenApi(app.spec)
+		// h.OpenApi(app.spec)
 
 		app.mux.Handle(
 			pattern,
-			otelhttp.WithRouteTag(pattern, h),
+			otelhttp.WithRouteTag(pattern, op),
 		)
 	}
 }
