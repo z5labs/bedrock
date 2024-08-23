@@ -6,15 +6,22 @@
 package endpoint
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"regexp"
+
+	"go.opentelemetry.io/otel"
 )
 
-func validateRequest(r *http.Request, validators ...func(*http.Request) error) error {
+func validateRequest(ctx context.Context, r *http.Request, validators ...func(*http.Request) error) error {
+	_, span := otel.Tracer("endpoint").Start(ctx, "validateRequest")
+	defer span.End()
+
 	for _, validator := range validators {
 		err := validator(r)
 		if err != nil {
+			span.RecordError(err)
 			return err
 		}
 	}

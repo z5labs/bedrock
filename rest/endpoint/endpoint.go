@@ -18,6 +18,7 @@ import (
 
 	"github.com/swaggest/jsonschema-go"
 	"github.com/swaggest/openapi-go/openapi3"
+	"go.opentelemetry.io/otel"
 )
 
 // Empty
@@ -42,9 +43,6 @@ type ErrorHandler interface {
 }
 
 type options struct {
-	method  string
-	pattern string
-
 	pathParams   map[PathParam]struct{}
 	headerParams map[Header]struct{}
 	queryParams  map[QueryParam]struct{}
@@ -347,58 +345,47 @@ func (op *Operation[Req, Resp]) OpenApi() *openapi3.Operation {
 
 // ServeHTTP implements the [http.Handler] interface.
 func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := inject(r.Context(), w, r, op.injectors...)
+	spanCtx, span := otel.Tracer("endpoint").Start(r.Context(), "Operation.ServeHTTP")
+	defer span.End()
 
-	err := validateRequest(r, op.validators...)
+	ctx := inject(spanCtx, w, r, op.injectors...)
+
+	err := validateRequest(ctx, r, op.validators...)
 	if err != nil {
-		op.errHandler.HandleError(w, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 
 	var req Req
-	err = unmarshal(r.Body, &req)
+	err = unmarshal(ctx, r.Body, &req)
 	if err != nil {
-		op.errHandler.HandleError(w, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 
-	err = validate(req)
+	err = validate(ctx, req)
 	if err != nil {
-		op.errHandler.HandleError(w, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 
 	resp, err := op.handler.Handle(ctx, req)
 	if err != nil {
-		op.errHandler.HandleError(w, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 
-	bm, ok := any(resp).(encoding.BinaryMarshaler)
-	if !ok {
-		w.WriteHeader(op.statusCode)
-		return
-	}
-
-	b, err := bm.MarshalBinary()
+	err = op.writeResponse(ctx, w, resp)
 	if err != nil {
-		op.errHandler.HandleError(w, err)
-		return
-	}
-
-	if ct, ok := any(resp).(ContentTyper); ok {
-		w.Header().Set("Content-Type", ct.ContentType())
-	}
-
-	w.WriteHeader(op.statusCode)
-	_, err = io.Copy(w, bytes.NewReader(b))
-	if err != nil {
-		op.errHandler.HandleError(w, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 }
 
-func unmarshal[Req any](r io.ReadCloser, req *Req) error {
+func unmarshal[Req any](ctx context.Context, r io.ReadCloser, req *Req) error {
+	_, span := otel.Tracer("endpoint").Start(ctx, "unmarshal")
+	defer span.End()
+
 	switch x := any(req).(type) {
 	case encoding.BinaryUnmarshaler:
 		defer func() {
@@ -407,12 +394,16 @@ func unmarshal[Req any](r io.ReadCloser, req *Req) error {
 
 		b, err := io.ReadAll(r)
 		if err != nil {
+			span.RecordError(err)
 			return err
 		}
 
-		return x.UnmarshalBinary(b)
+		err = x.UnmarshalBinary(b)
+		span.RecordError(err)
+		return err
 	case io.ReaderFrom:
 		_, err := x.ReadFrom(r)
+		span.RecordError(err)
 		return err
 	default:
 		return nil
@@ -424,9 +415,53 @@ type Validator interface {
 	Validate() error
 }
 
-func validate[Req any](req Req) error {
-	if v, ok := any(req).(Validator); ok {
-		return v.Validate()
+func validate[Req any](ctx context.Context, req Req) error {
+	_, span := otel.Tracer("endpoint").Start(ctx, "validate")
+	defer span.End()
+
+	v, ok := any(req).(Validator)
+	if !ok {
+		return nil
 	}
-	return nil
+
+	err := v.Validate()
+	span.RecordError(err)
+	return err
+}
+
+func (op *Operation[Req, Resp]) writeResponse(ctx context.Context, w http.ResponseWriter, resp Resp) error {
+	_, span := otel.Tracer("endpoint").Start(ctx, "Operation.writeResponse")
+	defer span.End()
+
+	switch x := any(resp).(type) {
+	case io.WriterTo:
+		_, err := x.WriteTo(w)
+		span.RecordError(err)
+		return err
+	case encoding.BinaryMarshaler:
+		b, err := x.MarshalBinary()
+		if err != nil {
+			span.RecordError(err)
+			return err
+		}
+
+		if ct, ok := any(resp).(ContentTyper); ok {
+			w.Header().Set("Content-Type", ct.ContentType())
+		}
+
+		w.WriteHeader(op.statusCode)
+		_, err = io.Copy(w, bytes.NewReader(b))
+		span.RecordError(err)
+		return err
+	default:
+		w.WriteHeader(op.statusCode)
+		return nil
+	}
+}
+
+func (op *Operation[Req, Resp]) handleError(ctx context.Context, w http.ResponseWriter, err error) {
+	_, span := otel.Tracer("endpoint").Start(ctx, "Operation.handleError")
+	defer span.End()
+
+	op.errHandler.HandleError(w, err)
 }
