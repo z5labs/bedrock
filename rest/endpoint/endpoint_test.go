@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type Empty struct{}
+
 type noopHandler struct{}
 
 func (noopHandler) Handle(_ context.Context, _ Empty) (Empty, error) {
@@ -38,18 +40,6 @@ func (x *JsonContent) UnmarshalBinary(b []byte) error {
 
 func (x JsonContent) MarshalBinary() ([]byte, error) {
 	return json.Marshal(x)
-}
-
-type httpError struct {
-	status int
-}
-
-func (httpError) Error() string {
-	return ""
-}
-
-func (e httpError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(e.status)
 }
 
 type FailUnmarshalBinary struct{}
@@ -80,110 +70,13 @@ func (FailMarshalBinary) MarshalBinary() ([]byte, error) {
 	return nil, errMarshalBinary
 }
 
-func TestGet(t *testing.T) {
-	t.Run("will return 405 http status code", func(t *testing.T) {
-		t.Run("if a non GET method is used to call its returned endpoint", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
-				noopHandler{},
-			)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, pattern, nil)
-
-			e.ServeHTTP(w, r)
-
-			resp := w.Result()
-			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
-				return
-			}
-		})
-	})
-}
-
-func TestPost(t *testing.T) {
-	t.Run("will return 405 http status code", func(t *testing.T) {
-		t.Run("if a non POST method is used to call its returned endpoint", func(t *testing.T) {
-			pattern := "/"
-
-			e := Post(
-				pattern,
-				noopHandler{},
-			)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
-
-			e.ServeHTTP(w, r)
-
-			resp := w.Result()
-			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
-				return
-			}
-		})
-	})
-}
-
-func TestPut(t *testing.T) {
-	t.Run("will return 405 http status code", func(t *testing.T) {
-		t.Run("if a non PUT method is used to call its returned endpoint", func(t *testing.T) {
-			pattern := "/"
-
-			e := Put(
-				pattern,
-				noopHandler{},
-			)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
-
-			e.ServeHTTP(w, r)
-
-			resp := w.Result()
-			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
-				return
-			}
-		})
-	})
-}
-
-func TestDelete(t *testing.T) {
-	t.Run("will return 405 http status code", func(t *testing.T) {
-		t.Run("if a non DELETE method is used to call its returned endpoint", func(t *testing.T) {
-			pattern := "/"
-
-			e := Delete(
-				pattern,
-				noopHandler{},
-			)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
-
-			e.ServeHTTP(w, r)
-
-			resp := w.Result()
-			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
-				return
-			}
-		})
-	})
-}
-
 func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return the default success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler succeeds with an empty response", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
-				noopHandler{},
-			)
+			e := NewOperation(noopHandler{})
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 
@@ -194,17 +87,14 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if the underlying Handler succeeds with a encoding.BinaryMarshaler response", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
 					return JsonContent{Value: "hello, world"}, nil
 				}),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 
@@ -231,13 +121,13 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will inject path params", func(t *testing.T) {
 		t.Run("if a valid http.ServeMux path param pattern is used", func(t *testing.T) {
-			pattern := "/{id}"
-
-			e := Get(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
 					v := PathValue(ctx, "id")
 					return JsonContent{Value: v}, nil
+				}),
+				PathParams(PathParam{
+					Name: "id",
 				}),
 			)
 
@@ -247,7 +137,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			// for path params a http.ServeMux must be used since
 			// Endpoint doesn't support it directly
 			mux := http.NewServeMux()
-			mux.Handle(pattern, e)
+			mux.Handle("GET /{id}", e)
 			mux.ServeHTTP(w, r)
 
 			resp := w.Result()
@@ -273,10 +163,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will inject headers", func(t *testing.T) {
 		t.Run("if a header is configured with the Headers option", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
 					v := HeaderValue(ctx, "test-header")
 					return JsonContent{Value: v}, nil
@@ -287,7 +174,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.Header.Set("test-header", "hello, world")
 
 			e.ServeHTTP(w, r)
@@ -315,10 +202,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will inject query params", func(t *testing.T) {
 		t.Run("if a query param is configured with the QueryParams option", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ Empty) (JsonContent, error) {
 					v := QueryValue(ctx, "test-query")
 					return JsonContent{Value: v}, nil
@@ -329,7 +213,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern+"?test-query=abc123", nil)
+			r := httptest.NewRequest(http.MethodGet, "/?test-query=abc123", nil)
 
 			e.ServeHTTP(w, r)
 
@@ -356,20 +240,18 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will return custom success http status code", func(t *testing.T) {
 		t.Run("if the StatusCode option is used and the underlying Handler succeeds with an empty response", func(t *testing.T) {
-			pattern := "/"
 			statusCode := http.StatusCreated
 			if !assert.NotEqual(t, DefaultStatusCode, statusCode) {
 				return
 			}
 
-			e := Get(
-				pattern,
+			e := NewOperation(
 				noopHandler{},
 				StatusCode(statusCode),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 
@@ -380,14 +262,12 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if the StatusCode option is used and the underlying Handler succeeds with a encoding.BinaryMarshaler response", func(t *testing.T) {
-			pattern := "/"
 			statusCode := http.StatusCreated
 			if !assert.NotEqual(t, DefaultStatusCode, statusCode) {
 				return
 			}
 
-			e := Get(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
 					return JsonContent{Value: "hello, world"}, nil
 				}),
@@ -395,7 +275,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 
@@ -422,17 +302,14 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will return non-success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler returns an error", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, errors.New("failed")
 				}),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 
@@ -443,14 +320,12 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if a custom error handler is set", func(t *testing.T) {
-			pattern := "/"
 			errStatusCode := http.StatusServiceUnavailable
 			if !assert.NotEqual(t, DefaultErrorStatusCode, errStatusCode) {
 				return
 			}
 
-			e := Get(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, errors.New("failed")
 				}),
@@ -460,65 +335,19 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
 			if !assert.Equal(t, errStatusCode, resp.StatusCode) {
-				return
-			}
-		})
-
-		t.Run("if the underlying error implements http.Handler", func(t *testing.T) {
-			pattern := "/"
-			errStatusCode := http.StatusServiceUnavailable
-			if !assert.NotEqual(t, DefaultErrorStatusCode, errStatusCode) {
-				return
-			}
-
-			e := Get(
-				pattern,
-				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
-					return Empty{}, httpError{status: errStatusCode}
-				}),
-			)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
-
-			e.ServeHTTP(w, r)
-
-			resp := w.Result()
-			if !assert.Equal(t, errStatusCode, resp.StatusCode) {
-				return
-			}
-		})
-
-		t.Run("if the http request is for the wrong http method", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
-				noopHandler{},
-			)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, pattern, nil)
-
-			e.ServeHTTP(w, r)
-
-			resp := w.Result()
-			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
 				return
 			}
 		})
 
 		t.Run("if a required http header is missing", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			var caughtError error
+			e := NewOperation(
 				noopHandler{},
 				Headers(
 					Header{
@@ -526,24 +355,35 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Required: true,
 					},
 				),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var herr MissingRequiredHeaderError
+			if !assert.ErrorAs(t, caughtError, &herr) {
+				return
+			}
+			if !assert.NotEmpty(t, herr.Error()) {
 				return
 			}
 		})
 
 		t.Run("if a http header does not match its expected pattern", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			var caughtError error
+			e := NewOperation(
 				noopHandler{},
 				Headers(
 					Header{
@@ -551,25 +391,36 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Pattern: "^[a-zA-Z]*$",
 					},
 				),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.Header.Set("Authorization", "abc123")
 
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var herr InvalidHeaderError
+			if !assert.ErrorAs(t, caughtError, &herr) {
+				return
+			}
+			if !assert.NotEmpty(t, herr.Error()) {
 				return
 			}
 		})
 
 		t.Run("if a required query param is missing", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			var caughtError error
+			e := NewOperation(
 				noopHandler{},
 				QueryParams(
 					QueryParam{
@@ -577,24 +428,35 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Required: true,
 					},
 				),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var qerr MissingRequiredQueryParamError
+			if !assert.ErrorAs(t, caughtError, &qerr) {
+				return
+			}
+			if !assert.NotEmpty(t, qerr.Error()) {
 				return
 			}
 		})
 
 		t.Run("if a query param does not match its expected pattern", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			var caughtError error
+			e := NewOperation(
 				noopHandler{},
 				QueryParams(
 					QueryParam{
@@ -602,47 +464,68 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Pattern: "^[a-zA-Z]*$",
 					},
 				),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern+"?test=abc123", nil)
+			r := httptest.NewRequest(http.MethodGet, "/?test=abc123", nil)
 
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var qerr InvalidQueryParamError
+			if !assert.ErrorAs(t, caughtError, &qerr) {
+				return
+			}
+			if !assert.NotEmpty(t, qerr.Error()) {
 				return
 			}
 		})
 
 		t.Run("if the request content type header does not match the content type from ContentTyper", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			var caughtError error
+			e := NewOperation(
 				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ JsonContent) (Empty, error) {
 					return Empty{}, nil
 				}),
+				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.Header.Add("Content-Type", "application/xml")
 
 			e.ServeHTTP(w, r)
 
 			resp := w.Result()
-			if !assert.Equal(t, http.StatusBadRequest, resp.StatusCode) {
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var herr InvalidHeaderError
+			if !assert.ErrorAs(t, caughtError, &herr) {
+				return
+			}
+			if !assert.NotEmpty(t, herr.Error()) {
 				return
 			}
 		})
 
 		t.Run("if the request body fails to unmarshal", func(t *testing.T) {
-			pattern := "/"
-
 			var caughtError error
-			e := Post(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[FailUnmarshalBinary, Empty](func(_ context.Context, _ FailUnmarshalBinary) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -654,7 +537,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{}`))
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
 
 			e.ServeHTTP(w, r)
 
@@ -668,11 +551,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if the unmarshaled request body is invalid", func(t *testing.T) {
-			pattern := "/"
-
 			var caughtError error
-			e := Post(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[InvalidRequest, Empty](func(_ context.Context, _ InvalidRequest) (Empty, error) {
 					return Empty{}, nil
 				}),
@@ -684,7 +564,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{}`))
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
 
 			e.ServeHTTP(w, r)
 
@@ -698,11 +578,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if the response body fails to marshal itself to binary", func(t *testing.T) {
-			pattern := "/"
-
 			var caughtError error
-			e := Post(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, FailMarshalBinary](func(_ context.Context, _ Empty) (FailMarshalBinary, error) {
 					return FailMarshalBinary{}, nil
 				}),
@@ -714,7 +591,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{}`))
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
 
 			e.ServeHTTP(w, r)
 
@@ -730,17 +607,14 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will return response header", func(t *testing.T) {
 		t.Run("if the response body implements ContentTyper", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
 					return JsonContent{Value: "hello, world"}, nil
 				}),
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 
@@ -768,10 +642,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if the underlying Handler sets a custom response header using the context", func(t *testing.T) {
-			pattern := "/"
-
-			e := Get(
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(ctx context.Context, _ Empty) (Empty, error) {
 					SetResponseHeader(ctx, "Content-Type", "test-content-type")
 					return Empty{}, nil
@@ -779,7 +650,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, pattern, nil)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 			e.ServeHTTP(w, r)
 

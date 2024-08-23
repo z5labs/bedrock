@@ -9,9 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"path"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/z5labs/bedrock/pkg/ptr"
@@ -23,50 +21,27 @@ import (
 func TestEndpoint_OpenApi(t *testing.T) {
 	t.Run("will required path parameter", func(t *testing.T) {
 		t.Run("if a http.ServeMux path parameter pattern is used", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/{id}"
-
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
+				PathParams(PathParam{
+					Name:     "id",
+					Required: true,
+				}),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			op := ops[method]
 			params := op.Parameters
 			if !assert.Len(t, params, 1) {
 				return
@@ -90,55 +65,29 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set non-required header parameter", func(t *testing.T) {
 		t.Run("if a header is provided with the Headers option", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/"
 			header := Header{
 				Name:     "MyHeader",
 				Required: true,
 			}
 
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
 				Headers(header),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			op := ops[method]
 			params := op.Parameters
 			if !assert.Len(t, params, 1) {
 				return
@@ -162,55 +111,29 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set required header parameter", func(t *testing.T) {
 		t.Run("if a header is provided with the Headers option", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/"
 			header := Header{
 				Name:     "MyHeader",
 				Required: true,
 			}
 
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
 				Headers(header),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			op := ops[method]
 			params := op.Parameters
 			if !assert.Len(t, params, 1) {
 				return
@@ -234,54 +157,28 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set non-required query param", func(t *testing.T) {
 		t.Run("if a query param is provided with the QueryParams option", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/"
 			queryParam := QueryParam{
 				Name: "myparam",
 			}
 
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
 				QueryParams(queryParam),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			op := ops[method]
 			params := op.Parameters
 			if !assert.Len(t, params, 1) {
 				return
@@ -305,55 +202,29 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set required query param", func(t *testing.T) {
 		t.Run("if a query param is provided with the QueryParams option", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/"
 			queryParam := QueryParam{
 				Name:     "myparam",
 				Required: true,
 			}
 
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
 				QueryParams(queryParam),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			op := ops[method]
 			params := op.Parameters
 			if !assert.Len(t, params, 1) {
 				return
@@ -377,50 +248,24 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set request body type", func(t *testing.T) {
 		t.Run("if the request type implements ContentTyper interface", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/"
-
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ JsonContent) (Empty, error) {
 					return Empty{}, nil
 				}),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			reqBodyOrRef := ops[method].RequestBody
+			reqBodyOrRef := op.RequestBody
 			if !assert.NotNil(t, reqBodyOrRef) {
 				return
 			}
@@ -443,31 +288,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 				return
 			}
 
-			schemaRef := schemaOrRef.SchemaReference
-			if !assert.NotNil(t, schemaRef) {
-				return
-			}
-			_, schemaRefName := path.Split(schemaRef.Ref)
-
-			comps := spec.Components
-			if !assert.NotNil(t, comps) {
-				return
-			}
-
-			schemas := comps.Schemas
-			if !assert.NotNil(t, schemas) {
-				return
-			}
-
-			schemaOrRefValues := schemas.MapOfSchemaOrRefValues
-			if !assert.Len(t, schemaOrRefValues, 1) {
-				return
-			}
-			if !assert.Contains(t, schemaOrRefValues, schemaRefName) {
-				return
-			}
-
-			schema := schemaOrRefValues[schemaRefName].Schema
+			schema := schemaOrRef.Schema
 			if !assert.NotNil(t, schema) {
 				return
 			}
@@ -484,50 +305,24 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set response body type", func(t *testing.T) {
 		t.Run("if the response type implements ContentTyper interface", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/"
-
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ Empty) (JsonContent, error) {
 					return JsonContent{}, nil
 				}),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			respOrRefValues := ops[method].Responses.MapOfResponseOrRefValues
+			respOrRefValues := op.Responses.MapOfResponseOrRefValues
 			if !assert.Len(t, respOrRefValues, 1) {
 				return
 			}
@@ -553,31 +348,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 				return
 			}
 
-			schemaRef := schemaOrRef.SchemaReference
-			if !assert.NotNil(t, schemaRef) {
-				return
-			}
-			_, respRefName := path.Split(schemaRef.Ref)
-
-			comps := spec.Components
-			if !assert.NotNil(t, comps) {
-				return
-			}
-
-			schemas := comps.Schemas
-			if !assert.NotNil(t, schemas) {
-				return
-			}
-
-			schemaOrRefValues := schemas.MapOfSchemaOrRefValues
-			if !assert.Len(t, schemaOrRefValues, 1) {
-				return
-			}
-			if !assert.Contains(t, schemaOrRefValues, respRefName) {
-				return
-			}
-
-			schema := schemaOrRefValues[respRefName].Schema
+			schema := schemaOrRef.Schema
 			if !assert.NotNil(t, schema) {
 				return
 			}
@@ -594,50 +365,24 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set a empty response body", func(t *testing.T) {
 		t.Run("if the response type does not implement ContentTyper", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/"
-
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			respOrRefValues := ops[method].Responses.MapOfResponseOrRefValues
+			respOrRefValues := op.Responses.MapOfResponseOrRefValues
 			if !assert.Len(t, respOrRefValues, 1) {
 				return
 			}
@@ -657,52 +402,27 @@ func TestEndpoint_OpenApi(t *testing.T) {
 		})
 
 		t.Run("if the Returns option is used with a http status code", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/"
 			statusCode := http.StatusBadRequest
 
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
 				Returns(statusCode),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			respOrRefValues := ops[method].Responses.MapOfResponseOrRefValues
+			respOrRefValues := op.Responses.MapOfResponseOrRefValues
 			if !assert.Len(t, respOrRefValues, 2) {
 				return
 			}
@@ -733,56 +453,30 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will override default response status code", func(t *testing.T) {
 		t.Run("if DefaultStatusCode option is used", func(t *testing.T) {
-			method := strings.ToLower(http.MethodPost)
-			pattern := "/"
-
 			statusCode := http.StatusCreated
 			if !assert.NotEqual(t, statusCode, DefaultStatusCode) {
 				return
 			}
 
-			e := New(
-				method,
-				pattern,
+			e := NewOperation(
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ Empty) (Empty, error) {
 					return Empty{}, nil
 				}),
 				StatusCode(statusCode),
 			)
 
-			refSpec := &openapi3.Spec{
-				Openapi: "3.0.3",
-			}
-			e.OpenApi(refSpec)
-
-			b, err := json.Marshal(refSpec)
+			b, err := json.Marshal(e.OpenApi())
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			var spec openapi3.Spec
-			err = json.Unmarshal(b, &spec)
+			var op openapi3.Operation
+			err = json.Unmarshal(b, &op)
 			if !assert.Nil(t, err) {
 				return
 			}
 
-			pathItems := spec.Paths.MapOfPathItemValues
-			if !assert.Len(t, pathItems, 1) {
-				return
-			}
-			if !assert.Contains(t, pathItems, pattern) {
-				return
-			}
-
-			ops := pathItems[pattern].MapOfOperationValues
-			if !assert.Len(t, ops, 1) {
-				return
-			}
-			if !assert.Contains(t, ops, method) {
-				return
-			}
-
-			respOrRefValues := ops[method].Responses.MapOfResponseOrRefValues
+			respOrRefValues := op.Responses.MapOfResponseOrRefValues
 			if !assert.Len(t, respOrRefValues, 1) {
 				return
 			}
