@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type Empty struct{}
+
 type noopHandler struct{}
 
 func (noopHandler) Handle(_ context.Context, _ Empty) (Empty, error) {

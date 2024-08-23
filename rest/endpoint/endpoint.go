@@ -21,9 +21,6 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// Empty
-type Empty struct{}
-
 // Handler
 type Handler[Req, Resp any] interface {
 	Handle(context.Context, Req) (Resp, error)
