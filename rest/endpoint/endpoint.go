@@ -12,14 +12,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"reflect"
 	"strconv"
-	"strings"
 
 	"github.com/z5labs/bedrock/pkg/ptr"
 
 	"github.com/swaggest/jsonschema-go"
 	"github.com/swaggest/openapi-go/openapi3"
+	"go.opentelemetry.io/otel"
 )
 
 // Empty
@@ -44,29 +43,22 @@ type ErrorHandler interface {
 }
 
 type options struct {
-	method  string
-	pattern string
+	pathParams   map[PathParam]struct{}
+	headerParams map[Header]struct{}
+	queryParams  map[QueryParam]struct{}
 
 	defaultStatusCode int
 	validators        []func(*http.Request) error
 	errHandler        ErrorHandler
 
-	schemas     map[string]*openapi3.Schema
-	pathParams  []*openapi3.Parameter
-	headers     []*openapi3.Parameter
-	queryParams []*openapi3.Parameter
-	request     *openapi3.RequestBody
-	responses   *openapi3.Responses
+	openapi *openapi3.Operation
 }
 
 // Option
 type Option func(*options)
 
-// Endpoint
-type Endpoint[Req, Resp any] struct {
-	method  string
-	pattern string
-
+// Operation
+type Operation[Req, Resp any] struct {
 	validators []func(*http.Request) error
 	injectors  []injector
 
@@ -75,7 +67,7 @@ type Endpoint[Req, Resp any] struct {
 
 	errHandler ErrorHandler
 
-	openapi func(*openapi3.Spec)
+	openapi *openapi3.Operation
 }
 
 const DefaultStatusCode = http.StatusOK
@@ -87,48 +79,29 @@ func StatusCode(statusCode int) Option {
 	}
 }
 
-type pathParam struct {
-	name string
+// PathParam
+type PathParam struct {
+	Name     string
+	Pattern  string
+	Required bool
 }
 
-func parsePathParams(s string) []pathParam {
-	var params []pathParam
-	var found bool
-	for {
-		if len(s) == 0 {
-			return params
-		}
-
-		_, s, found = strings.Cut(s, "{")
-		if !found {
-			return params
-		}
-
-		i := strings.IndexByte(s, '}')
-		if i == -1 {
-			return params
-		}
-
-		param := s[:i]
-		s = s[i:]
-
-		name := strings.TrimSuffix(param, ".")
-		params = append(params, pathParam{
-			name: name,
-		})
-	}
-}
-
-func pathParams(ps ...pathParam) Option {
+// PathParams
+func PathParams(ps ...PathParam) Option {
 	return func(o *options) {
 		for _, p := range ps {
-			o.pathParams = append(o.pathParams, &openapi3.Parameter{
-				In:       openapi3.ParameterInPath,
-				Name:     p.name,
-				Required: ptr.Ref(true),
-				Schema: &openapi3.SchemaOrRef{
-					Schema: &openapi3.Schema{
-						Type: ptr.Ref(openapi3.SchemaTypeString),
+			o.pathParams[p] = struct{}{}
+
+			o.openapi.Parameters = append(o.openapi.Parameters, openapi3.ParameterOrRef{
+				Parameter: &openapi3.Parameter{
+					In:       openapi3.ParameterInPath,
+					Name:     p.Name,
+					Required: ptr.Ref(p.Required),
+					Schema: &openapi3.SchemaOrRef{
+						Schema: &openapi3.Schema{
+							Type:    ptr.Ref(openapi3.SchemaTypeString),
+							Pattern: ptr.Ref(p.Pattern),
+						},
 					},
 				},
 			})
@@ -147,13 +120,18 @@ type Header struct {
 func Headers(hs ...Header) Option {
 	return func(o *options) {
 		for _, h := range hs {
-			o.headers = append(o.headers, &openapi3.Parameter{
-				In:       openapi3.ParameterInHeader,
-				Name:     h.Name,
-				Required: ptr.Ref(h.Required),
-				Schema: &openapi3.SchemaOrRef{
-					Schema: &openapi3.Schema{
-						Type: ptr.Ref(openapi3.SchemaTypeString),
+			o.headerParams[h] = struct{}{}
+
+			o.openapi.Parameters = append(o.openapi.Parameters, openapi3.ParameterOrRef{
+				Parameter: &openapi3.Parameter{
+					In:       openapi3.ParameterInHeader,
+					Name:     h.Name,
+					Required: ptr.Ref(h.Required),
+					Schema: &openapi3.SchemaOrRef{
+						Schema: &openapi3.Schema{
+							Type:    ptr.Ref(openapi3.SchemaTypeString),
+							Pattern: ptr.Ref(h.Pattern),
+						},
 					},
 				},
 			})
@@ -174,13 +152,18 @@ type QueryParam struct {
 func QueryParams(qps ...QueryParam) Option {
 	return func(o *options) {
 		for _, qp := range qps {
-			o.queryParams = append(o.queryParams, &openapi3.Parameter{
-				In:       openapi3.ParameterInQuery,
-				Name:     qp.Name,
-				Required: ptr.Ref(qp.Required),
-				Schema: &openapi3.SchemaOrRef{
-					Schema: &openapi3.Schema{
-						Type: ptr.Ref(openapi3.SchemaTypeString),
+			o.queryParams[qp] = struct{}{}
+
+			o.openapi.Parameters = append(o.openapi.Parameters, openapi3.ParameterOrRef{
+				Parameter: &openapi3.Parameter{
+					In:       openapi3.ParameterInQuery,
+					Name:     qp.Name,
+					Required: ptr.Ref(qp.Required),
+					Schema: &openapi3.SchemaOrRef{
+						Schema: &openapi3.Schema{
+							Type:    ptr.Ref(openapi3.SchemaTypeString),
+							Pattern: ptr.Ref(qp.Pattern),
+						},
 					},
 				},
 			})
@@ -198,10 +181,6 @@ type ContentTyper interface {
 // Accepts
 func Accepts[Req any]() Option {
 	return func(o *options) {
-		if o.request == nil {
-			o.request = new(openapi3.RequestBody)
-		}
-
 		contentType := ""
 
 		var req Req
@@ -224,18 +203,12 @@ func Accepts[Req any]() Option {
 		var schemaOrRef openapi3.SchemaOrRef
 		schemaOrRef.FromJSONSchema(schema.ToSchemaOrBool())
 
-		typeName := reflect.TypeOf(req).Name()
-		schemaRef := fmt.Sprintf("#/components/schemas/%s", typeName)
-		o.schemas[typeName] = schemaOrRef.Schema
-
-		o.request = &openapi3.RequestBody{
-			Required: ptr.Ref(true),
-			Content: map[string]openapi3.MediaType{
-				contentType: {
-					Schema: &openapi3.SchemaOrRef{
-						SchemaReference: &openapi3.SchemaReference{
-							Ref: schemaRef,
-						},
+		o.openapi.RequestBody = &openapi3.RequestBodyOrRef{
+			RequestBody: &openapi3.RequestBody{
+				Required: ptr.Ref(true),
+				Content: map[string]openapi3.MediaType{
+					contentType: {
+						Schema: &schemaOrRef,
 					},
 				},
 			},
@@ -246,13 +219,7 @@ func Accepts[Req any]() Option {
 // Returns
 func Returns(status int) Option {
 	return func(o *options) {
-		if o.responses == nil {
-			o.responses = &openapi3.Responses{
-				MapOfResponseOrRefValues: make(map[string]openapi3.ResponseOrRef),
-			}
-		}
-
-		o.responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
+		o.openapi.Responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
 			Response: &openapi3.Response{},
 		}
 	}
@@ -261,19 +228,10 @@ func Returns(status int) Option {
 // ReturnsWith
 func ReturnsWith[Resp any](status int) Option {
 	return func(o *options) {
-		if o.responses == nil {
-			o.responses = &openapi3.Responses{
-				MapOfResponseOrRefValues: make(map[string]openapi3.ResponseOrRef),
-			}
-		}
-
-		contentType := ""
-
 		var resp Resp
-		if ct, ok := any(resp).(ContentTyper); ok {
-			contentType = ct.ContentType()
-		} else {
-			o.responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
+		ct, ok := any(resp).(ContentTyper)
+		if !ok {
+			o.openapi.Responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
 				Response: &openapi3.Response{},
 			}
 			return
@@ -288,19 +246,11 @@ func ReturnsWith[Resp any](status int) Option {
 		var schemaOrRef openapi3.SchemaOrRef
 		schemaOrRef.FromJSONSchema(schema.ToSchemaOrBool())
 
-		typeName := reflect.TypeOf(resp).Name()
-		schemaRef := fmt.Sprintf("#/components/schemas/%s", typeName)
-		o.schemas[typeName] = schemaOrRef.Schema
-
-		o.responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
+		o.openapi.Responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
 			Response: &openapi3.Response{
 				Content: map[string]openapi3.MediaType{
-					contentType: {
-						Schema: &openapi3.SchemaOrRef{
-							SchemaReference: &openapi3.SchemaReference{
-								Ref: schemaRef,
-							},
-						},
+					ct.ContentType(): {
+						Schema: &schemaOrRef,
 					},
 				},
 			},
@@ -325,40 +275,37 @@ func (f errorHandlerFunc) HandleError(w http.ResponseWriter, err error) {
 const DefaultErrorStatusCode = http.StatusInternalServerError
 
 // New initializes an Endpoint.
-func New[Req, Resp any](method string, pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
+func New[Req, Resp any](handler Handler[Req, Resp], opts ...Option) *Operation[Req, Resp] {
 	o := &options{
-		method:            method,
-		pattern:           pattern,
 		defaultStatusCode: DefaultStatusCode,
-		validators: []func(*http.Request) error{
-			validateMethod(method),
-		},
+		pathParams:        make(map[PathParam]struct{}),
+		headerParams:      make(map[Header]struct{}),
+		queryParams:       make(map[QueryParam]struct{}),
 		errHandler: errorHandlerFunc(func(w http.ResponseWriter, err error) {
 			w.WriteHeader(DefaultErrorStatusCode)
 		}),
-		schemas: make(map[string]*openapi3.Schema),
+		openapi: &openapi3.Operation{
+			Responses: openapi3.Responses{
+				MapOfResponseOrRefValues: make(map[string]openapi3.ResponseOrRef),
+			},
+		},
 	}
 
-	for _, opt := range withBuiltinOptions[Req, Resp](pattern, opts...) {
+	for _, opt := range withBuiltinOptions[Req, Resp](opts...) {
 		opt(o)
 	}
 
-	return &Endpoint[Req, Resp]{
-		method:     method,
-		pattern:    pattern,
+	return &Operation[Req, Resp]{
 		injectors:  initInjectors(o),
 		validators: o.validators,
 		statusCode: o.defaultStatusCode,
 		handler:    handler,
 		errHandler: o.errHandler,
-		openapi:    setOpenApiSpec(o),
+		openapi:    o.openapi,
 	}
 }
 
-func withBuiltinOptions[Req, Resp any](pattern string, opts ...Option) []Option {
-	parsedPathParams := parsePathParams(pattern)
-	opts = append(opts, pathParams(parsedPathParams...))
-
+func withBuiltinOptions[Req, Resp any](opts ...Option) []Option {
 	var req Req
 	if _, ok := any(req).(ContentTyper); ok {
 		opts = append(opts, Accepts[Req]())
@@ -380,10 +327,10 @@ func withBuiltinOptions[Req, Resp any](pattern string, opts ...Option) []Option 
 
 func initInjectors(o *options) []injector {
 	injectors := []injector{injectResponseHeaders}
-	for _, p := range o.pathParams {
+	for p := range o.pathParams {
 		injectors = append(injectors, injectPathParam(p.Name))
 	}
-	if len(o.headers) > 0 {
+	if len(o.headerParams) > 0 {
 		injectors = append(injectors, injectHeaders)
 	}
 	if len(o.queryParams) > 0 {
@@ -392,105 +339,53 @@ func initInjectors(o *options) []injector {
 	return injectors
 }
 
-// Get returns an Endpoint configured for handling HTTP GET requests.
-func Get[Req, Resp any](pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
-	return New(http.MethodGet, pattern, handler, opts...)
-}
-
-// Post returns an Endpoint configured for handling HTTP POST requests.
-func Post[Req, Resp any](pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
-	return New(http.MethodPost, pattern, handler, opts...)
-}
-
-// Put returns an Endpoint configured for handling HTTP PUT requests.
-func Put[Req, Resp any](pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
-	return New(http.MethodPut, pattern, handler, opts...)
-}
-
-// Delete returns an Endpoint configured for handling HTTP DELETE requests.
-func Delete[Req, Resp any](pattern string, handler Handler[Req, Resp], opts ...Option) *Endpoint[Req, Resp] {
-	return New(http.MethodDelete, pattern, handler, opts...)
-}
-
-// Method returns the HTTP method which this endpoint
-// is configured to handle requests for.
-func (e *Endpoint[Req, Resp]) Method() string {
-	return e.method
-}
-
-// Pattern returns HTTP path pattern for this endpoint.
-func (e *Endpoint[Req, Resp]) Pattern() string {
-	return e.pattern
-}
-
-// OpenApi allows the endpoint to register itself with an OpenAPI spec.
-func (e *Endpoint[Req, Resp]) OpenApi(spec *openapi3.Spec) {
-	e.openapi(spec)
+func (op *Operation[Req, Resp]) OpenApi() *openapi3.Operation {
+	return op.openapi
 }
 
 // ServeHTTP implements the [http.Handler] interface.
-func (e *Endpoint[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := inject(r.Context(), w, r, e.injectors...)
+func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	spanCtx, span := otel.Tracer("endpoint").Start(r.Context(), "Operation.ServeHTTP")
+	defer span.End()
 
-	err := validateRequest(r, e.validators...)
+	ctx := inject(spanCtx, w, r, op.injectors...)
+
+	err := validateRequest(ctx, r, op.validators...)
 	if err != nil {
-		e.handleError(w, r, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 
 	var req Req
-	err = unmarshal(r.Body, &req)
+	err = unmarshal(ctx, r.Body, &req)
 	if err != nil {
-		e.handleError(w, r, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 
-	err = validate(req)
+	err = validate(ctx, req)
 	if err != nil {
-		e.handleError(w, r, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 
-	resp, err := e.handler.Handle(ctx, req)
+	resp, err := op.handler.Handle(ctx, req)
 	if err != nil {
-		e.handleError(w, r, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 
-	bm, ok := any(resp).(encoding.BinaryMarshaler)
-	if !ok {
-		w.WriteHeader(e.statusCode)
-		return
-	}
-
-	b, err := bm.MarshalBinary()
+	err = op.writeResponse(ctx, w, resp)
 	if err != nil {
-		e.handleError(w, r, err)
-		return
-	}
-
-	if ct, ok := any(resp).(ContentTyper); ok {
-		w.Header().Set("Content-Type", ct.ContentType())
-	}
-
-	w.WriteHeader(e.statusCode)
-	_, err = io.Copy(w, bytes.NewReader(b))
-	if err != nil {
-		e.handleError(w, r, err)
+		op.handleError(ctx, w, err)
 		return
 	}
 }
 
-func (e *Endpoint[Req, Resp]) handleError(w http.ResponseWriter, r *http.Request, err error) {
-	if h, ok := err.(http.Handler); ok {
-		h.ServeHTTP(w, r)
-		return
-	}
+func unmarshal[Req any](ctx context.Context, r io.ReadCloser, req *Req) error {
+	_, span := otel.Tracer("endpoint").Start(ctx, "unmarshal")
+	defer span.End()
 
-	e.errHandler.HandleError(w, err)
-}
-
-func unmarshal[Req any](r io.ReadCloser, req *Req) error {
 	switch x := any(req).(type) {
 	case encoding.BinaryUnmarshaler:
 		defer func() {
@@ -499,12 +394,16 @@ func unmarshal[Req any](r io.ReadCloser, req *Req) error {
 
 		b, err := io.ReadAll(r)
 		if err != nil {
+			span.RecordError(err)
 			return err
 		}
 
-		return x.UnmarshalBinary(b)
+		err = x.UnmarshalBinary(b)
+		span.RecordError(err)
+		return err
 	case io.ReaderFrom:
 		_, err := x.ReadFrom(r)
+		span.RecordError(err)
 		return err
 	default:
 		return nil
@@ -516,9 +415,53 @@ type Validator interface {
 	Validate() error
 }
 
-func validate[Req any](req Req) error {
-	if v, ok := any(req).(Validator); ok {
-		return v.Validate()
+func validate[Req any](ctx context.Context, req Req) error {
+	_, span := otel.Tracer("endpoint").Start(ctx, "validate")
+	defer span.End()
+
+	v, ok := any(req).(Validator)
+	if !ok {
+		return nil
 	}
-	return nil
+
+	err := v.Validate()
+	span.RecordError(err)
+	return err
+}
+
+func (op *Operation[Req, Resp]) writeResponse(ctx context.Context, w http.ResponseWriter, resp Resp) error {
+	_, span := otel.Tracer("endpoint").Start(ctx, "Operation.writeResponse")
+	defer span.End()
+
+	switch x := any(resp).(type) {
+	case io.WriterTo:
+		_, err := x.WriteTo(w)
+		span.RecordError(err)
+		return err
+	case encoding.BinaryMarshaler:
+		b, err := x.MarshalBinary()
+		if err != nil {
+			span.RecordError(err)
+			return err
+		}
+
+		if ct, ok := any(resp).(ContentTyper); ok {
+			w.Header().Set("Content-Type", ct.ContentType())
+		}
+
+		w.WriteHeader(op.statusCode)
+		_, err = io.Copy(w, bytes.NewReader(b))
+		span.RecordError(err)
+		return err
+	default:
+		w.WriteHeader(op.statusCode)
+		return nil
+	}
+}
+
+func (op *Operation[Req, Resp]) handleError(ctx context.Context, w http.ResponseWriter, err error) {
+	_, span := otel.Tracer("endpoint").Start(ctx, "Operation.handleError")
+	defer span.End()
+
+	op.errHandler.HandleError(w, err)
 }
