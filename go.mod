@@ -6,7 +6,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.1.0
 	github.com/stretchr/testify v1.9.0
 	github.com/swaggest/jsonschema-go v0.3.72
-	github.com/swaggest/openapi-go v0.2.53
+	github.com/swaggest/openapi-go v0.2.54
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0
 	go.opentelemetry.io/otel v1.29.0
 	go.opentelemetry.io/otel/log v0.5.0
