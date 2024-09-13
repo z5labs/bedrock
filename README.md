@@ -10,11 +10,52 @@ quickly developing services and more use case specific frameworks in Go.**
 
 # Core Concepts
 
-`bedrock` begins with the concepts of an `App` and a `Runtime`. `App`
-is a container for a `Runtime` and handles more "low-level" things,
-such as, OS interrupts, config parsing, environment variable overrides, etc.
-The `Runtime` is then the users entry point for jumping right into
-their use case specific code e.g. RESTful API, gRPC service, K8s job, etc.
+```go
+type App interface {
+	Run(context.Context) error
+}
+```
+
+[App](https://pkg.go.dev/github.com/z5labs/bedrock#App) is a
+simple abstraction over the execution of your specific application type
+e.g. HTTP server, gRPC server, etc.
+
+```go
+type AppBuilder[T any] interface {
+	Build(ctx context.Context, cfg T) (App, error)
+}
+```
+
+[AppBuilder](https://pkg.go.dev/github.com/z5labs/bedrock#AppBuilder) puts
+the responsibility of [App](https://pkg.go.dev/github.com/z5labs/bedrock#App) initialization
+in your hands!
+
+The generic parameter provided to your [AppBuilder](https://pkg.go.dev/github.com/z5labs/bedrock#AppBuilder)
+is, in fact, your custom configuration type, which means no messing with config
+parsing and unmarshalling yourself!
+
+```go
+package config
+
+type Source interface {
+	Apply(Store) error
+}
+```
+
+The [config.Source](https://pkg.go.dev/github.com/z5labs/bedrock/pkg/config#Source) is
+arguably the most powerful abstraction defined in any of the [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock)
+packages. It abstracts over the entire mechanic of sourcing your application configuration.
+This simple interface can then be implemented in various ways to support loading configuration
+from different files (e.g. YAML, JSON, TOML) to remote configuration stores (e.g. etcd).
+
+```go
+func Run[T any](ctx context.Context, builder AppBuilder[T], srcs ...config.Source) error
+```
+
+The final piece and most crucial piece [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock)
+provides is the [Run](https://pkg.go.dev/github.com/z5labs/bedrock#Run) function which
+handles the orchestration of config parsing, app building and, lastly, app execution by relying
+on the other core abstractions noted above.
 
 # Building services with bedrock
 
