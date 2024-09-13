@@ -59,44 +59,126 @@ on the other core abstractions noted above.
 
 # Building services with bedrock
 
-`bedrock` conveniently comes with a couple of `Runtime`s already implemented for you.
+[bedrock](https://pkg.go.dev/github.com/z5labs/bedrock) conveniently comes with a couple of
+[App](https://pkg.go.dev/github.com/z5labs/bedrock#App)s already implemented for you.
 This can significantly aid in shortening your overall development time, as well as,
-provide an example for how to implement your own custom `Runtime`.
+provide an example for how to implement your own custom [App](https://pkg.go.dev/github.com/z5labs/bedrock#App).
 
-For example, the below shows how simple it is to initialize an HTTP based "API" leveraging
-the builtin HTTP Runtime.
+For example, the below shows how simple it is to implement a RESTful API leveraging
+the [rest.App](https://pkg.go.dev/github.com/z5labs/bedrock/rest#App).
+
 ```go
 package main
 
 import (
     "context"
-    "net/http"
+	"encoding/json"
+	"net/http"
+	"strings"
 
     "github.com/z5labs/bedrock"
-    "github.com/z5labs/bedrock/http"
+    "github.com/z5labs/bedrock/pkg/config"
+    "github.com/z5labs/bedrock/rest"
+	"github.com/z5labs/bedrock/rest/endpoint"
 )
 
-func initRuntime(ctx context.Context) (bedrock.Runtime, error) {
-    rt := brhttp.NewRuntime(
-		brhttp.ListenOnPort(8080),
-		brhttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, "Hello, world")
-		}),
-	)
-	return rt, nil
+type echoService struct{}
+
+type EchoRequest struct {
+	Msg string `json:"msg"`
 }
 
+func (EchoRequest) ContentType() string {
+	return "application/json"
+}
+
+func (req *EchoRequest) UnmarshalBinary(b []byte) error {
+	return json.Unmarshal(b, req)
+}
+
+type EchoResponse struct {
+	Msg string `json:"msg"`
+}
+
+func (EchoResponse) ContentType() string {
+	return "application/json"
+}
+
+func (resp EchoResponse) MarshalBinary() ([]byte, error) {
+	return json.Marshal(resp)
+}
+
+func (echoService) Handle(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
+	return &EchoResponse{Msg: req.Msg}, nil
+}
+
+type Config struct {
+	Title string `config:"title"`
+	Version string `config:"version"`
+
+	Http struct {
+		Port uint `config:"port"`
+	} `config:"http"`
+}
+
+// here we're defining our AppBuilder as a simple function
+// remember bedrock.Run handles config unmarshalling for us
+// so we get to work with our custom config type, Config, directly.
+func buildRestApp(ctx context.Context, cfg Config) (bedrock.App, error) {
+	app := rest.NewApp(
+		rest.ListenOn(cfg.Http.Port),
+		rest.Title(cfg.Title),
+		rest.Version(cfg.Version),
+		rest.Endpoint(
+			http.MethodPost,
+			"/",
+			endpoint.NewOperation(
+				echoService{},
+			),
+		),
+	)
+	return app, nil
+}
+
+// would recommend this being a separate file you could use
+// go:embed on or use a config.Source that could fetch it
+// from a remote store.
+var config = `{
+	"title": "My Example API",
+	"version": "v0.0.0",
+	"http": {
+		"port": 8080
+	}
+}`
+
 func main() {
-	bedrock.New(
-		bedrock.WithRuntimeBuilderFunc(initRuntime),
-	).Run()
+	builder := bedrock.AppBuilderFunc[Config](buildRestApp)
+
+	// Note: Should actually handle error in your code
+	_ = bedrock.Run(
+		context.Background(),
+		builder,
+		config.FromJson(strings.NewReader(config)),
+	)
 }
 ```
 
-There you go! An entire HTTP API in less than 20 lines... well kind of. This incredibly
-simple example can easily be extended (aka made more production-ready) by supplying extra
-options to both `bedrock.New` and `brhttp.NewRuntime`. For available, options please
-check the official Go documentation.
+There you go! An entire RESTful API in less than 100 lines... well kind of.
+
+This incredibly simple example can easily be extended (aka made more production-ready) by leveraging a middleware
+approach to the [App](https://pkg.go.dev/github.com/z5labs/bedrock#App) returned by your
+[AppBuilder](https://pkg.go.dev/github.com/z5labs/bedrock#AppBuilder). Conventiently,
+[bedrock](https://pkg.go.dev/github.com/z5labs/bedrock) already has a couple common middlewares
+defined for your use in [package app](https://pkg.go.dev/github.com/z5labs/bedrock/pkg/app). Two
+notable middleware implementations are:
+
+- [WithOTel](https://pkg.go.dev/github.com/z5labs/bedrock/pkg/app#WithOTel) initializes
+the various global [OpenTelemetry](https://opentelemetry.io/) types (e.g. TracerProvider, MeterProvider, etc.)
+before executing your actual [App](https://pkg.go.dev/github.com/z5labs/bedrock#App).
+- [WithSignalNotifications](https://pkg.go.dev/github.com/z5labs/bedrock/pkg/app#WithSignalNotifications)
+wraps your [App](https://pkg.go.dev/github.com/z5labs/bedrock#App) and will execute it with a
+"child" [context.Context](https://pkg.go.dev/context#Context) which will automatically be cancelled
+if any of the provided [os.Signal](https://pkg.go.dev/os#Signal)s are received.
 
 # Building custom frameworks with bedrock
 
