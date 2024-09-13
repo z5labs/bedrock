@@ -163,9 +163,9 @@ func main() {
 }
 ```
 
-There you go! An entire RESTful API in less than 100 lines... well kind of.
+There you go, an entire RESTful API in less than 100 lines!
 
-This incredibly simple example can easily be extended (aka made more production-ready) by leveraging a middleware
+This incredibly simple example can theb easily be extended (aka made more production-ready) by leveraging a middleware
 approach to the [App](https://pkg.go.dev/github.com/z5labs/bedrock#App) returned by your
 [AppBuilder](https://pkg.go.dev/github.com/z5labs/bedrock#AppBuilder). Conventiently,
 [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock) already has a couple common middlewares
@@ -182,20 +182,20 @@ if any of the provided [os.Signal](https://pkg.go.dev/os#Signal)s are received.
 
 # Building custom frameworks with bedrock
 
-One of the guiding principals for `bedrock` is to composable. This principal comes
-from the experience gained from working with custom, tailor made frameworks which
+One of the guiding principals for [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock) is to be composable.
+This principal comes from the experience gained from working with custom, tailor made frameworks which
 over their lifetime within an organization are unable to adapt to changing
 development and deployment patterns. Eventually, these frameworks are abandoned
 for new ones or completely rewritten to reflect the current state of the organization.
 
-`bedrock` defines a small set of types and carefully chooses its opinions to balance
-composability and functionality, as much as it can. The result is, in fact, a framework
+[bedrock](https://pkg.go.dev/github.com/z5labs/bedrock) defines a small set of types and carefully
+chooses its opinions to balance composability and functionality, as much as it can. The result is, in fact, a framework
 that isn't necessarily designed for building services directly, but instead meant for building
 more custom, use case specific frameworks.
 
-For example, `bedrock` could be used by your organizations platform engineering or framework
-team(s) to quickly develop internal frameworks which abstract over all of your organizations
-requirements e.g. OpenTelemetry, Logging, Authenticated endpoints, etc. Then, due to the high composibility
-of `bedrock`, any changes within your organization would then be very easy to adapt to within
-your internal framework. A more concrete example of how a custom framework could look like
-can be found in [example/custom_framework](https://github.com/z5labs/bedrock/tree/main/example/custom_framework).
+For example, [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock) could be used by your organizations
+platform engineering or framework team(s) to quickly develop internal frameworks which abstract over all of
+your organizations requirements e.g. OpenTelemetry, Logging, Authenticated endpoints, etc. Then, due to the
+high composibility of [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock), any changes within your
+organization would then be very easy to adapt to within your internal framework. A more concrete example of
+how a custom framework could look like can be found in [example/custom_framework](https://github.com/z5labs/bedrock/tree/main/example/custom_framework).
