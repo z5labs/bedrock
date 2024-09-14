@@ -3,4 +3,4 @@ openapi:
   version: {{env "SERVICE_VERSION"}}
 
 http:
-  port: {{env "HTTP_PORT" | default 8080}}
+  port: {{env "HTTP_PORT" | default "8080"}}

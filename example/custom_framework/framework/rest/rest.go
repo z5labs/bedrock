@@ -11,6 +11,7 @@ import (
 	_ "embed"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/z5labs/bedrock/example/custom_framework/framework"
 	"github.com/z5labs/bedrock/example/custom_framework/framework/internal"
@@ -19,7 +20,11 @@ import (
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/pkg/app"
 	"github.com/z5labs/bedrock/rest"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -68,7 +73,39 @@ func OTel(cfg framework.OTelConfig) Option {
 				return tmp, nil
 			}),
 			app.OTelTracerProvider(func(ctx context.Context) (trace.TracerProvider, error) {
-				return nil, nil
+				// framework.Logger will return a logger that writes to STDOUT
+				// so we'll just send traces to STDERR for demo purposes.
+				exp, err := stdouttrace.New(
+					stdouttrace.WithWriter(os.Stderr),
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				r, err := resource.Detect(
+					ctx,
+					resourceDetectFunc(func(ctx context.Context) (*resource.Resource, error) {
+						return resource.Default(), nil
+					}),
+					resource.StringDetector(semconv.SchemaURL, semconv.ServiceNameKey, func() (string, error) {
+						return cfg.ServiceName, nil
+					}),
+					resource.StringDetector(semconv.SchemaURL, semconv.ServiceVersionKey, func() (string, error) {
+						return cfg.ServiceVersion, nil
+					}),
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				tp := sdktrace.NewTracerProvider(
+					sdktrace.WithBatcher(exp),
+					sdktrace.WithResource(r),
+					sdktrace.WithSampler(sdktrace.AlwaysSample()),
+				)
+				ra.postRunHooks = append(ra.postRunHooks, shutdownHook(tp))
+
+				return tp, nil
 			}),
 		)
 	}
@@ -100,8 +137,9 @@ func WithEndpoint(e Endpoint) Option {
 }
 
 type App struct {
-	restOpts []rest.Option
-	otelOpts []app.OTelOption
+	restOpts     []rest.Option
+	otelOpts     []app.OTelOption
+	postRunHooks []app.LifecycleHook
 }
 
 func NewApp(opts ...Option) *App {
@@ -112,17 +150,61 @@ func NewApp(opts ...Option) *App {
 	return ra
 }
 
+type resourceDetectFunc func(context.Context) (*resource.Resource, error)
+
+func (f resourceDetectFunc) Detect(ctx context.Context) (*resource.Resource, error) {
+	return f(ctx)
+}
+
 func (ra *App) Run(ctx context.Context) error {
 	var base bedrock.App = rest.NewApp(ra.restOpts...)
 
-	base = app.WithOTel(
-		base,
-		app.OTelTracerProvider(func(ctx context.Context) (trace.TracerProvider, error) {
-			return nil, nil
-		}),
-	)
+	base = app.WithLifecycleHooks(base, app.Lifecycle{
+		PostRun: composePostRunHooks(ra.postRunHooks...),
+	})
+
+	base = app.WithOTel(base, ra.otelOpts...)
 
 	base = app.WithSignalNotifications(base, os.Interrupt, os.Kill)
 
 	return base.Run(ctx)
+}
+
+type multiErr []error
+
+func (e multiErr) Error() string {
+	var sb strings.Builder
+	sb.WriteString("captured error(s):\n")
+	for _, err := range e {
+		sb.WriteString("\t- ")
+		sb.WriteString(err.Error())
+		sb.WriteByte('\n')
+	}
+	return sb.String()
+}
+
+func composePostRunHooks(hooks ...app.LifecycleHook) app.LifecycleHook {
+	return app.LifecycleHookFunc(func(ctx context.Context) error {
+		var me multiErr
+		for _, hook := range hooks {
+			err := hook.Run(ctx)
+			if err != nil {
+				me = append(me, err)
+			}
+		}
+		if len(me) == 0 {
+			return nil
+		}
+		return me
+	})
+}
+
+type shutdown interface {
+	Shutdown(context.Context) error
+}
+
+func shutdownHook(s shutdown) app.LifecycleHook {
+	return app.LifecycleHookFunc(func(ctx context.Context) error {
+		return s.Shutdown(ctx)
+	})
 }
