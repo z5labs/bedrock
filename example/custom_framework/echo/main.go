@@ -4,7 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 
-	"github.com/z5labs/bedrock/example/custom_framework/echo/service"
+	"github.com/z5labs/bedrock/example/custom_framework/echo/app"
 	"github.com/z5labs/bedrock/example/custom_framework/framework"
 )
 
@@ -12,5 +12,5 @@ import (
 var cfgSrc []byte
 
 func main() {
-	framework.Rest(bytes.NewReader(cfgSrc), service.Init)
+	framework.Run(bytes.NewReader(cfgSrc), app.Init)
 }

@@ -1,0 +1,6 @@
+openapi:
+  title: {{env "SERVICE_NAME"}}
+  version: {{env "SERVICE_VERSION"}}
+
+http:
+  port: {{env "HTTP_PORT" | default "8080"}}
