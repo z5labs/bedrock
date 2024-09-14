@@ -1,33 +1,76 @@
 package framework
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"io"
 	"log/slog"
-	"net/http"
+	"os"
+	"sync"
+
+	"github.com/z5labs/bedrock/example/custom_framework/framework/internal"
+	"github.com/z5labs/bedrock/example/custom_framework/framework/internal/global"
+
+	"github.com/z5labs/bedrock"
 )
 
-//go:embed base_config.yaml
-var baseCfgSrc []byte
+//go:embed default_config.yaml
+var configBytes []byte
 
-type Config struct {
-	OTel struct {
-		ServiceName string `config:"serviceName"`
-		OTLP        struct {
-			Target string `config:"target"`
-		} `config:"otlp"`
-	} `config:"otel"`
-
-	Logging struct {
-		Level slog.Level `config:"level"`
-	} `config:"logging"`
-
-	Http struct {
-		Port uint `config:"port"`
-	} `config:"http"`
+func init() {
+	global.RegisterConfigSource(internal.ConfigSource(bytes.NewReader(configBytes)))
 }
 
-func Rest[T any](cfg io.Reader, f func(context.Context, T, *http.ServeMux) error) error {
-	return nil
+type OTelConfig struct {
+	ServiceName    string `config:"service_name"`
+	ServiceVersion string `config:"service_version"`
+	OTLP           struct {
+		Target string `config:"target"`
+	} `config:"otlp"`
+}
+
+type LoggingConfig struct {
+	Level slog.Level `config:"level"`
+}
+
+type Config struct {
+	OTel    OTelConfig    `config:"otel"`
+	Logging LoggingConfig `config:"logging"`
+}
+
+var logger *slog.Logger
+var initLoggerOnce sync.Once
+
+func Logger(cfg LoggingConfig) *slog.Logger {
+	initLoggerOnce.Do(func() {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			AddSource: true,
+			Level:     cfg.Level,
+		}))
+	})
+	return logger
+}
+
+type App bedrock.App
+
+func Run[T any](r io.Reader, build func(context.Context, T) (App, error)) {
+	err := bedrock.Run(
+		context.Background(),
+		bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
+			return build(ctx, cfg)
+		}),
+		global.ConfigSources...,
+	)
+	if err == nil {
+		return
+	}
+
+	// there's a chance Run failed on config parsing/unmarshalling
+	// thus the logging config is most likely unusable and we should
+	// instead create our own logger here for logging this error
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		AddSource: true,
+	}))
+	log.Error("failed while running application", slog.String("error", err.Error()))
 }
