@@ -1,10 +1,9 @@
 otel:
-  serviceName: {{env "SERVICE_NAME"}}
+  service_name: {{env "SERVICE_NAME"}}
+  service_version: {{env "SERVICE_VERSION"}}
   otlp:
     target: {{env "OTLP_ADDR"}}
 
 logging:
   level: {{env "LOG_LEVEL" | default "INFO"}}
 
-http:
-  port: {{env "HTTP_PORT" | default 8080}}
