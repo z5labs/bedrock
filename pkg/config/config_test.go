@@ -8,6 +8,7 @@ package config
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,9 +36,58 @@ func TestRead(t *testing.T) {
 		})
 	})
 
+	t.Run("will return empty Manager", func(t *testing.T) {
+		t.Run("if no sources are provided", func(t *testing.T) {
+			m, err := Read()
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.NotNil(t, m.store) {
+				return
+			}
+			if !assert.Len(t, m.store, 0) {
+				return
+			}
+		})
+	})
+
 	t.Run("will override config values", func(t *testing.T) {
 		t.Run("if multiple sources are provided", func(t *testing.T) {
+			m, err := Read(
+				FromYaml(strings.NewReader("hello: alice")),
+				FromYaml(strings.NewReader("hello: bob")),
+			)
+			if !assert.Nil(t, err) {
+				return
+			}
 
+			var cfg struct {
+				Hello string `config:"hello"`
+			}
+			err = m.Unmarshal(&cfg)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "bob", cfg.Hello) {
+				return
+			}
+		})
+	})
+
+	t.Run("will be idempotent", func(t *testing.T) {
+		t.Run("if a single Manager is used as the source", func(t *testing.T) {
+			m, err := Read(FromYaml(strings.NewReader("hello: world")))
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			m2, err := Read(m)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, m, m2) {
+				return
+			}
 		})
 	})
 }
