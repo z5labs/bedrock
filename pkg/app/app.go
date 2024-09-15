@@ -8,6 +8,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -86,9 +87,6 @@ func (f LifecycleHookFunc) Run(ctx context.Context) error {
 
 // Lifecycle
 type Lifecycle struct {
-	// PreRun is run before app.Run.
-	PreRun LifecycleHook
-
 	// PostRun is always executed regardless if the underlying [bedrock.App]
 	// returns an error or panics.
 	PostRun LifecycleHook
@@ -97,24 +95,22 @@ type Lifecycle struct {
 // WithLifecycleHooks wraps a given [bedrock.App] in an implementation
 // that runs [LifecycleHook]s around the execution of app.Run.
 func WithLifecycleHooks(app bedrock.App, lifecycle Lifecycle) bedrock.App {
-	return runFunc(func(ctx context.Context) error {
-		err := runHook(ctx, lifecycle.PreRun)
-		if err != nil {
-			return err
-		}
-
+	return runFunc(func(ctx context.Context) (err error) {
 		// Always run PostRun hook regardless if app returns an error or panics.
-		defer func() {
-			_ = runHook(ctx, lifecycle.PostRun)
-		}()
+		defer runPostRunHook(ctx, lifecycle.PostRun, &err)
 
 		return app.Run(ctx)
 	})
 }
 
-func runHook(ctx context.Context, hook LifecycleHook) error {
+func runPostRunHook(ctx context.Context, hook LifecycleHook, err *error) {
 	if hook == nil {
-		return nil
+		return
 	}
-	return hook.Run(ctx)
+
+	hookErr := hook.Run(ctx)
+
+	// errors.Join will not return an error if both
+	// *err and hookErr are nil.
+	*err = errors.Join(*err, hookErr)
 }

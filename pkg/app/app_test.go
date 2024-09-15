@@ -83,24 +83,6 @@ func TestWithSignalNotifications(t *testing.T) {
 
 func TestWithLifecycleHooks(t *testing.T) {
 	t.Run("will return error", func(t *testing.T) {
-		t.Run("if Lifecycle.PreRun fails", func(t *testing.T) {
-			base := runFunc(func(ctx context.Context) error {
-				return nil
-			})
-
-			preRunErr := errors.New("failed to pre run")
-			app := WithLifecycleHooks(base, Lifecycle{
-				PreRun: LifecycleHookFunc(func(ctx context.Context) error {
-					return preRunErr
-				}),
-			})
-
-			err := app.Run(context.Background())
-			if !assert.ErrorIs(t, err, preRunErr) {
-				return
-			}
-		})
-
 		t.Run("if the underlying app fails", func(t *testing.T) {
 			baseErr := errors.New("failed to run app")
 			base := runFunc(func(ctx context.Context) error {
@@ -114,18 +96,64 @@ func TestWithLifecycleHooks(t *testing.T) {
 				return
 			}
 		})
-	})
 
-	t.Run("will not return an error", func(t *testing.T) {
-		t.Run("if the Lifecycle.PostRun fails", func(t *testing.T) {
+		t.Run("if the Lifecycle.PostRun hook fails", func(t *testing.T) {
 			base := runFunc(func(ctx context.Context) error {
 				return nil
 			})
 
+			postRunErr := errors.New("failed to post run")
+			postRun := LifecycleHookFunc(func(ctx context.Context) error {
+				return postRunErr
+			})
+
 			app := WithLifecycleHooks(base, Lifecycle{
-				PostRun: LifecycleHookFunc(func(ctx context.Context) error {
-					return errors.New("failed to post run")
-				}),
+				PostRun: postRun,
+			})
+
+			err := app.Run(context.Background())
+			if !assert.ErrorIs(t, err, postRunErr) {
+				return
+			}
+		})
+
+		t.Run("if both underlying app and the Lifecycle.PostRun hook fail", func(t *testing.T) {
+			baseErr := errors.New("failed to run app")
+			base := runFunc(func(ctx context.Context) error {
+				return baseErr
+			})
+
+			postRunErr := errors.New("failed to post run")
+			postRun := LifecycleHookFunc(func(ctx context.Context) error {
+				return postRunErr
+			})
+
+			app := WithLifecycleHooks(base, Lifecycle{
+				PostRun: postRun,
+			})
+
+			err := app.Run(context.Background())
+			if !assert.ErrorIs(t, err, baseErr) {
+				return
+			}
+			if !assert.ErrorIs(t, err, postRunErr) {
+				return
+			}
+		})
+	})
+
+	t.Run("will not return an error", func(t *testing.T) {
+		t.Run("if both the underlying app and the Lifecycle.PostRun do not fail", func(t *testing.T) {
+			base := runFunc(func(ctx context.Context) error {
+				return nil
+			})
+
+			postRun := LifecycleHookFunc(func(ctx context.Context) error {
+				return nil
+			})
+
+			app := WithLifecycleHooks(base, Lifecycle{
+				PostRun: postRun,
 			})
 
 			err := app.Run(context.Background())
