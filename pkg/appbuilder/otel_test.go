@@ -28,7 +28,7 @@ func TestWithOTel(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
 		t.Run("if the base bedrock.AppBuilder fails to run", func(t *testing.T) {
 			baseErr := errors.New("failed to run")
-			base := builderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
+			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
 				return nil, baseErr
 			})
 
@@ -40,7 +40,7 @@ func TestWithOTel(t *testing.T) {
 		})
 
 		t.Run("if propagation.TextMapPropagator fails to initialize", func(t *testing.T) {
-			base := builderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
+			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
 				return nil, nil
 			})
 
@@ -56,7 +56,7 @@ func TestWithOTel(t *testing.T) {
 		})
 
 		t.Run("if trace.TracerProvider fails to initialize", func(t *testing.T) {
-			base := builderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
+			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
 				return nil, nil
 			})
 
@@ -72,7 +72,7 @@ func TestWithOTel(t *testing.T) {
 		})
 
 		t.Run("if metric.MeterProvider fails to initialize", func(t *testing.T) {
-			base := builderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
+			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
 				return nil, nil
 			})
 
@@ -88,7 +88,7 @@ func TestWithOTel(t *testing.T) {
 		})
 
 		t.Run("if log.LoggerProvider fails to initialize", func(t *testing.T) {
-			base := builderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
+			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
 				return nil, nil
 			})
 
@@ -106,7 +106,7 @@ func TestWithOTel(t *testing.T) {
 
 	t.Run("will not return an error", func(t *testing.T) {
 		t.Run("if propagation.TextMapPropagator succeeds to initialize", func(t *testing.T) {
-			base := builderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
+			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
 				return nil, nil
 			})
 
@@ -121,7 +121,7 @@ func TestWithOTel(t *testing.T) {
 		})
 
 		t.Run("if trace.TracerProvider succeeds to initialize", func(t *testing.T) {
-			base := builderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
+			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
 				return nil, nil
 			})
 
@@ -136,7 +136,7 @@ func TestWithOTel(t *testing.T) {
 		})
 
 		t.Run("if metric.MeterProvider succeeds to initialize", func(t *testing.T) {
-			base := builderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
+			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
 				return nil, nil
 			})
 
@@ -151,7 +151,7 @@ func TestWithOTel(t *testing.T) {
 		})
 
 		t.Run("if log.LoggerProvider succeeds to initialize", func(t *testing.T) {
-			base := builderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
+			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
 				return nil, nil
 			})
 

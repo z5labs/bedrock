@@ -63,7 +63,7 @@ func WithOTel[T any](builder bedrock.AppBuilder[T], opts ...OTelOption) bedrock.
 		opt(oo)
 	}
 
-	return builderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
+	return bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
 		fs := []func(context.Context) error{
 			initTextMapPropogator(oo),
 			initTracerProvider(oo),

@@ -12,18 +12,12 @@ import (
 	"github.com/z5labs/bedrock"
 )
 
-type builderFunc[T any] func(context.Context, T) (bedrock.App, error)
-
-func (f builderFunc[T]) Build(ctx context.Context, cfg T) (bedrock.App, error) {
-	return f(ctx, cfg)
-}
-
 // Recover will wrap the give [bedrock.AppBuilder] with panic recovery.
 // If the recovered panic value implements [error] then it will
 // be directly returned. If it does not implement [error] then a
 // [PanicError] will be returned instead.
 func Recover[T any](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[T] {
-	return builderFunc[T](func(ctx context.Context, cfg T) (_ bedrock.App, err error) {
+	return bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (_ bedrock.App, err error) {
 		defer errRecover(&err)
 
 		return builder.Build(ctx, cfg)
