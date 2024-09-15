@@ -31,13 +31,21 @@ type Source interface {
 
 // Manager
 type Manager struct {
-	store inMemoryStore
+	store Map
 }
 
 // Read
 // Subsequent sources override previous sources.
 func Read(srcs ...Source) (*Manager, error) {
-	store := make(inMemoryStore)
+	if len(srcs) == 0 {
+		return &Manager{store: make(Map)}, nil
+	}
+
+	if m, ok := srcs[0].(*Manager); len(srcs) == 1 && ok {
+		return m, nil
+	}
+
+	store := make(Map)
 	for _, src := range srcs {
 		err := src.Apply(store)
 		if err != nil {
@@ -48,6 +56,11 @@ func Read(srcs ...Source) (*Manager, error) {
 		store: store,
 	}
 	return m, nil
+}
+
+// Apply implements the [Source] interface.
+func (m *Manager) Apply(store Store) error {
+	return m.store.Apply(store)
 }
 
 // Unmarshal
