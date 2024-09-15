@@ -7,12 +7,17 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/swaggest/jsonschema-go v0.3.72
 	github.com/swaggest/openapi-go v0.2.54
+	go.opentelemetry.io/contrib/bridges/otelslog v0.5.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.55.0
 	go.opentelemetry.io/otel v1.30.0
+	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.6.0
+	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.30.0
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.30.0
 	go.opentelemetry.io/otel/log v0.6.0
 	go.opentelemetry.io/otel/metric v1.30.0
 	go.opentelemetry.io/otel/sdk v1.30.0
+	go.opentelemetry.io/otel/sdk/log v0.6.0
+	go.opentelemetry.io/otel/sdk/metric v1.30.0
 	go.opentelemetry.io/otel/trace v1.30.0
 	golang.org/x/sync v0.8.0
 	gopkg.in/yaml.v3 v3.0.1
