@@ -56,12 +56,6 @@ func OTelLoggerProvider(f func(context.Context) (log.LoggerProvider, error)) OTe
 	}
 }
 
-type builderFunc[T any] func(context.Context, T) (bedrock.App, error)
-
-func (f builderFunc[T]) Build(ctx context.Context, cfg T) (bedrock.App, error) {
-	return f(ctx, cfg)
-}
-
 // WithOTel
 func WithOTel[T any](builder bedrock.AppBuilder[T], opts ...OTelOption) bedrock.AppBuilder[T] {
 	oo := &otelOptions{}
@@ -69,7 +63,7 @@ func WithOTel[T any](builder bedrock.AppBuilder[T], opts ...OTelOption) bedrock.
 		opt(oo)
 	}
 
-	return builderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
+	return bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
 		fs := []func(context.Context) error{
 			initTextMapPropogator(oo),
 			initTracerProvider(oo),
