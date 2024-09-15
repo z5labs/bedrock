@@ -8,6 +8,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 
@@ -18,6 +19,42 @@ type runFunc func(context.Context) error
 
 func (f runFunc) Run(ctx context.Context) error {
 	return f(ctx)
+}
+
+// Recover will wrap the give [bedrock.App] with panic recovery.
+// If the recovered panic value implements [error] then it will
+// be directly returned. If it does not implement [error] then a
+// [PanicError] will be returned instead.
+func Recover(app bedrock.App) bedrock.App {
+	return runFunc(func(ctx context.Context) (err error) {
+		defer errRecover(&err)
+
+		return app.Run(ctx)
+	})
+}
+
+// PanicError
+type PanicError struct {
+	Value any
+}
+
+// Error implements the [error] interface.
+func (e PanicError) Error() string {
+	return fmt.Sprintf("recovered from panic: %v", e.Value)
+}
+
+func errRecover(err *error) {
+	r := recover()
+	if r == nil {
+		return
+	}
+
+	rerr, ok := r.(error)
+	if ok {
+		*err = rerr
+		return
+	}
+	*err = PanicError{Value: r}
 }
 
 // WithSignalNotifications wraps a given [bedrock.App] in an implementation
