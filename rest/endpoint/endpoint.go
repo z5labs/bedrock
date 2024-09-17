@@ -37,7 +37,7 @@ func (f HandlerFunc[Req, Resp]) Handle(ctx context.Context, req *Req) (*Resp, er
 
 // ErrorHandler
 type ErrorHandler interface {
-	HandleError(http.ResponseWriter, error)
+	HandleError(context.Context, http.ResponseWriter, error)
 }
 
 type options struct {
@@ -263,10 +263,10 @@ func OnError(eh ErrorHandler) Option {
 	}
 }
 
-type errorHandlerFunc func(http.ResponseWriter, error)
+type errorHandlerFunc func(context.Context, http.ResponseWriter, error)
 
-func (f errorHandlerFunc) HandleError(w http.ResponseWriter, err error) {
-	f(w, err)
+func (f errorHandlerFunc) HandleError(ctx context.Context, w http.ResponseWriter, err error) {
+	f(ctx, w, err)
 }
 
 // DefaultErrorStatusCode
@@ -279,7 +279,7 @@ func NewOperation[Req, Resp any](handler Handler[Req, Resp], opts ...Option) *Op
 		pathParams:        make(map[PathParam]struct{}),
 		headerParams:      make(map[Header]struct{}),
 		queryParams:       make(map[QueryParam]struct{}),
-		errHandler: errorHandlerFunc(func(w http.ResponseWriter, err error) {
+		errHandler: errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 			w.WriteHeader(DefaultErrorStatusCode)
 		}),
 		openapi: openapi3.Operation{
@@ -471,8 +471,8 @@ func (op *Operation[Req, Resp]) writeResponse(ctx context.Context, w http.Respon
 }
 
 func (op *Operation[Req, Resp]) handleError(ctx context.Context, w http.ResponseWriter, err error) {
-	_, span := otel.Tracer("endpoint").Start(ctx, "Operation.handleError")
+	spanCtx, span := otel.Tracer("endpoint").Start(ctx, "Operation.handleError")
 	defer span.End()
 
-	op.errHandler.HandleError(w, err)
+	op.errHandler.HandleError(spanCtx, w, err)
 }
