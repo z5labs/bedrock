@@ -374,7 +374,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
 					return nil, nil
 				}),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
@@ -401,7 +401,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				HandlerFunc[Empty, ReaderContent](func(_ context.Context, _ *Empty) (*ReaderContent, error) {
 					return nil, nil
 				}),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
@@ -432,7 +432,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				HandlerFunc[Empty, Empty](func(_ context.Context, _ *Empty) (*Empty, error) {
 					return nil, errors.New("failed")
 				}),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					w.WriteHeader(errStatusCode)
 				})),
 			)
@@ -458,7 +458,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Required: true,
 					},
 				),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
@@ -494,7 +494,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Pattern: "^[a-zA-Z]*$",
 					},
 				),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
@@ -531,7 +531,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Required: true,
 					},
 				),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
@@ -567,7 +567,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 						Pattern: "^[a-zA-Z]*$",
 					},
 				),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
@@ -599,7 +599,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ *JsonContent) (*Empty, error) {
 					return &Empty{}, nil
 				}),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
@@ -632,7 +632,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				HandlerFunc[FailUnmarshalBinary, Empty](func(_ context.Context, _ *FailUnmarshalBinary) (*Empty, error) {
 					return &Empty{}, nil
 				}),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
@@ -659,7 +659,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				HandlerFunc[InvalidRequest, Empty](func(_ context.Context, _ *InvalidRequest) (*Empty, error) {
 					return &Empty{}, nil
 				}),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
@@ -686,7 +686,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				HandlerFunc[Empty, FailMarshalBinary](func(_ context.Context, _ *Empty) (*FailMarshalBinary, error) {
 					return &FailMarshalBinary{}, nil
 				}),
-				OnError(errorHandlerFunc(func(w http.ResponseWriter, err error) {
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
 					w.WriteHeader(DefaultErrorStatusCode)
