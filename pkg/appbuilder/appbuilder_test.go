@@ -37,7 +37,7 @@ func TestRecover(t *testing.T) {
 			}))
 
 			_, err := builder.Build(context.Background(), config{})
-			if !assert.Equal(t, buildErr, err) {
+			if !assert.ErrorIs(t, err, buildErr) {
 				return
 			}
 		})
@@ -50,7 +50,7 @@ func TestRecover(t *testing.T) {
 
 			_, err := builder.Build(context.Background(), config{})
 
-			var perr PanicError
+			var perr bedrock.PanicError
 			if !assert.ErrorAs(t, err, &perr) {
 				return
 			}

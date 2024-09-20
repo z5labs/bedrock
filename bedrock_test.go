@@ -8,6 +8,7 @@ package bedrock
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -15,6 +16,108 @@ import (
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestRecover(t *testing.T) {
+	t.Run("will catch panic", func(t *testing.T) {
+		t.Run("if panic is called with a nil argument", func(t *testing.T) {
+			f := func() (err error) {
+				defer Recover(&err)
+
+				panic(nil)
+				return nil
+			}
+
+			err := f()
+
+			var perr PanicError
+			if !assert.ErrorAs(t, err, &perr) {
+				return
+			}
+			if !assert.NotEmpty(t, perr.Error()) {
+				return
+			}
+
+			var rerr *runtime.PanicNilError
+			if !assert.ErrorAs(t, perr, &rerr) {
+				return
+			}
+		})
+
+		t.Run("if panic is called with a non-error type", func(t *testing.T) {
+			f := func() (err error) {
+				defer Recover(&err)
+
+				panic("hello world")
+				return nil
+			}
+
+			err := f()
+
+			var perr PanicError
+			if !assert.ErrorAs(t, err, &perr) {
+				return
+			}
+			if !assert.NotEmpty(t, perr.Error()) {
+				return
+			}
+			if !assert.Equal(t, "hello world", perr.Value) {
+				return
+			}
+		})
+
+		t.Run("if panic is called with a error type", func(t *testing.T) {
+			panicErr := errors.New("everybody panic!")
+			f := func() (err error) {
+				defer Recover(&err)
+
+				panic(panicErr)
+				return nil
+			}
+
+			err := f()
+
+			var perr PanicError
+			if !assert.ErrorAs(t, err, &perr) {
+				return
+			}
+			if !assert.NotEmpty(t, perr.Error()) {
+				return
+			}
+			if !assert.ErrorIs(t, perr, panicErr) {
+				return
+			}
+		})
+
+		t.Run("even if the reference error already holds a value", func(t *testing.T) {
+			prePanicErr := errors.New("everybody panic!")
+			f := func() (err error) {
+				defer Recover(&err)
+
+				err = prePanicErr
+				panic("hello world")
+				return nil
+			}
+
+			err := f()
+
+			// Previous error value should not be lost
+			if !assert.ErrorIs(t, err, prePanicErr) {
+				return
+			}
+
+			var perr PanicError
+			if !assert.ErrorAs(t, err, &perr) {
+				return
+			}
+			if !assert.NotEmpty(t, perr.Error()) {
+				return
+			}
+			if !assert.Equal(t, "hello world", perr.Value) {
+				return
+			}
+		})
+	})
+}
 
 type configSourceFunc func(config.Store) error
 
