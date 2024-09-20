@@ -23,9 +23,9 @@ func ExampleRecover() {
 
 	_, err := Recover(builder).Build(context.Background(), MyConfig{})
 
-	var perr PanicError
+	var perr bedrock.PanicError
 	if !errors.As(err, &perr) {
-		fmt.Println("should be a panic error since \"hello world\" does not implement error interface.")
+		fmt.Println("should be a panic error.")
 		return
 	}
 
@@ -42,11 +42,13 @@ func ExampleRecover_errorValue() {
 	})
 
 	_, err := Recover(builder).Build(context.Background(), MyConfig{})
-	if errors.Is(err, PanicError{}) {
-		fmt.Println("should not be a panic error since errors.New() does implement error interface.")
+
+	var perr bedrock.PanicError
+	if !errors.As(err, &perr) {
+		fmt.Println("should be a panic error.")
 		return
 	}
 
-	fmt.Println(err)
+	fmt.Println(perr.Unwrap())
 	// Output: hello world
 }
