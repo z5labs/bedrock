@@ -10,6 +10,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/z5labs/bedrock"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -35,7 +37,7 @@ func TestRecover(t *testing.T) {
 			}))
 
 			err := app.Run(context.Background())
-			if !assert.Equal(t, appErr, err) {
+			if !assert.ErrorIs(t, err, appErr) {
 				return
 			}
 		})
@@ -48,7 +50,7 @@ func TestRecover(t *testing.T) {
 
 			err := app.Run(context.Background())
 
-			var perr PanicError
+			var perr bedrock.PanicError
 			if !assert.ErrorAs(t, err, &perr) {
 				return
 			}

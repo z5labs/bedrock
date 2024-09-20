@@ -7,6 +7,7 @@ package bedrock
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/z5labs/bedrock/pkg/config"
@@ -31,11 +32,47 @@ func (f AppBuilderFunc[T]) Build(ctx context.Context, cfg T) (App, error) {
 	return f(ctx, cfg)
 }
 
+// PanicError represents a value that was recovered from a panic.
+type PanicError struct {
+	Value any
+}
+
+// Error implements the [error] interface.
+func (e PanicError) Error() string {
+	return fmt.Sprintf("recovered from panic: %v", e.Value)
+}
+
+// Unwrap implements the interface used by [errors.Unwrap], [errors.Is] and [errors.As].
+func (e PanicError) Unwrap() error {
+	if e.Value == nil {
+		return nil
+	}
+	if err, ok := e.Value.(error); ok {
+		return err
+	}
+	return nil
+}
+
+// Recover calls [recover] and if a value is captured it will be wrapped
+// into a [PanicError]. The [PanicError] will then be joined with any
+// value, err, may reference. The joining is performed using [errors.Join].
+func Recover(err *error) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	*err = errors.Join(*err, PanicError{
+		Value: r,
+	})
+}
+
 // Run executes the application. It's responsible for reading the provided
 // config sources, unmarshalling them into the generic config type, using
 // the config and builder to build the users [App] and, lastly, running the
 // returned [App].
-func Run[T any](ctx context.Context, builder AppBuilder[T], srcs ...config.Source) error {
+func Run[T any](ctx context.Context, builder AppBuilder[T], srcs ...config.Source) (err error) {
+	defer Recover(&err)
+
 	m, err := config.Read(srcs...)
 	if err != nil {
 		return ConfigReadError{Cause: err}
