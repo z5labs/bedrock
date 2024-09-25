@@ -57,6 +57,14 @@ func Endpoint(method, pattern string, op Operation) Option {
 	}
 }
 
+// NotFoundHandler will register the given [http.Handler] to handle
+// any HTTP requests that do not match any other method-pattern combinations.
+func NotFoundHandler(h http.Handler) Option {
+	return func(app *App) {
+		app.mux.Handle("/{path...}", h)
+	}
+}
+
 // Title sets the title of the API in its OpenAPI spec.
 //
 // In order for your OpenAPI spec to be fully compliant
