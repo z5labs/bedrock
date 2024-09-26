@@ -20,6 +20,16 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type statusCodeHandler int
+
+func (h statusCodeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(int(h))
+}
+
+func (h statusCodeHandler) OpenApi() openapi3.Operation {
+	return openapi3.Operation{}
+}
+
 func TestNotFoundHandler(t *testing.T) {
 	testCases := []struct {
 		Name            string
@@ -92,14 +102,14 @@ func TestNotFoundHandler(t *testing.T) {
 						return ls, nil
 					}
 				},
+				func(a *App) {
+					if testCase.RegisterPattern == "" {
+						return
+					}
+					Endpoint(http.MethodGet, testCase.RegisterPattern, statusCodeHandler(http.StatusOK))(a)
+				},
 				NotFoundHandler(notFoundHandler),
 			)
-
-			if testCase.RegisterPattern != "" {
-				app.mux.HandleFunc(testCase.RegisterPattern, func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusOK)
-				})
-			}
 
 			respCh := make(chan *http.Response, 1)
 			ctx, cancel := context.WithCancel(context.Background())
@@ -139,6 +149,143 @@ func TestNotFoundHandler(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, http.StatusNotFound, resp.StatusCode) {
+				return
+			}
+			defer resp.Body.Close()
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var m map[string]any
+			err = json.Unmarshal(b, &m)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Contains(t, m, "hello") {
+				return
+			}
+			if !assert.Equal(t, "world", m["hello"]) {
+				return
+			}
+		})
+	}
+}
+
+func TestMethodNotAllowedHandler(t *testing.T) {
+	testCases := []struct {
+		Name             string
+		RegisterPatterns map[string]string
+		Method           string
+		RequestPath      string
+		MethodNotAllowed bool
+	}{
+		{
+			Name: "should return success response when correct method is used",
+			RegisterPatterns: map[string]string{
+				http.MethodGet: "/",
+			},
+			Method:           http.MethodGet,
+			RequestPath:      "/",
+			MethodNotAllowed: false,
+		},
+		{
+			Name: "should return success response when more than one method is registered for same path",
+			RegisterPatterns: map[string]string{
+				http.MethodGet:  "/",
+				http.MethodPost: "/",
+			},
+			Method:           http.MethodGet,
+			RequestPath:      "/",
+			MethodNotAllowed: false,
+		},
+		{
+			Name: "should return method not allowed response when incorrect method is used",
+			RegisterPatterns: map[string]string{
+				http.MethodGet: "/",
+			},
+			Method:           http.MethodPost,
+			RequestPath:      "/",
+			MethodNotAllowed: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Name, func(t *testing.T) {
+			methodNotAllowedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+
+				enc := json.NewEncoder(w)
+				enc.Encode(map[string]any{"hello": "world"})
+			})
+
+			addrCh := make(chan net.Addr)
+			app := NewApp(
+				func(a *App) {
+					a.listen = func(network, addr string) (net.Listener, error) {
+						ls, err := net.Listen(network, ":0")
+						if err != nil {
+							return nil, err
+						}
+						defer close(addrCh)
+
+						addrCh <- ls.Addr()
+						return ls, nil
+					}
+				},
+				func(a *App) {
+					for method, pattern := range testCase.RegisterPatterns {
+						Endpoint(method, pattern, statusCodeHandler(http.StatusOK))(a)
+					}
+				},
+				MethodNotAllowedHandler(methodNotAllowedHandler),
+			)
+
+			respCh := make(chan *http.Response, 1)
+			ctx, cancel := context.WithCancel(context.Background())
+			eg, egctx := errgroup.WithContext(ctx)
+			eg.Go(func() error {
+				return app.Run(egctx)
+			})
+			eg.Go(func() error {
+				defer cancel()
+				defer close(respCh)
+
+				addr := <-addrCh
+
+				req, err := http.NewRequestWithContext(egctx, testCase.Method, fmt.Sprintf("http://%s/%s", addr, testCase.RequestPath), nil)
+				if err != nil {
+					return err
+				}
+
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return err
+				}
+
+				select {
+				case <-egctx.Done():
+					return egctx.Err()
+				case respCh <- resp:
+				}
+				return nil
+			})
+
+			err := eg.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			resp := <-respCh
+			if !assert.NotNil(t, resp) {
+				return
+			}
+			if !testCase.MethodNotAllowed {
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+				return
+			}
+			if !assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode) {
 				return
 			}
 			defer resp.Body.Close()
