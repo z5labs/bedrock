@@ -69,6 +69,49 @@ func validateHeader(h Header) func(*http.Request) error {
 	}
 }
 
+// InvalidPathParamError occurs when a path parameter value does not match
+// it's expected pattern.
+type InvalidPathParamError struct {
+	Param string
+}
+
+// Error implements the [error] interface.
+func (e InvalidPathParamError) Error() string {
+	return ""
+}
+
+// MissingRequiredPathParamError occurs when a path parameter is marked
+// as required but no path value for the parameter is present in the request.
+type MissingRequiredPathParamError struct {
+	Param string
+}
+
+// Error implements the [error] interface.
+func (e MissingRequiredPathParamError) Error() string {
+	return ""
+}
+
+func validatePathParam(p PathParam) func(*http.Request) error {
+	var pattern *regexp.Regexp
+	if p.Pattern != "" {
+		pattern = regexp.MustCompile(p.Pattern)
+	}
+
+	return func(r *http.Request) error {
+		val := r.PathValue(p.Name)
+		if pattern != nil && !pattern.MatchString(val) {
+			return InvalidPathParamError{Param: p.Name}
+		}
+		if !p.Required {
+			return nil
+		}
+		if val == "" {
+			return MissingRequiredPathParamError{Param: p.Name}
+		}
+		return nil
+	}
+}
+
 // InvalidQueryParamError
 type InvalidQueryParamError struct {
 	Param string
