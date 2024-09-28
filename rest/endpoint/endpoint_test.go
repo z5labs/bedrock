@@ -208,6 +208,47 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 		})
+
+		t.Run("if a valid http.ServeMux path param pattern is used and it's marked as required", func(t *testing.T) {
+			e := NewOperation(
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
+					v := PathValue(ctx, "id")
+					return &JsonContent{Value: v}, nil
+				}),
+				PathParams(PathParam{
+					Name:     "id",
+					Required: true,
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/abc123", nil)
+
+			// for path params a http.ServeMux must be used since
+			// Endpoint doesn't support it directly
+			mux := http.NewServeMux()
+			mux.Handle("GET /{id}", e)
+			mux.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var jsonResp JsonContent
+			err = json.Unmarshal(b, &jsonResp)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "abc123", jsonResp.Value) {
+				return
+			}
+		})
 	})
 
 	t.Run("will inject headers", func(t *testing.T) {
@@ -247,6 +288,44 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 		})
+
+		t.Run("if a header is configured with the Headers option and marked as required", func(t *testing.T) {
+			e := NewOperation(
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
+					v := HeaderValue(ctx, "test-header")
+					return &JsonContent{Value: v}, nil
+				}),
+				Headers(Header{
+					Name:     "test-header",
+					Required: true,
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.Header.Set("test-header", "hello, world")
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var jsonResp JsonContent
+			err = json.Unmarshal(b, &jsonResp)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "hello, world", jsonResp.Value) {
+				return
+			}
+		})
 	})
 
 	t.Run("will inject query params", func(t *testing.T) {
@@ -258,6 +337,43 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				}),
 				QueryParams(QueryParam{
 					Name: "test-query",
+				}),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/?test-query=abc123", nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var jsonResp JsonContent
+			err = json.Unmarshal(b, &jsonResp)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "abc123", jsonResp.Value) {
+				return
+			}
+		})
+
+		t.Run("if a query param is configured with the QueryParams option and marked required", func(t *testing.T) {
+			e := NewOperation(
+				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
+					v := QueryValue(ctx, "test-query")
+					return &JsonContent{Value: v}, nil
+				}),
+				QueryParams(QueryParam{
+					Name:     "test-query",
+					Required: true,
 				}),
 			)
 
@@ -444,6 +560,79 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 			resp := w.Result()
 			if !assert.Equal(t, errStatusCode, resp.StatusCode) {
+				return
+			}
+		})
+
+		t.Run("if a required path param is missing", func(t *testing.T) {
+			var caughtError error
+			e := NewOperation(
+				noopHandler{},
+				PathParams(
+					PathParam{
+						Name:     "id",
+						Required: true,
+					},
+				),
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var merr MissingRequiredPathParamError
+			if !assert.ErrorAs(t, caughtError, &merr) {
+				return
+			}
+			if !assert.NotEmpty(t, merr.Error()) {
+				return
+			}
+		})
+
+		t.Run("if a path param does not match its expected pattern", func(t *testing.T) {
+			var caughtError error
+			e := NewOperation(
+				noopHandler{},
+				PathParams(
+					PathParam{
+						Name:    "id",
+						Pattern: "^[a-zA-Z]*$",
+					},
+				),
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.SetPathValue("id", "abc123")
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
+				return
+			}
+
+			var ierr InvalidPathParamError
+			if !assert.ErrorAs(t, caughtError, &ierr) {
+				return
+			}
+			if !assert.NotEmpty(t, ierr.Error()) {
 				return
 			}
 		})
