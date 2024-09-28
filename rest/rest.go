@@ -6,14 +6,13 @@
 package rest
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/swaggest/openapi-go/openapi3"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -44,17 +43,37 @@ type Operation interface {
 
 // Endpoint registers the [Operation] with both
 // the App wide OpenAPI spec and the App wide HTTP server.
+//
+// "/" is always treated as "/{$}" because it would otherwise
+// match too broadly and cause conflicts with other paths.
 func Endpoint(method, pattern string, op Operation) Option {
 	return func(app *App) {
-		err := app.spec.AddOperation(method, pattern, op.OpenApi())
+		// Per the net/http.ServeMux docs, https://pkg.go.dev/net/http#ServeMux:
+		//
+		// 		The special wildcard {$} matches only the end of the URL.
+		//      For example, the pattern "/{$}" matches only the path "/",
+		//      whereas the pattern "/" matches every path.
+		//
+		// This means that when registering the pattern with the OpenAPI spec
+		// the {$} needs to be stripped because OpenAPI will believe it's
+		// an actual path parameter.
+		trimmedPattern := strings.TrimRight(pattern, "{$}")
+		err := app.spec.AddOperation(method, trimmedPattern, op.OpenApi())
 		if err != nil {
 			panic(err)
+		}
+
+		// enforce strict matching for top-level path
+		// otherwise "/" would match too broadly and http.ServeMux
+		// will panic when other paths are registered e.g. /openapi.json
+		if pattern == "/" {
+			pattern = "/{$}"
 		}
 		app.pathMethods[pattern] = append(app.pathMethods[pattern], method)
 
 		app.mux.Handle(
-			pattern,
-			otelhttp.WithRouteTag(pattern, op),
+			fmt.Sprintf("%s %s", method, pattern),
+			otelhttp.WithRouteTag(trimmedPattern, op),
 		)
 	}
 }
@@ -129,14 +148,10 @@ func NewApp(opts ...Option) *App {
 
 // Run implements the [bedrock.App] interface.
 func (app *App) Run(ctx context.Context) error {
-	spec, err := app.marshalJSON(app.spec)
-	if err != nil {
-		return err
-	}
-	app.mux.HandleFunc(
-		fmt.Sprintf("%s /openapi.json", http.MethodGet),
-		func(w http.ResponseWriter, r *http.Request) {
-			_, _ = io.Copy(w, bytes.NewReader(spec))
+	app.mux.Handle(
+		fmt.Sprintf("%s %s", http.MethodGet, "/openapi.json"),
+		openApiHandler{
+			spec: app.spec,
 		},
 	)
 
@@ -172,6 +187,15 @@ func (app *App) Run(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+type openApiHandler struct {
+	spec *openapi3.Spec
+}
+
+func (h openApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	enc := json.NewEncoder(w)
+	enc.Encode(h.spec)
 }
 
 func (app *App) registerMethodNotAllowedHandler() {

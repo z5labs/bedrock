@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -122,7 +123,8 @@ func TestNotFoundHandler(t *testing.T) {
 				defer close(respCh)
 
 				addr := <-addrCh
-				resp, err := http.Get(fmt.Sprintf("http://%s/%s", addr, testCase.RequestPath))
+				url := fmt.Sprintf("http://%s", path.Join(addr.String(), testCase.RequestPath))
+				resp, err := http.Get(url)
 				if err != nil {
 					return err
 				}
@@ -253,8 +255,9 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 				defer close(respCh)
 
 				addr := <-addrCh
+				url := fmt.Sprintf("http://%s", path.Join(addr.String(), testCase.RequestPath))
 
-				req, err := http.NewRequestWithContext(egctx, testCase.Method, fmt.Sprintf("http://%s/%s", addr, testCase.RequestPath), nil)
+				req, err := http.NewRequestWithContext(egctx, testCase.Method, url, nil)
 				if err != nil {
 					return err
 				}
@@ -383,20 +386,6 @@ func TestApp(t *testing.T) {
 
 func TestApp_Run(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
-		t.Run("if it fails to marshal the OpenAPI spec to JSON", func(t *testing.T) {
-			app := NewApp()
-
-			marshalErr := errors.New("failed to marshal")
-			app.marshalJSON = func(a any) ([]byte, error) {
-				return nil, marshalErr
-			}
-
-			err := app.Run(context.Background())
-			if !assert.ErrorIs(t, err, marshalErr) {
-				return
-			}
-		})
-
 		t.Run("if it fails to create a listener", func(t *testing.T) {
 			app := NewApp()
 
