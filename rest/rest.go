@@ -195,7 +195,7 @@ type openApiHandler struct {
 
 func (h openApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
-	enc.Encode(h.spec)
+	_ = enc.Encode(h.spec)
 }
 
 func (app *App) registerMethodNotAllowedHandler() {
