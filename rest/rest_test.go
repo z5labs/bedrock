@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/swaggest/openapi-go/openapi3"
 	"golang.org/x/sync/errgroup"
+	"gopkg.in/yaml.v3"
 )
 
 type statusCodeHandler int
@@ -299,9 +300,9 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 	}
 }
 
-func TestApp(t *testing.T) {
-	t.Run("will return OpenAPI spec", func(t *testing.T) {
-		t.Run("if a request is sent to /openapi.json", func(t *testing.T) {
+func TestOpenApiJsonHandler(t *testing.T) {
+	t.Run("will return HTTP 500 status code", func(t *testing.T) {
+		t.Run("if the json marshalling fails", func(t *testing.T) {
 			ls, err := net.Listen("tcp", ":0")
 			if !assert.Nil(t, err) {
 				return
@@ -309,6 +310,67 @@ func TestApp(t *testing.T) {
 
 			app := NewApp(
 				Listener(ls),
+				OpenApiEndpoint(http.MethodGet, "/openapi.json", func(s *openapi3.Spec) http.Handler {
+					return openApiHandler{
+						spec: s,
+						marshal: func(a any) ([]byte, error) {
+							return nil, errors.New("failed to marshal")
+						},
+					}
+				}),
+			)
+
+			respCh := make(chan *http.Response, 1)
+			ctx, cancel := context.WithCancel(context.Background())
+			eg, egctx := errgroup.WithContext(ctx)
+			eg.Go(func() error {
+				return app.Run(egctx)
+			})
+			eg.Go(func() error {
+				defer cancel()
+				defer close(respCh)
+
+				addr := ls.Addr()
+				resp, err := http.Get(fmt.Sprintf("http://%s/openapi.json", addr))
+				if err != nil {
+					return err
+				}
+
+				select {
+				case <-egctx.Done():
+					return egctx.Err()
+				case respCh <- resp:
+				}
+				return nil
+			})
+
+			err = eg.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			resp := <-respCh
+			if !assert.NotNil(t, resp) {
+				return
+			}
+			defer resp.Body.Close()
+
+			if !assert.Equal(t, http.StatusInternalServerError, resp.StatusCode) {
+				return
+			}
+		})
+	})
+
+	t.Run("will return OpenAPI spec", func(t *testing.T) {
+		t.Run("if a GET request is sent to /openapi.json", func(t *testing.T) {
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			app := NewApp(
+				Listener(ls),
+				OpenApiEndpoint(http.MethodGet, "/openapi.json", OpenApiJsonHandler),
 			)
 
 			respCh := make(chan *http.Response, 1)
@@ -353,6 +415,131 @@ func TestApp(t *testing.T) {
 
 			var spec openapi3.Spec
 			err = json.Unmarshal(b, &spec)
+			if !assert.Nil(t, err) {
+				return
+			}
+			if !assert.Equal(t, "3.0.3", spec.Openapi) {
+				return
+			}
+		})
+	})
+}
+
+func TestOpenApiYamlHandler(t *testing.T) {
+	t.Run("will return a HTTP 500 status code", func(t *testing.T) {
+		t.Run("if the yaml marshalling fails", func(t *testing.T) {
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			app := NewApp(
+				Listener(ls),
+				OpenApiEndpoint(http.MethodGet, "/openapi.yaml", func(s *openapi3.Spec) http.Handler {
+					return openApiHandler{
+						spec: s,
+						marshal: func(a any) ([]byte, error) {
+							return nil, errors.New("failed to marshal")
+						},
+					}
+				}),
+			)
+
+			respCh := make(chan *http.Response, 1)
+			ctx, cancel := context.WithCancel(context.Background())
+			eg, egctx := errgroup.WithContext(ctx)
+			eg.Go(func() error {
+				return app.Run(egctx)
+			})
+			eg.Go(func() error {
+				defer cancel()
+				defer close(respCh)
+
+				addr := ls.Addr()
+				resp, err := http.Get(fmt.Sprintf("http://%s/openapi.yaml", addr))
+				if err != nil {
+					return err
+				}
+
+				select {
+				case <-egctx.Done():
+					return egctx.Err()
+				case respCh <- resp:
+				}
+				return nil
+			})
+
+			err = eg.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			resp := <-respCh
+			if !assert.NotNil(t, resp) {
+				return
+			}
+			defer resp.Body.Close()
+
+			if !assert.Equal(t, http.StatusInternalServerError, resp.StatusCode) {
+				return
+			}
+		})
+	})
+
+	t.Run("will return OpenAPI spec", func(t *testing.T) {
+		t.Run("if a GET request is sent to /openapi.yaml", func(t *testing.T) {
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			app := NewApp(
+				Listener(ls),
+				OpenApiEndpoint(http.MethodGet, "/openapi.yaml", OpenApiYamlHandler),
+			)
+
+			respCh := make(chan *http.Response, 1)
+			ctx, cancel := context.WithCancel(context.Background())
+			eg, egctx := errgroup.WithContext(ctx)
+			eg.Go(func() error {
+				return app.Run(egctx)
+			})
+			eg.Go(func() error {
+				defer cancel()
+				defer close(respCh)
+
+				addr := ls.Addr()
+				resp, err := http.Get(fmt.Sprintf("http://%s/openapi.yaml", addr))
+				if err != nil {
+					return err
+				}
+
+				select {
+				case <-egctx.Done():
+					return egctx.Err()
+				case respCh <- resp:
+				}
+				return nil
+			})
+
+			err = eg.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			resp := <-respCh
+			if !assert.NotNil(t, resp) {
+				return
+			}
+			defer resp.Body.Close()
+
+			b, err := io.ReadAll(resp.Body)
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			var spec openapi3.Spec
+			err = yaml.Unmarshal(b, &spec)
 			if !assert.Nil(t, err) {
 				return
 			}
