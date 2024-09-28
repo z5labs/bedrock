@@ -56,7 +56,7 @@ func (h openApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	io.Copy(w, bytes.NewReader(b))
+	_, _ = io.Copy(w, bytes.NewReader(b))
 }
 
 // OpenApiJsonHandler returns an [http.Handler] which will respond with the OpenAPI schema as JSON.
