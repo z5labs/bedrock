@@ -89,20 +89,13 @@ func TestNotFoundHandler(t *testing.T) {
 				enc.Encode(map[string]any{"hello": "world"})
 			})
 
-			addrCh := make(chan net.Addr)
-			app := NewApp(
-				func(a *App) {
-					a.listen = func(network, addr string) (net.Listener, error) {
-						ls, err := net.Listen(network, ":0")
-						if err != nil {
-							return nil, err
-						}
-						defer close(addrCh)
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
 
-						addrCh <- ls.Addr()
-						return ls, nil
-					}
-				},
+			app := NewApp(
+				Listener(ls),
 				func(a *App) {
 					if testCase.RegisterPattern == "" {
 						return
@@ -122,7 +115,7 @@ func TestNotFoundHandler(t *testing.T) {
 				defer cancel()
 				defer close(respCh)
 
-				addr := <-addrCh
+				addr := ls.Addr()
 				url := fmt.Sprintf("http://%s", path.Join(addr.String(), testCase.RequestPath))
 				resp, err := http.Get(url)
 				if err != nil {
@@ -137,7 +130,7 @@ func TestNotFoundHandler(t *testing.T) {
 				return nil
 			})
 
-			err := eg.Wait()
+			err = eg.Wait()
 			if !assert.Nil(t, err) {
 				return
 			}
@@ -222,20 +215,13 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 				enc.Encode(map[string]any{"hello": "world"})
 			})
 
-			addrCh := make(chan net.Addr)
-			app := NewApp(
-				func(a *App) {
-					a.listen = func(network, addr string) (net.Listener, error) {
-						ls, err := net.Listen(network, ":0")
-						if err != nil {
-							return nil, err
-						}
-						defer close(addrCh)
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
 
-						addrCh <- ls.Addr()
-						return ls, nil
-					}
-				},
+			app := NewApp(
+				Listener(ls),
 				func(a *App) {
 					for method, pattern := range testCase.RegisterPatterns {
 						Endpoint(method, pattern, statusCodeHandler(http.StatusOK))(a)
@@ -254,7 +240,7 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 				defer cancel()
 				defer close(respCh)
 
-				addr := <-addrCh
+				addr := ls.Addr()
 				url := fmt.Sprintf("http://%s", path.Join(addr.String(), testCase.RequestPath))
 
 				req, err := http.NewRequestWithContext(egctx, testCase.Method, url, nil)
@@ -275,7 +261,7 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 				return nil
 			})
 
-			err := eg.Wait()
+			err = eg.Wait()
 			if !assert.Nil(t, err) {
 				return
 			}
@@ -316,20 +302,13 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 func TestApp(t *testing.T) {
 	t.Run("will return OpenAPI spec", func(t *testing.T) {
 		t.Run("if a request is sent to /openapi.json", func(t *testing.T) {
-			addrCh := make(chan net.Addr)
-			app := NewApp(
-				func(a *App) {
-					a.listen = func(network, addr string) (net.Listener, error) {
-						ls, err := net.Listen(network, ":0")
-						if err != nil {
-							return nil, err
-						}
-						defer close(addrCh)
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
 
-						addrCh <- ls.Addr()
-						return ls, nil
-					}
-				},
+			app := NewApp(
+				Listener(ls),
 			)
 
 			respCh := make(chan *http.Response, 1)
@@ -342,7 +321,7 @@ func TestApp(t *testing.T) {
 				defer cancel()
 				defer close(respCh)
 
-				addr := <-addrCh
+				addr := ls.Addr()
 				resp, err := http.Get(fmt.Sprintf("http://%s/openapi.json", addr))
 				if err != nil {
 					return err
@@ -356,7 +335,7 @@ func TestApp(t *testing.T) {
 				return nil
 			})
 
-			err := eg.Wait()
+			err = eg.Wait()
 			if !assert.Nil(t, err) {
 				return
 			}
@@ -386,7 +365,7 @@ func TestApp(t *testing.T) {
 
 func TestApp_Run(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
-		t.Run("if it fails to create a listener", func(t *testing.T) {
+		t.Run("if it fails to create the default net.Listener", func(t *testing.T) {
 			app := NewApp()
 
 			listenErr := errors.New("failed to listen")
@@ -395,7 +374,7 @@ func TestApp_Run(t *testing.T) {
 			}
 
 			err := app.Run(context.Background())
-			if !assert.ErrorIs(t, err, listenErr) {
+			if !assert.Equal(t, listenErr, err) {
 				return
 			}
 		})
@@ -403,12 +382,17 @@ func TestApp_Run(t *testing.T) {
 
 	t.Run("will not return an error", func(t *testing.T) {
 		t.Run("if the context.Context is cancelled", func(t *testing.T) {
-			app := NewApp(ListenOn(0))
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			app := NewApp(Listener(ls))
 
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
 
-			err := app.Run(ctx)
+			err = app.Run(ctx)
 			if !assert.Nil(t, err) {
 				return
 			}

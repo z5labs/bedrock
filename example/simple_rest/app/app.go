@@ -7,7 +7,9 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 
@@ -38,8 +40,13 @@ func Init(ctx context.Context, cfg Config) (bedrock.App, error) {
 		echo.LogHandler(logHandler),
 	)
 
+	ls, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Http.Port))
+	if err != nil {
+		return nil, err
+	}
+
 	restApp := rest.NewApp(
-		rest.ListenOn(cfg.Http.Port),
+		rest.Listener(ls),
 		rest.Endpoint(
 			http.MethodPost,
 			"/echo",

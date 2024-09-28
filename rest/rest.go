@@ -22,14 +22,14 @@ import (
 // Option represents configurable attributes of [App].
 type Option func(*App)
 
-// ListenOn allows you to configure the port which
-// the underlying HTTP server will listen for incoming
-// connections.
+// Listener allows you to configure the [net.Listener] for
+// the underlying [http.Server] to use for serving requests.
 //
-// Default: 80
-func ListenOn(port uint) Option {
+// If this option is not supplied, then [net.Listen] will be
+// used to create a [net.Listener] for "tcp" and address ":80".
+func Listener(ls net.Listener) Option {
 	return func(a *App) {
-		a.port = port
+		a.ls = ls
 	}
 }
 
@@ -117,28 +117,26 @@ func Version(s string) Option {
 // App is a [bedrock.App] implementation to help simplify
 // building RESTful applications.
 type App struct {
-	port uint
+	ls net.Listener
+
 	spec *openapi3.Spec
 	mux  *http.ServeMux
 
 	pathMethods             map[string][]string
 	methodNotAllowedHandler http.Handler
 
-	listen      func(network, addr string) (net.Listener, error)
-	marshalJSON func(any) ([]byte, error)
+	listen func(network, addr string) (net.Listener, error)
 }
 
 // NewApp initializes a [App].
 func NewApp(opts ...Option) *App {
 	app := &App{
-		port: 80,
 		spec: &openapi3.Spec{
 			Openapi: "3.0.3",
 		},
 		mux:         http.NewServeMux(),
 		pathMethods: make(map[string][]string),
 		listen:      net.Listen,
-		marshalJSON: json.Marshal,
 	}
 	for _, opt := range opts {
 		opt(app)
@@ -148,6 +146,11 @@ func NewApp(opts ...Option) *App {
 
 // Run implements the [bedrock.App] interface.
 func (app *App) Run(ctx context.Context) error {
+	ls, err := app.listener()
+	if err != nil {
+		return err
+	}
+
 	app.mux.Handle(
 		fmt.Sprintf("%s %s", http.MethodGet, "/openapi.json"),
 		openApiHandler{
@@ -156,14 +159,6 @@ func (app *App) Run(ctx context.Context) error {
 	)
 
 	app.registerMethodNotAllowedHandler()
-
-	ls, err := app.listen("tcp", fmt.Sprintf(":%d", app.port))
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = ls.Close()
-	}()
 
 	httpServer := &http.Server{
 		Handler: otelhttp.NewHandler(
@@ -187,6 +182,13 @@ func (app *App) Run(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (app *App) listener() (net.Listener, error) {
+	if app.ls != nil {
+		return app.ls, nil
+	}
+	return app.listen("tcp", ":80")
 }
 
 type openApiHandler struct {
