@@ -125,8 +125,7 @@ type App struct {
 	pathMethods             map[string][]string
 	methodNotAllowedHandler http.Handler
 
-	listen      func(network, addr string) (net.Listener, error)
-	marshalJSON func(any) ([]byte, error)
+	listen func(network, addr string) (net.Listener, error)
 }
 
 // NewApp initializes a [App].
