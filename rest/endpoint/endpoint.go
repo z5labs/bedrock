@@ -115,6 +115,8 @@ func PathParams(ps ...PathParam) Option {
 					},
 				},
 			})
+
+			o.validators = append(o.validators, validatePathParam(p))
 		}
 	}
 }
