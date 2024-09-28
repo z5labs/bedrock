@@ -6,13 +6,13 @@
 package rest
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/swaggest/openapi-go/openapi3"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -43,17 +43,54 @@ type Operation interface {
 
 // Endpoint registers the [Operation] with both
 // the App wide OpenAPI spec and the App wide HTTP server.
+//
+// "/" is always treated as "/{$}" because it would otherwise
+// match too broadly and cause conflicts with other paths.
 func Endpoint(method, pattern string, op Operation) Option {
 	return func(app *App) {
-		err := app.spec.AddOperation(method, pattern, op.OpenApi())
+		// Per the net/http.ServeMux docs, https://pkg.go.dev/net/http#ServeMux:
+		//
+		// 		The special wildcard {$} matches only the end of the URL.
+		//      For example, the pattern "/{$}" matches only the path "/",
+		//      whereas the pattern "/" matches every path.
+		//
+		// This means that when registering the pattern with the OpenAPI spec
+		// the {$} needs to be stripped because OpenAPI will believe it's
+		// an actual path parameter.
+		trimmedPattern := strings.TrimRight(pattern, "{$}")
+		err := app.spec.AddOperation(method, trimmedPattern, op.OpenApi())
 		if err != nil {
 			panic(err)
 		}
 
+		// enforce strict matching for top-level path
+		// otherwise "/" would match too broadly and http.ServeMux
+		// will panic when other paths are registered e.g. /openapi.json
+		if pattern == "/" {
+			pattern = "/{$}"
+		}
+		app.pathMethods[pattern] = append(app.pathMethods[pattern], method)
+
 		app.mux.Handle(
-			pattern,
-			otelhttp.WithRouteTag(pattern, op),
+			fmt.Sprintf("%s %s", method, pattern),
+			otelhttp.WithRouteTag(trimmedPattern, op),
 		)
+	}
+}
+
+// NotFoundHandler will register the given [http.Handler] to handle
+// any HTTP requests that do not match any other method-pattern combinations.
+func NotFoundHandler(h http.Handler) Option {
+	return func(app *App) {
+		app.mux.Handle("/{path...}", h)
+	}
+}
+
+// MethodNotAllowedHandler will register the given [http.Handler] to handle
+// any HTTP requests whose method does not match the method registered to a pattern.
+func MethodNotAllowedHandler(h http.Handler) Option {
+	return func(app *App) {
+		app.methodNotAllowedHandler = h
 	}
 }
 
@@ -84,6 +121,9 @@ type App struct {
 	spec *openapi3.Spec
 	mux  *http.ServeMux
 
+	pathMethods             map[string][]string
+	methodNotAllowedHandler http.Handler
+
 	listen      func(network, addr string) (net.Listener, error)
 	marshalJSON func(any) ([]byte, error)
 }
@@ -96,6 +136,7 @@ func NewApp(opts ...Option) *App {
 			Openapi: "3.0.3",
 		},
 		mux:         http.NewServeMux(),
+		pathMethods: make(map[string][]string),
 		listen:      net.Listen,
 		marshalJSON: json.Marshal,
 	}
@@ -107,13 +148,14 @@ func NewApp(opts ...Option) *App {
 
 // Run implements the [bedrock.App] interface.
 func (app *App) Run(ctx context.Context) error {
-	spec, err := app.marshalJSON(app.spec)
-	if err != nil {
-		return err
-	}
-	app.mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(w, bytes.NewReader(spec))
-	})
+	app.mux.Handle(
+		fmt.Sprintf("%s %s", http.MethodGet, "/openapi.json"),
+		openApiHandler{
+			spec: app.spec,
+		},
+	)
+
+	app.registerMethodNotAllowedHandler()
 
 	ls, err := app.listen("tcp", fmt.Sprintf(":%d", app.port))
 	if err != nil {
@@ -145,4 +187,49 @@ func (app *App) Run(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+type openApiHandler struct {
+	spec *openapi3.Spec
+}
+
+func (h openApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	enc := json.NewEncoder(w)
+	_ = enc.Encode(h.spec)
+}
+
+func (app *App) registerMethodNotAllowedHandler() {
+	if app.methodNotAllowedHandler == nil {
+		return
+	}
+
+	// this list is pulled from the OpenAPI v3 Path Item Object documentation.
+	supportedMethods := []string{
+		http.MethodGet,
+		http.MethodPut,
+		http.MethodPost,
+		http.MethodDelete,
+		http.MethodOptions,
+		http.MethodHead,
+		http.MethodPatch,
+		http.MethodTrace,
+	}
+
+	for path, methods := range app.pathMethods {
+		unsupportedMethods := diffSets(supportedMethods, methods)
+		for _, method := range unsupportedMethods {
+			app.mux.Handle(fmt.Sprintf("%s %s", method, path), app.methodNotAllowedHandler)
+		}
+	}
+}
+
+func diffSets(xs, ys []string) []string {
+	zs := make([]string, 0, len(xs))
+	for _, x := range xs {
+		if slices.Contains(ys, x) {
+			continue
+		}
+		zs = append(zs, x)
+	}
+	return zs
 }
