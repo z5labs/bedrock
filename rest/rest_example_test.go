@@ -48,31 +48,15 @@ func (echoService) Handle(ctx context.Context, req *EchoRequest) (*EchoResponse,
 	return &EchoResponse{Msg: req.Msg}, nil
 }
 
-// this is quick hack to dynamically allocate a local address
-// for this example only. This is not apart of the public
-// package API and instead, the option, ListenOn should be used
-// to configure the HTTP server port.
-func listenOnRandomPort(addrCh chan<- net.Addr) Option {
-	return func(a *App) {
-		a.listen = func(network, addr string) (net.Listener, error) {
-			defer close(addrCh)
-
-			ls, err := net.Listen(network, ":0")
-			if err != nil {
-				return nil, err
-			}
-
-			addrCh <- ls.Addr()
-			return ls, nil
-		}
-	}
-}
-
 func Example() {
-	addrCh := make(chan net.Addr)
+	ls, err := net.Listen("tcp", ":0")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	app := NewApp(
-		listenOnRandomPort(addrCh),
+		Listener(ls),
 		Title("Example"),
 		Version("v0.0.0"),
 		Endpoint(
@@ -93,9 +77,7 @@ func Example() {
 	eg.Go(func() error {
 		defer cancel()
 
-		// need to wait for http server to actually start
-		// accepting connections on an address
-		addr := <-addrCh
+		addr := ls.Addr()
 
 		resp, err := http.Post(
 			fmt.Sprintf("http://%s", addr),
@@ -123,7 +105,7 @@ func Example() {
 		return nil
 	})
 
-	err := eg.Wait()
+	err = eg.Wait()
 	if err != nil {
 		fmt.Println(err)
 		return

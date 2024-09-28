@@ -9,6 +9,8 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -113,7 +115,7 @@ func OTel(cfg framework.OTelConfig) Option {
 
 func HttpServer(cfg HttpServerConfig) Option {
 	return func(ra *App) {
-		ra.restOpts = append(ra.restOpts, rest.ListenOn(cfg.Port))
+		ra.port = cfg.Port
 	}
 }
 
@@ -137,6 +139,7 @@ func WithEndpoint(e Endpoint) Option {
 }
 
 type App struct {
+	port         uint
 	restOpts     []rest.Option
 	otelOpts     []app.OTelOption
 	postRunHooks []app.LifecycleHook
@@ -157,6 +160,12 @@ func (f resourceDetectFunc) Detect(ctx context.Context) (*resource.Resource, err
 }
 
 func (ra *App) Run(ctx context.Context) error {
+	ls, err := net.Listen("tcp", fmt.Sprintf(":%d", ra.port))
+	if err != nil {
+		return err
+	}
+	ra.restOpts = append(ra.restOpts, rest.Listener(ls))
+
 	var base bedrock.App = rest.NewApp(ra.restOpts...)
 
 	base = app.WithLifecycleHooks(base, app.Lifecycle{
