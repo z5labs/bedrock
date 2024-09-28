@@ -6,9 +6,11 @@
 package rest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"slices"
@@ -17,6 +19,7 @@ import (
 	"github.com/swaggest/openapi-go/openapi3"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/sync/errgroup"
+	"gopkg.in/yaml.v3"
 )
 
 // Option represents configurable attributes of [App].
@@ -30,6 +33,45 @@ type Option func(*App)
 func Listener(ls net.Listener) Option {
 	return func(a *App) {
 		a.ls = ls
+	}
+}
+
+// OpenApiEndpoint registers a [http.Handler] with the underlying [http.ServeMux]
+// meant for serving the OpenAPI schema.
+func OpenApiEndpoint(method, pattern string, f func(*openapi3.Spec) http.Handler) Option {
+	return func(a *App) {
+		a.mux.Handle(fmt.Sprintf("%s %s", method, pattern), f(a.spec))
+	}
+}
+
+type openApiHandler struct {
+	spec    *openapi3.Spec
+	marshal func(any) ([]byte, error)
+}
+
+func (h openApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	b, err := h.marshal(h.spec)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	io.Copy(w, bytes.NewReader(b))
+}
+
+// OpenApiJsonHandler returns an [http.Handler] which will respond with the OpenAPI schema as JSON.
+func OpenApiJsonHandler(spec *openapi3.Spec) http.Handler {
+	return openApiHandler{
+		spec:    spec,
+		marshal: json.Marshal,
+	}
+}
+
+// OpenApiYamlHandler returns an [http.Handler] which will respond with the OpenAPI schema as YAML.
+func OpenApiYamlHandler(spec *openapi3.Spec) http.Handler {
+	return openApiHandler{
+		spec:    spec,
+		marshal: yaml.Marshal,
 	}
 }
 
@@ -151,13 +193,6 @@ func (app *App) Run(ctx context.Context) error {
 		return err
 	}
 
-	app.mux.Handle(
-		fmt.Sprintf("%s %s", http.MethodGet, "/openapi.json"),
-		openApiHandler{
-			spec: app.spec,
-		},
-	)
-
 	app.registerMethodNotAllowedHandler()
 
 	httpServer := &http.Server{
@@ -189,15 +224,6 @@ func (app *App) listener() (net.Listener, error) {
 		return app.ls, nil
 	}
 	return app.listen("tcp", ":80")
-}
-
-type openApiHandler struct {
-	spec *openapi3.Spec
-}
-
-func (h openApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	enc := json.NewEncoder(w)
-	_ = enc.Encode(h.spec)
 }
 
 func (app *App) registerMethodNotAllowedHandler() {
