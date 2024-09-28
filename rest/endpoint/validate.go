@@ -77,7 +77,7 @@ type InvalidPathParamError struct {
 
 // Error implements the [error] interface.
 func (e InvalidPathParamError) Error() string {
-	return ""
+	return fmt.Sprintf("received invalid path param for endpoint: %s", e.Param)
 }
 
 // MissingRequiredPathParamError occurs when a path parameter is marked
@@ -88,7 +88,7 @@ type MissingRequiredPathParamError struct {
 
 // Error implements the [error] interface.
 func (e MissingRequiredPathParamError) Error() string {
-	return ""
+	return fmt.Sprintf("missing required path param for endpoint: %s", e.Param)
 }
 
 func validatePathParam(p PathParam) func(*http.Request) error {
