@@ -28,7 +28,8 @@ func validateRequest(ctx context.Context, r *http.Request, validators ...func(*h
 	return nil
 }
 
-// InvalidHeaderError
+// InvalidHeaderError occurs when a header value does not match
+// it's expected pattern.
 type InvalidHeaderError struct {
 	Header string
 }
@@ -38,7 +39,8 @@ func (e InvalidHeaderError) Error() string {
 	return fmt.Sprintf("received invalid header for endpoint: %s", e.Header)
 }
 
-// MissingRequiredHeaderError
+// MissingRequiredHeaderError occurs when a header is marked as required
+// but no value for the parameter is present in the request.
 type MissingRequiredHeaderError struct {
 	Header string
 }
@@ -112,7 +114,8 @@ func validatePathParam(p PathParam) func(*http.Request) error {
 	}
 }
 
-// InvalidQueryParamError
+// InvalidQueryParamError occurs when a query parameter value does not
+// match it's expected pattern.
 type InvalidQueryParamError struct {
 	Param string
 }
@@ -122,7 +125,8 @@ func (e InvalidQueryParamError) Error() string {
 	return fmt.Sprintf("received invalid query param for endpoint: %s", e.Param)
 }
 
-// MissingRequiredQueryParamError
+// MissingRequiredQueryParamError occurs when a query parameter is marked
+// as required but no value for the parameter is present in the request.
 type MissingRequiredQueryParamError struct {
 	Param string
 }
