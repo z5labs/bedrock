@@ -99,7 +99,7 @@ func Endpoint(method, pattern string, op Operation) Option {
 		// This means that when registering the pattern with the OpenAPI spec
 		// the {$} needs to be stripped because OpenAPI will believe it's
 		// an actual path parameter.
-		trimmedPattern := strings.TrimRight(pattern, "{$}")
+		trimmedPattern := strings.TrimSuffix(pattern, "{$}")
 		err := app.spec.AddOperation(method, trimmedPattern, op.OpenApi())
 		if err != nil {
 			panic(err)

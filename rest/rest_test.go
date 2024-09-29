@@ -16,6 +16,9 @@ import (
 	"path"
 	"testing"
 
+	"github.com/z5labs/bedrock"
+	"github.com/z5labs/bedrock/pkg/ptr"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/swaggest/openapi-go/openapi3"
 	"golang.org/x/sync/errgroup"
@@ -544,6 +547,89 @@ func TestOpenApiYamlHandler(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, "3.0.3", spec.Openapi) {
+				return
+			}
+		})
+	})
+}
+
+type operationHandler openapi3.Operation
+
+func (h operationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {}
+
+func (h operationHandler) OpenApi() openapi3.Operation {
+	return (openapi3.Operation)(h)
+}
+
+func TestEndpoint(t *testing.T) {
+	t.Run("will panic", func(t *testing.T) {
+		t.Run("if a path parameter defined in the openapi3.Operation is not in the path pattern", func(t *testing.T) {
+			h := operationHandler(openapi3.Operation{
+				Parameters: []openapi3.ParameterOrRef{
+					{
+						Parameter: &openapi3.Parameter{
+							In:   openapi3.ParameterInPath,
+							Name: "id",
+							Schema: &openapi3.SchemaOrRef{
+								Schema: &openapi3.Schema{
+									Type: ptr.Ref(openapi3.SchemaTypeString),
+								},
+							},
+						},
+					},
+				},
+			})
+
+			f := func() (err error) {
+				defer bedrock.Recover(&err)
+
+				NewApp(
+					Endpoint(http.MethodGet, "/", h),
+				)
+				return nil
+			}
+
+			err := f()
+
+			var perr bedrock.PanicError
+			if !assert.ErrorAs(t, err, &perr) {
+				return
+			}
+			if !assert.NotNil(t, perr.Unwrap()) {
+				return
+			}
+		})
+	})
+
+	t.Run("will not panic", func(t *testing.T) {
+		t.Run("if a path parameter defined in the openapi3.Operation is in the path pattern", func(t *testing.T) {
+			h := operationHandler(openapi3.Operation{
+				Parameters: []openapi3.ParameterOrRef{
+					{
+						Parameter: &openapi3.Parameter{
+							In:   openapi3.ParameterInPath,
+							Name: "id",
+							Schema: &openapi3.SchemaOrRef{
+								Schema: &openapi3.Schema{
+									Type: ptr.Ref(openapi3.SchemaTypeString),
+								},
+							},
+						},
+					},
+				},
+			})
+
+			f := func() (err error) {
+				defer bedrock.Recover(&err)
+
+				NewApp(
+					Endpoint(http.MethodGet, "/{id}", h),
+				)
+				return nil
+			}
+
+			err := f()
+			if !assert.Nil(t, err) {
 				return
 			}
 		})
