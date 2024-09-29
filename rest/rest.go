@@ -40,7 +40,9 @@ func Listener(ls net.Listener) Option {
 // meant for serving the OpenAPI schema.
 func OpenApiEndpoint(method, pattern string, f func(*openapi3.Spec) http.Handler) Option {
 	return func(a *App) {
-		a.mux.Handle(fmt.Sprintf("%s %s", method, pattern), f(a.spec))
+		a.openApiEndpoint = func(mux *http.ServeMux) {
+			mux.Handle(fmt.Sprintf("%s %s", method, pattern), f(a.spec))
+		}
 	}
 }
 
@@ -83,6 +85,12 @@ type Operation interface {
 	OpenApi() openapi3.Operation
 }
 
+type endpoint struct {
+	method  string
+	pattern string
+	op      Operation
+}
+
 // Endpoint registers the [Operation] with both
 // the App wide OpenAPI spec and the App wide HTTP server.
 //
@@ -90,33 +98,11 @@ type Operation interface {
 // match too broadly and cause conflicts with other paths.
 func Endpoint(method, pattern string, op Operation) Option {
 	return func(app *App) {
-		// Per the net/http.ServeMux docs, https://pkg.go.dev/net/http#ServeMux:
-		//
-		// 		The special wildcard {$} matches only the end of the URL.
-		//      For example, the pattern "/{$}" matches only the path "/",
-		//      whereas the pattern "/" matches every path.
-		//
-		// This means that when registering the pattern with the OpenAPI spec
-		// the {$} needs to be stripped because OpenAPI will believe it's
-		// an actual path parameter.
-		trimmedPattern := strings.TrimSuffix(pattern, "{$}")
-		err := app.spec.AddOperation(method, trimmedPattern, op.OpenApi())
-		if err != nil {
-			panic(err)
-		}
-
-		// enforce strict matching for top-level path
-		// otherwise "/" would match too broadly and http.ServeMux
-		// will panic when other paths are registered e.g. /openapi.json
-		if pattern == "/" {
-			pattern = "/{$}"
-		}
-		app.pathMethods[pattern] = append(app.pathMethods[pattern], method)
-
-		app.mux.Handle(
-			fmt.Sprintf("%s %s", method, pattern),
-			otelhttp.WithRouteTag(trimmedPattern, op),
-		)
+		app.endpoints = append(app.endpoints, endpoint{
+			method:  method,
+			pattern: pattern,
+			op:      op,
+		})
 	}
 }
 
@@ -124,7 +110,7 @@ func Endpoint(method, pattern string, op Operation) Option {
 // any HTTP requests that do not match any other method-pattern combinations.
 func NotFoundHandler(h http.Handler) Option {
 	return func(app *App) {
-		app.mux.Handle("/{path...}", h)
+		app.notFoundHandler = h
 	}
 }
 
@@ -161,8 +147,12 @@ func Version(s string) Option {
 type App struct {
 	ls net.Listener
 
-	spec *openapi3.Spec
-	mux  *http.ServeMux
+	spec      *openapi3.Spec
+	endpoints []endpoint
+
+	openApiEndpoint func(*http.ServeMux)
+
+	notFoundHandler http.Handler
 
 	pathMethods             map[string][]string
 	methodNotAllowedHandler http.Handler
@@ -176,9 +166,9 @@ func NewApp(opts ...Option) *App {
 		spec: &openapi3.Spec{
 			Openapi: "3.0.3",
 		},
-		mux:         http.NewServeMux(),
-		pathMethods: make(map[string][]string),
-		listen:      net.Listen,
+		pathMethods:     make(map[string][]string),
+		listen:          net.Listen,
+		openApiEndpoint: func(sm *http.ServeMux) {},
 	}
 	for _, opt := range opts {
 		opt(app)
@@ -193,11 +183,23 @@ func (app *App) Run(ctx context.Context) error {
 		return err
 	}
 
-	app.registerMethodNotAllowedHandler()
+	mux := http.NewServeMux()
+	app.openApiEndpoint(mux)
+
+	err = app.registerEndpoints(mux)
+	if err != nil {
+		return err
+	}
+
+	if app.notFoundHandler != nil {
+		mux.Handle("/{path...}", app.notFoundHandler)
+	}
+
+	app.registerMethodNotAllowedHandler(mux)
 
 	httpServer := &http.Server{
 		Handler: otelhttp.NewHandler(
-			app.mux,
+			mux,
 			"server",
 			otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 		),
@@ -226,7 +228,49 @@ func (app *App) listener() (net.Listener, error) {
 	return app.listen("tcp", ":80")
 }
 
-func (app *App) registerMethodNotAllowedHandler() {
+func (app *App) registerEndpoints(mux *http.ServeMux) error {
+	for _, e := range app.endpoints {
+		// Per the net/http.ServeMux docs, https://pkg.go.dev/net/http#ServeMux:
+		//
+		// 		The special wildcard {$} matches only the end of the URL.
+		//      For example, the pattern "/{$}" matches only the path "/",
+		//      whereas the pattern "/" matches every path.
+		//
+		// This means that when registering the pattern with the OpenAPI spec
+		// the {$} needs to be stripped because OpenAPI will believe it's
+		// an actual path parameter.
+		trimmedPattern := strings.TrimSuffix(e.pattern, "{$}")
+
+		// Per the net/http.ServeMux docs, https://pkg.go.dev/net/http#ServeMux:
+		//
+		//      A path can include wildcard segments of the form {NAME} or {NAME...}.
+		//
+		// The '...' wildcard has no equivalent in OpenAPI so we must remove it
+		// before registering the OpenAPI operation with the spec.
+		trimmedPattern = strings.ReplaceAll(trimmedPattern, "...", "")
+
+		err := app.spec.AddOperation(e.method, trimmedPattern, e.op.OpenApi())
+		if err != nil {
+			return err
+		}
+
+		// enforce strict matching for top-level path
+		// otherwise "/" would match too broadly and http.ServeMux
+		// will panic when other paths are registered e.g. /openapi.json
+		if e.pattern == "/" {
+			e.pattern = "/{$}"
+		}
+		app.pathMethods[e.pattern] = append(app.pathMethods[e.pattern], e.method)
+
+		mux.Handle(
+			fmt.Sprintf("%s %s", e.method, e.pattern),
+			otelhttp.WithRouteTag(trimmedPattern, e.op),
+		)
+	}
+	return nil
+}
+
+func (app *App) registerMethodNotAllowedHandler(mux *http.ServeMux) {
 	if app.methodNotAllowedHandler == nil {
 		return
 	}
@@ -246,7 +290,7 @@ func (app *App) registerMethodNotAllowedHandler() {
 	for path, methods := range app.pathMethods {
 		unsupportedMethods := diffSets(supportedMethods, methods)
 		for _, method := range unsupportedMethods {
-			app.mux.Handle(fmt.Sprintf("%s %s", method, path), app.methodNotAllowedHandler)
+			mux.Handle(fmt.Sprintf("%s %s", method, path), app.methodNotAllowedHandler)
 		}
 	}
 }
