@@ -240,6 +240,15 @@ func (app *App) registerEndpoints(mux *http.ServeMux) error {
 		// the {$} needs to be stripped because OpenAPI will believe it's
 		// an actual path parameter.
 		trimmedPattern := strings.TrimSuffix(e.pattern, "{$}")
+
+		// Per the net/http.ServeMux docs, https://pkg.go.dev/net/http#ServeMux:
+		//
+		//      A path can include wildcard segments of the form {NAME} or {NAME...}.
+		//
+		// The '...' wildcard has no equivalent in OpenAPI so we must remove it
+		// before registering the OpenAPI operation with the spec.
+		trimmedPattern = strings.ReplaceAll(trimmedPattern, "...", "")
+
 		err := app.spec.AddOperation(e.method, trimmedPattern, e.op.OpenApi())
 		if err != nil {
 			return err
