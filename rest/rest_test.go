@@ -666,7 +666,88 @@ func TestApp_Run(t *testing.T) {
 				defer cancel()
 				defer close(respCh)
 
-				resp, err := http.Get(fmt.Sprintf("http://%s/123", ls.Addr()))
+				req, err := http.NewRequestWithContext(
+					egctx,
+					http.MethodGet,
+					fmt.Sprintf("http://%s/123", ls.Addr()),
+					nil,
+				)
+				if err != nil {
+					return err
+				}
+
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return err
+				}
+
+				respCh <- resp
+				return nil
+			})
+
+			err = eg.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			resp := <-respCh
+			if !assert.NotNil(t, resp) {
+				return
+			}
+			if !assert.Equal(t, http.StatusOK, resp.StatusCode) {
+				return
+			}
+		})
+
+		t.Run("if a wildcard path parameter is used", func(t *testing.T) {
+			h := operationHandler(openapi3.Operation{
+				Parameters: []openapi3.ParameterOrRef{
+					{
+						Parameter: &openapi3.Parameter{
+							In:   openapi3.ParameterInPath,
+							Name: "id",
+							Schema: &openapi3.SchemaOrRef{
+								Schema: &openapi3.Schema{
+									Type: ptr.Ref(openapi3.SchemaTypeString),
+								},
+							},
+						},
+					},
+				},
+			})
+
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			app := NewApp(
+				Listener(ls),
+				Endpoint(http.MethodGet, "/{id...}", h),
+			)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			eg, egctx := errgroup.WithContext(ctx)
+			eg.Go(func() error {
+				return app.Run(egctx)
+			})
+
+			respCh := make(chan *http.Response, 1)
+			eg.Go(func() error {
+				defer cancel()
+				defer close(respCh)
+
+				req, err := http.NewRequestWithContext(
+					egctx,
+					http.MethodGet,
+					fmt.Sprintf("http://%s/123", ls.Addr()),
+					nil,
+				)
+				if err != nil {
+					return err
+				}
+
+				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
 					return err
 				}
