@@ -16,7 +16,6 @@ import (
 	"path"
 	"testing"
 
-	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/pkg/ptr"
 
 	"github.com/stretchr/testify/assert"
@@ -561,8 +560,22 @@ func (h operationHandler) OpenApi() openapi3.Operation {
 	return (openapi3.Operation)(h)
 }
 
-func TestEndpoint(t *testing.T) {
-	t.Run("will panic", func(t *testing.T) {
+func TestApp_Run(t *testing.T) {
+	t.Run("will return an error", func(t *testing.T) {
+		t.Run("if it fails to create the default net.Listener", func(t *testing.T) {
+			app := NewApp()
+
+			listenErr := errors.New("failed to listen")
+			app.listen = func(network, addr string) (net.Listener, error) {
+				return nil, listenErr
+			}
+
+			err := app.Run(context.Background())
+			if !assert.Equal(t, listenErr, err) {
+				return
+			}
+		})
+
 		t.Run("if a path parameter defined in the openapi3.Operation is not in the path pattern", func(t *testing.T) {
 			h := operationHandler(openapi3.Operation{
 				Parameters: []openapi3.ParameterOrRef{
@@ -580,74 +593,18 @@ func TestEndpoint(t *testing.T) {
 				},
 			})
 
-			f := func() (err error) {
-				defer bedrock.Recover(&err)
-
-				NewApp(
-					Endpoint(http.MethodGet, "/", h),
-				)
-				return nil
-			}
-
-			err := f()
-
-			var perr bedrock.PanicError
-			if !assert.ErrorAs(t, err, &perr) {
-				return
-			}
-			if !assert.NotNil(t, perr.Unwrap()) {
-				return
-			}
-		})
-	})
-
-	t.Run("will not panic", func(t *testing.T) {
-		t.Run("if a path parameter defined in the openapi3.Operation is in the path pattern", func(t *testing.T) {
-			h := operationHandler(openapi3.Operation{
-				Parameters: []openapi3.ParameterOrRef{
-					{
-						Parameter: &openapi3.Parameter{
-							In:   openapi3.ParameterInPath,
-							Name: "id",
-							Schema: &openapi3.SchemaOrRef{
-								Schema: &openapi3.Schema{
-									Type: ptr.Ref(openapi3.SchemaTypeString),
-								},
-							},
-						},
-					},
-				},
-			})
-
-			f := func() (err error) {
-				defer bedrock.Recover(&err)
-
-				NewApp(
-					Endpoint(http.MethodGet, "/{id}", h),
-				)
-				return nil
-			}
-
-			err := f()
+			ls, err := net.Listen("tcp", ":0")
 			if !assert.Nil(t, err) {
 				return
 			}
-		})
-	})
-}
 
-func TestApp_Run(t *testing.T) {
-	t.Run("will return an error", func(t *testing.T) {
-		t.Run("if it fails to create the default net.Listener", func(t *testing.T) {
-			app := NewApp()
+			app := NewApp(
+				Listener(ls),
+				Endpoint(http.MethodGet, "/", h),
+			)
 
-			listenErr := errors.New("failed to listen")
-			app.listen = func(network, addr string) (net.Listener, error) {
-				return nil, listenErr
-			}
-
-			err := app.Run(context.Background())
-			if !assert.Equal(t, listenErr, err) {
+			err = app.Run(context.Background())
+			if !assert.NotNil(t, err) {
 				return
 			}
 		})
@@ -667,6 +624,148 @@ func TestApp_Run(t *testing.T) {
 
 			err = app.Run(ctx)
 			if !assert.Nil(t, err) {
+				return
+			}
+		})
+
+		t.Run("if a path parameter defined in the openapi3.Operation is in the path pattern", func(t *testing.T) {
+			h := operationHandler(openapi3.Operation{
+				Parameters: []openapi3.ParameterOrRef{
+					{
+						Parameter: &openapi3.Parameter{
+							In:   openapi3.ParameterInPath,
+							Name: "id",
+							Schema: &openapi3.SchemaOrRef{
+								Schema: &openapi3.Schema{
+									Type: ptr.Ref(openapi3.SchemaTypeString),
+								},
+							},
+						},
+					},
+				},
+			})
+
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			app := NewApp(
+				Listener(ls),
+				Endpoint(http.MethodGet, "/{id}", h),
+			)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			eg, egctx := errgroup.WithContext(ctx)
+			eg.Go(func() error {
+				return app.Run(egctx)
+			})
+
+			respCh := make(chan *http.Response, 1)
+			eg.Go(func() error {
+				defer cancel()
+				defer close(respCh)
+
+				req, err := http.NewRequestWithContext(
+					egctx,
+					http.MethodGet,
+					fmt.Sprintf("http://%s/123", ls.Addr()),
+					nil,
+				)
+				if err != nil {
+					return err
+				}
+
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return err
+				}
+
+				respCh <- resp
+				return nil
+			})
+
+			err = eg.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			resp := <-respCh
+			if !assert.NotNil(t, resp) {
+				return
+			}
+			if !assert.Equal(t, http.StatusOK, resp.StatusCode) {
+				return
+			}
+		})
+
+		t.Run("if a wildcard path parameter is used", func(t *testing.T) {
+			h := operationHandler(openapi3.Operation{
+				Parameters: []openapi3.ParameterOrRef{
+					{
+						Parameter: &openapi3.Parameter{
+							In:   openapi3.ParameterInPath,
+							Name: "id",
+							Schema: &openapi3.SchemaOrRef{
+								Schema: &openapi3.Schema{
+									Type: ptr.Ref(openapi3.SchemaTypeString),
+								},
+							},
+						},
+					},
+				},
+			})
+
+			ls, err := net.Listen("tcp", ":0")
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			app := NewApp(
+				Listener(ls),
+				Endpoint(http.MethodGet, "/{id...}", h),
+			)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			eg, egctx := errgroup.WithContext(ctx)
+			eg.Go(func() error {
+				return app.Run(egctx)
+			})
+
+			respCh := make(chan *http.Response, 1)
+			eg.Go(func() error {
+				defer cancel()
+				defer close(respCh)
+
+				req, err := http.NewRequestWithContext(
+					egctx,
+					http.MethodGet,
+					fmt.Sprintf("http://%s/123", ls.Addr()),
+					nil,
+				)
+				if err != nil {
+					return err
+				}
+
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return err
+				}
+
+				respCh <- resp
+				return nil
+			})
+
+			err = eg.Wait()
+			if !assert.Nil(t, err) {
+				return
+			}
+
+			resp := <-respCh
+			if !assert.NotNil(t, resp) {
+				return
+			}
+			if !assert.Equal(t, http.StatusOK, resp.StatusCode) {
 				return
 			}
 		})

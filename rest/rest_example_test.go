@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/z5labs/bedrock/rest/endpoint"
+	re "github.com/z5labs/bedrock/rest/endpoint"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -62,7 +62,7 @@ func Example() {
 		Endpoint(
 			http.MethodPost,
 			"/",
-			endpoint.NewOperation(
+			re.NewOperation(
 				echoService{},
 			),
 		),
