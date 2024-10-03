@@ -22,6 +22,7 @@ import (
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/pkg/app"
 	"github.com/z5labs/bedrock/rest"
+	"github.com/z5labs/bedrock/rest/mux"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -120,7 +121,7 @@ func HttpServer(cfg HttpServerConfig) Option {
 }
 
 type Endpoint struct {
-	Method    string
+	Method    mux.Method
 	Path      string
 	Operation Operation
 }

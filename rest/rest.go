@@ -9,12 +9,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"slices"
 	"strings"
+
+	"github.com/z5labs/bedrock/rest/mux"
 
 	"github.com/swaggest/openapi-go/openapi3"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -38,10 +38,10 @@ func Listener(ls net.Listener) Option {
 
 // OpenApiEndpoint registers a [http.Handler] with the underlying [http.ServeMux]
 // meant for serving the OpenAPI schema.
-func OpenApiEndpoint(method, pattern string, f func(*openapi3.Spec) http.Handler) Option {
+func OpenApiEndpoint(method mux.Method, pattern string, f func(*openapi3.Spec) http.Handler) Option {
 	return func(a *App) {
-		a.openApiEndpoint = func(mux *http.ServeMux) {
-			mux.Handle(fmt.Sprintf("%s %s", method, pattern), f(a.spec))
+		a.openApiEndpoint = func(mux Mux) {
+			mux.Handle(method, pattern, f(a.spec))
 		}
 	}
 }
@@ -86,7 +86,7 @@ type Operation interface {
 }
 
 type endpoint struct {
-	method  string
+	method  mux.Method
 	pattern string
 	op      Operation
 }
@@ -96,29 +96,13 @@ type endpoint struct {
 //
 // "/" is always treated as "/{$}" because it would otherwise
 // match too broadly and cause conflicts with other paths.
-func Endpoint(method, pattern string, op Operation) Option {
+func Endpoint(method mux.Method, pattern string, op Operation) Option {
 	return func(app *App) {
 		app.endpoints = append(app.endpoints, endpoint{
 			method:  method,
 			pattern: pattern,
 			op:      op,
 		})
-	}
-}
-
-// NotFoundHandler will register the given [http.Handler] to handle
-// any HTTP requests that do not match any other method-pattern combinations.
-func NotFoundHandler(h http.Handler) Option {
-	return func(app *App) {
-		app.notFoundHandler = h
-	}
-}
-
-// MethodNotAllowedHandler will register the given [http.Handler] to handle
-// any HTTP requests whose method does not match the method registered to a pattern.
-func MethodNotAllowedHandler(h http.Handler) Option {
-	return func(app *App) {
-		app.methodNotAllowedHandler = h
 	}
 }
 
@@ -142,20 +126,30 @@ func Version(s string) Option {
 	}
 }
 
+// Mux
+type Mux interface {
+	http.Handler
+
+	Handle(method mux.Method, pattern string, h http.Handler)
+}
+
+// WithMux
+func WithMux(m Mux) Option {
+	return func(a *App) {
+		a.mux = m
+	}
+}
+
 // App is a [bedrock.App] implementation to help simplify
 // building RESTful applications.
 type App struct {
 	ls net.Listener
 
 	spec      *openapi3.Spec
+	mux       Mux
 	endpoints []endpoint
 
-	openApiEndpoint func(*http.ServeMux)
-
-	notFoundHandler http.Handler
-
-	pathMethods             map[string][]string
-	methodNotAllowedHandler http.Handler
+	openApiEndpoint func(Mux)
 
 	listen func(network, addr string) (net.Listener, error)
 }
@@ -166,9 +160,9 @@ func NewApp(opts ...Option) *App {
 		spec: &openapi3.Spec{
 			Openapi: "3.0.3",
 		},
-		pathMethods:     make(map[string][]string),
+		mux:             mux.NewHttp(),
 		listen:          net.Listen,
-		openApiEndpoint: func(sm *http.ServeMux) {},
+		openApiEndpoint: func(_ Mux) {},
 	}
 	for _, opt := range opts {
 		opt(app)
@@ -183,23 +177,16 @@ func (app *App) Run(ctx context.Context) error {
 		return err
 	}
 
-	mux := http.NewServeMux()
-	app.openApiEndpoint(mux)
+	app.openApiEndpoint(app.mux)
 
-	err = app.registerEndpoints(mux)
+	err = app.registerEndpoints()
 	if err != nil {
 		return err
 	}
 
-	if app.notFoundHandler != nil {
-		mux.Handle("/{path...}", app.notFoundHandler)
-	}
-
-	app.registerMethodNotAllowedHandler(mux)
-
 	httpServer := &http.Server{
 		Handler: otelhttp.NewHandler(
-			mux,
+			app.mux,
 			"server",
 			otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 		),
@@ -228,7 +215,7 @@ func (app *App) listener() (net.Listener, error) {
 	return app.listen("tcp", ":80")
 }
 
-func (app *App) registerEndpoints(mux *http.ServeMux) error {
+func (app *App) registerEndpoints() error {
 	for _, e := range app.endpoints {
 		// Per the net/http.ServeMux docs, https://pkg.go.dev/net/http#ServeMux:
 		//
@@ -249,7 +236,7 @@ func (app *App) registerEndpoints(mux *http.ServeMux) error {
 		// before registering the OpenAPI operation with the spec.
 		trimmedPattern = strings.ReplaceAll(trimmedPattern, "...", "")
 
-		err := app.spec.AddOperation(e.method, trimmedPattern, e.op.OpenApi())
+		err := app.spec.AddOperation(string(e.method), trimmedPattern, e.op.OpenApi())
 		if err != nil {
 			return err
 		}
@@ -260,48 +247,12 @@ func (app *App) registerEndpoints(mux *http.ServeMux) error {
 		if e.pattern == "/" {
 			e.pattern = "/{$}"
 		}
-		app.pathMethods[e.pattern] = append(app.pathMethods[e.pattern], e.method)
 
-		mux.Handle(
-			fmt.Sprintf("%s %s", e.method, e.pattern),
+		app.mux.Handle(
+			e.method,
+			e.pattern,
 			otelhttp.WithRouteTag(trimmedPattern, e.op),
 		)
 	}
 	return nil
-}
-
-func (app *App) registerMethodNotAllowedHandler(mux *http.ServeMux) {
-	if app.methodNotAllowedHandler == nil {
-		return
-	}
-
-	// this list is pulled from the OpenAPI v3 Path Item Object documentation.
-	supportedMethods := []string{
-		http.MethodGet,
-		http.MethodPut,
-		http.MethodPost,
-		http.MethodDelete,
-		http.MethodOptions,
-		http.MethodHead,
-		http.MethodPatch,
-		http.MethodTrace,
-	}
-
-	for path, methods := range app.pathMethods {
-		unsupportedMethods := diffSets(supportedMethods, methods)
-		for _, method := range unsupportedMethods {
-			mux.Handle(fmt.Sprintf("%s %s", method, path), app.methodNotAllowedHandler)
-		}
-	}
-}
-
-func diffSets(xs, ys []string) []string {
-	zs := make([]string, 0, len(xs))
-	for _, x := range xs {
-		if slices.Contains(ys, x) {
-			continue
-		}
-		zs = append(zs, x)
-	}
-	return zs
 }
