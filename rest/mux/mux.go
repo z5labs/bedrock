@@ -9,7 +9,9 @@ package mux
 import (
 	"fmt"
 	"net/http"
+	"path"
 	"slices"
+	"strings"
 	"sync"
 )
 
@@ -72,6 +74,34 @@ func NewHttp(opts ...HttpOption) *Http {
 func (m *Http) Handle(method Method, pattern string, h http.Handler) {
 	m.pathMethods[pattern] = append(m.pathMethods[pattern], method)
 	m.mux.Handle(fmt.Sprintf("%s %s", method, pattern), h)
+
+	// {$} is a special case where we only want to exact match the path pattern.
+	if strings.HasSuffix(pattern, "{$}") {
+		return
+	}
+
+	if strings.HasSuffix(pattern, "/") {
+		withoutTrailingSlash := pattern[:len(pattern)-1]
+		if len(withoutTrailingSlash) == 0 {
+			return
+		}
+
+		m.pathMethods[withoutTrailingSlash] = append(m.pathMethods[withoutTrailingSlash], method)
+		m.mux.Handle(fmt.Sprintf("%s %s", method, withoutTrailingSlash), h)
+		return
+	}
+
+	// if the end of the path contains the "..." wildcard segment
+	// then we can't add a "/" to it since "..." should not be followed
+	// by a "/", per the http.ServeMux docs.
+	base := path.Base(pattern)
+	if strings.Contains(base, "...") {
+		return
+	}
+
+	withTrailingSlash := pattern + "/"
+	m.pathMethods[withTrailingSlash] = append(m.pathMethods[withTrailingSlash], method)
+	m.mux.Handle(fmt.Sprintf("%s %s", method, withTrailingSlash), h)
 }
 
 // ServeHTTP implements the [http.Handler] interface.

@@ -7,11 +7,9 @@ package mux
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -92,7 +90,7 @@ func TestNotFoundHandler(t *testing.T) {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(
 				http.MethodGet,
-				fmt.Sprintf("http://%s", path.Join("example.com", testCase.RequestPath)),
+				"http://example.com"+testCase.RequestPath,
 				nil,
 			)
 
@@ -189,7 +187,7 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(
 				string(testCase.Method),
-				fmt.Sprintf("http://%s", path.Join("example.com", testCase.RequestPath)),
+				"http://example.com"+testCase.RequestPath,
 				nil,
 			)
 
