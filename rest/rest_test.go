@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/z5labs/bedrock/pkg/ptr"
+	"github.com/z5labs/bedrock/rest/mux"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/swaggest/openapi-go/openapi3"
@@ -92,6 +93,10 @@ func TestNotFoundHandler(t *testing.T) {
 				enc.Encode(map[string]any{"hello": "world"})
 			})
 
+			mux := mux.NewHttp(
+				mux.NotFoundHandler(notFoundHandler),
+			)
+
 			ls, err := net.Listen("tcp", ":0")
 			if !assert.Nil(t, err) {
 				return
@@ -99,13 +104,13 @@ func TestNotFoundHandler(t *testing.T) {
 
 			app := NewApp(
 				Listener(ls),
+				WithMux(mux),
 				func(a *App) {
 					if testCase.RegisterPattern == "" {
 						return
 					}
 					Endpoint(http.MethodGet, testCase.RegisterPattern, statusCodeHandler(http.StatusOK))(a)
 				},
-				NotFoundHandler(notFoundHandler),
 			)
 
 			respCh := make(chan *http.Response, 1)
@@ -174,36 +179,36 @@ func TestNotFoundHandler(t *testing.T) {
 func TestMethodNotAllowedHandler(t *testing.T) {
 	testCases := []struct {
 		Name             string
-		RegisterPatterns map[string]string
-		Method           string
+		RegisterPatterns map[mux.Method]string
+		Method           mux.Method
 		RequestPath      string
 		MethodNotAllowed bool
 	}{
 		{
 			Name: "should return success response when correct method is used",
-			RegisterPatterns: map[string]string{
+			RegisterPatterns: map[mux.Method]string{
 				http.MethodGet: "/",
 			},
-			Method:           http.MethodGet,
+			Method:           mux.MethodGet,
 			RequestPath:      "/",
 			MethodNotAllowed: false,
 		},
 		{
 			Name: "should return success response when more than one method is registered for same path",
-			RegisterPatterns: map[string]string{
+			RegisterPatterns: map[mux.Method]string{
 				http.MethodGet:  "/",
 				http.MethodPost: "/",
 			},
-			Method:           http.MethodGet,
+			Method:           mux.MethodGet,
 			RequestPath:      "/",
 			MethodNotAllowed: false,
 		},
 		{
 			Name: "should return method not allowed response when incorrect method is used",
-			RegisterPatterns: map[string]string{
+			RegisterPatterns: map[mux.Method]string{
 				http.MethodGet: "/",
 			},
-			Method:           http.MethodPost,
+			Method:           mux.MethodPost,
 			RequestPath:      "/",
 			MethodNotAllowed: true,
 		},
@@ -218,6 +223,10 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 				enc.Encode(map[string]any{"hello": "world"})
 			})
 
+			mux := mux.NewHttp(
+				mux.MethodNotAllowedHandler(methodNotAllowedHandler),
+			)
+
 			ls, err := net.Listen("tcp", ":0")
 			if !assert.Nil(t, err) {
 				return
@@ -225,12 +234,12 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 
 			app := NewApp(
 				Listener(ls),
+				WithMux(mux),
 				func(a *App) {
 					for method, pattern := range testCase.RegisterPatterns {
 						Endpoint(method, pattern, statusCodeHandler(http.StatusOK))(a)
 					}
 				},
-				MethodNotAllowedHandler(methodNotAllowedHandler),
 			)
 
 			respCh := make(chan *http.Response, 1)
@@ -246,7 +255,7 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 				addr := ls.Addr()
 				url := fmt.Sprintf("http://%s", path.Join(addr.String(), testCase.RequestPath))
 
-				req, err := http.NewRequestWithContext(egctx, testCase.Method, url, nil)
+				req, err := http.NewRequestWithContext(egctx, string(testCase.Method), url, nil)
 				if err != nil {
 					return err
 				}
