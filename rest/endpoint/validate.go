@@ -14,6 +14,11 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// Validator
+type Validator interface {
+	Validate() error
+}
+
 func validateRequest(ctx context.Context, r *http.Request, validators ...func(*http.Request) error) error {
 	_, span := otel.Tracer("endpoint").Start(ctx, "validateRequest")
 	defer span.End()

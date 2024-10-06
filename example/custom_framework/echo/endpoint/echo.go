@@ -7,11 +7,12 @@ package endpoint
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
 	"github.com/z5labs/bedrock/example/custom_framework/framework/rest"
+
+	"github.com/z5labs/bedrock/rest/endpoint"
 )
 
 type echoHandler struct {
@@ -24,9 +25,13 @@ func Echo(log *slog.Logger) rest.Endpoint {
 	}
 
 	return rest.Endpoint{
-		Method:    http.MethodPost,
-		Path:      "/echo",
-		Operation: rest.NewOperation(h),
+		Method: http.MethodPost,
+		Path:   "/echo",
+		Operation: rest.NewOperation(
+			endpoint.ConsumesJson(
+				endpoint.ProducesJson(h),
+			),
+		),
 	}
 }
 
@@ -34,24 +39,8 @@ type EchoRequest struct {
 	Msg string `json:"msg"`
 }
 
-func (EchoRequest) ContentType() string {
-	return "application/json"
-}
-
-func (req *EchoRequest) UnmarshalBinary(b []byte) error {
-	return json.Unmarshal(b, req)
-}
-
 type EchoResponse struct {
 	Msg string `json:"msg"`
-}
-
-func (EchoResponse) ContentType() string {
-	return "application/json"
-}
-
-func (resp *EchoResponse) MarshalBinary() ([]byte, error) {
-	return json.Marshal(resp)
 }
 
 func (h *echoHandler) Handle(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {

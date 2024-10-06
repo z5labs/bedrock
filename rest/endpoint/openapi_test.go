@@ -22,7 +22,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 	t.Run("will required path parameter", func(t *testing.T) {
 		t.Run("if a http.ServeMux path parameter pattern is used", func(t *testing.T) {
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				PathParams(PathParam{
 					Name:     "id",
 					Required: true,
@@ -69,7 +69,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				Headers(header),
 			)
 
@@ -113,7 +113,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				Headers(header),
 			)
 
@@ -156,7 +156,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				QueryParams(queryParam),
 			)
 
@@ -200,7 +200,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				QueryParams(queryParam),
 			)
 
@@ -356,7 +356,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 	t.Run("will set a empty response body", func(t *testing.T) {
 		t.Run("if the response type does not implement ContentTyper", func(t *testing.T) {
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 			)
 
 			b, err := json.Marshal(e.OpenApi())
@@ -393,7 +393,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			statusCode := http.StatusBadRequest
 
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				Returns(statusCode),
 			)
 
@@ -445,7 +445,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				StatusCode(statusCode),
 			)
 

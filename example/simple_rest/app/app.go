@@ -51,7 +51,9 @@ func Init(ctx context.Context, cfg Config) (bedrock.App, error) {
 			http.MethodPost,
 			"/echo",
 			endpoint.NewOperation(
-				echoService,
+				endpoint.ConsumesJson(
+					endpoint.ProducesJson(echoService),
+				),
 				endpoint.Headers(
 					endpoint.Header{
 						Name: "Authorization",
