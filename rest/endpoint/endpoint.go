@@ -8,16 +8,15 @@ package endpoint
 import (
 	"bytes"
 	"context"
-	"encoding"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/z5labs/bedrock/pkg/ptr"
 
-	"github.com/swaggest/jsonschema-go"
 	"github.com/swaggest/openapi-go/openapi3"
 	"go.opentelemetry.io/otel"
 )
@@ -65,12 +64,13 @@ type Option func(*options)
 // Operation is a RPC inspired [http.Handler] (aka endpoint) that also
 // keeps track of the associated types and parameters
 // in order to construct an OpenAPI operation definition.
-type Operation[Req, Resp any] struct {
+type Operation[I, O any, Req Request[I], Resp Response[O]] struct {
 	validators []func(*http.Request) error
 	injectors  []injector
 
-	statusCode int
-	handler    Handler[Req, Resp]
+	statusCode   int
+	handler      Handler[I, O]
+	writeBufPool *sync.Pool
 
 	errHandler ErrorHandler
 
@@ -193,37 +193,39 @@ type ContentTyper interface {
 	ContentType() string
 }
 
+// OpenApiV3Schemaer
+type OpenApiV3Schemaer interface {
+	OpenApiV3Schema() (*openapi3.Schema, error)
+}
+
 // Accepts registers the Req type in the OpenAPI operation definition
 // as a possible request to the [Operation].
-func Accepts[Req any]() Option {
+func Accepts[I any, Req Request[I]]() Option {
 	return func(o *options) {
-		contentType := ""
-
-		var req Req
-		if ct, ok := any(req).(ContentTyper); ok {
-			contentType = ct.ContentType()
-
+		var i I
+		var req Req = &i
+		ct := req.ContentType()
+		if len(ct) > 0 {
 			o.validators = append(o.validators, validateHeader(Header{
 				Name:     "Content-Type",
-				Pattern:  fmt.Sprintf("^%s$", contentType),
+				Pattern:  fmt.Sprintf("^%s$", ct),
 				Required: true,
 			}))
 		}
 
-		var reflector jsonschema.Reflector
-		schema, err := reflector.Reflect(req)
+		schema, err := req.OpenApiV3Schema()
 		if err != nil {
 			panic(err)
 		}
 
 		var schemaOrRef openapi3.SchemaOrRef
-		schemaOrRef.FromJSONSchema(schema.ToSchemaOrBool())
+		schemaOrRef.Schema = schema
 
 		o.openapi.RequestBody = &openapi3.RequestBodyOrRef{
 			RequestBody: &openapi3.RequestBody{
 				Required: ptr.Ref(true),
 				Content: map[string]openapi3.MediaType{
-					contentType: {
+					ct: {
 						Schema: &schemaOrRef,
 					},
 				},
@@ -244,30 +246,30 @@ func Returns(status int) Option {
 
 // ReturnsWith registers the Resp type and status code in the OpenAPI
 // operation definition as a possible response from the [Operation].
-func ReturnsWith[Resp any](status int) Option {
-	return func(o *options) {
-		var resp Resp
-		ct, ok := any(resp).(ContentTyper)
-		if !ok {
-			o.openapi.Responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
+func ReturnsWith[O any, Resp Response[O]](status int) Option {
+	return func(opts *options) {
+		var o O
+		var resp Resp = &o
+		ct := resp.ContentType()
+		if len(ct) == 0 {
+			opts.openapi.Responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
 				Response: &openapi3.Response{},
 			}
 			return
 		}
 
-		var reflector jsonschema.Reflector
-		schema, err := reflector.Reflect(resp)
+		schema, err := resp.OpenApiV3Schema()
 		if err != nil {
 			panic(err)
 		}
 
 		var schemaOrRef openapi3.SchemaOrRef
-		schemaOrRef.FromJSONSchema(schema.ToSchemaOrBool())
+		schemaOrRef.Schema = schema
 
-		o.openapi.Responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
+		opts.openapi.Responses.MapOfResponseOrRefValues[strconv.Itoa(status)] = openapi3.ResponseOrRef{
 			Response: &openapi3.Response{
 				Content: map[string]openapi3.MediaType{
-					ct.ContentType(): {
+					ct: {
 						Schema: &schemaOrRef,
 					},
 				},
@@ -297,7 +299,7 @@ func (f errorHandlerFunc) HandleError(ctx context.Context, w http.ResponseWriter
 const DefaultErrorStatusCode = http.StatusInternalServerError
 
 // NewOperation initializes a Operation.
-func NewOperation[Req, Resp any](handler Handler[Req, Resp], opts ...Option) *Operation[Req, Resp] {
+func NewOperation[I, O any, Req Request[I], Resp Response[O]](handler Handler[I, O], opts ...Option) *Operation[I, O, Req, Resp] {
 	o := &options{
 		defaultStatusCode: DefaultStatusCode,
 		pathParams:        make(map[PathParam]struct{}),
@@ -313,30 +315,39 @@ func NewOperation[Req, Resp any](handler Handler[Req, Resp], opts ...Option) *Op
 		},
 	}
 
-	for _, opt := range withBuiltinOptions[Req, Resp](opts...) {
+	for _, opt := range withBuiltinOptions[I, O, Req, Resp](opts...) {
 		opt(o)
 	}
 
-	return &Operation[Req, Resp]{
+	return &Operation[I, O, Req, Resp]{
 		injectors:  initInjectors(o),
 		validators: o.validators,
 		statusCode: o.defaultStatusCode,
 		handler:    handler,
+		writeBufPool: &sync.Pool{
+			New: func() any {
+				return new(bytes.Buffer)
+			},
+		},
 		errHandler: o.errHandler,
 		openapi:    o.openapi,
 	}
 }
 
-func withBuiltinOptions[Req, Resp any](opts ...Option) []Option {
-	var req Req
-	if _, ok := any(req).(ContentTyper); ok {
-		opts = append(opts, Accepts[Req]())
+func withBuiltinOptions[I, O any, Req Request[I], Resp Response[O]](opts ...Option) []Option {
+	var i I
+	var req Req = &i
+	ct := req.ContentType()
+	if len(ct) > 0 {
+		opts = append(opts, Accepts[I, Req]())
 	}
 
-	var resp Resp
-	if _, ok := any(resp).(ContentTyper); ok {
+	var o O
+	var resp Resp = &o
+	ct = resp.ContentType()
+	if len(ct) > 0 {
 		opts = append(opts, func(o *options) {
-			ReturnsWith[Resp](o.defaultStatusCode)(o)
+			ReturnsWith[O, Resp](o.defaultStatusCode)(o)
 		})
 	} else {
 		opts = append(opts, func(o *options) {
@@ -362,12 +373,12 @@ func initInjectors(o *options) []injector {
 }
 
 // OpenApi returns the OpenAPI operation definition for this endpoint.
-func (op *Operation[Req, Resp]) OpenApi() openapi3.Operation {
+func (op *Operation[I, O, Req, Resp]) OpenApi() openapi3.Operation {
 	return op.openapi
 }
 
 // ServeHTTP implements the [http.Handler] interface.
-func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (op *Operation[I, O, Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	spanCtx, span := otel.Tracer("endpoint").Start(r.Context(), "Operation.ServeHTTP")
 	defer span.End()
 
@@ -379,8 +390,9 @@ func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var req Req
-	err = unmarshal(ctx, r.Body, &req)
+	var i I
+	var req Req = &i
+	err = readRequest(ctx, r.Body, req)
 	if err != nil {
 		op.handleError(ctx, w, err)
 		return
@@ -392,9 +404,13 @@ func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	resp, err := op.handler.Handle(ctx, &req)
+	resp, err := op.handler.Handle(ctx, req)
 	if err != nil {
 		op.handleError(ctx, w, err)
+		return
+	}
+	if resp == nil {
+		op.handleError(ctx, w, ErrNilHandlerResponse)
 		return
 	}
 
@@ -405,49 +421,31 @@ func (op *Operation[Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.Request
 	}
 }
 
-func unmarshal[Req any](ctx context.Context, r io.ReadCloser, req *Req) error {
+func readRequest[Req io.ReaderFrom](ctx context.Context, rc io.ReadCloser, req Req) (err error) {
 	_, span := otel.Tracer("endpoint").Start(ctx, "unmarshal")
 	defer span.End()
 
-	switch x := any(req).(type) {
-	case encoding.BinaryUnmarshaler:
-		defer func() {
-			_ = r.Close()
-		}()
-
-		b, err := io.ReadAll(r)
-		if err != nil {
-			span.RecordError(err)
-			return err
+	defer func() {
+		closeErr := rc.Close()
+		if closeErr == nil {
+			return
 		}
+		if err == nil {
+			err = closeErr
+			return
+		}
+		err = errors.Join(err, closeErr)
+	}()
 
-		err = x.UnmarshalBinary(b)
-		span.RecordError(err)
-		return err
-	case io.ReaderFrom:
-		_, err := x.ReadFrom(r)
-		span.RecordError(err)
-		return err
-	default:
-		return nil
-	}
+	_, err = req.ReadFrom(rc)
+	return
 }
 
-// Validator
-type Validator interface {
-	Validate() error
-}
-
-func validate[Req any](ctx context.Context, req Req) error {
+func validate[Req Validator](ctx context.Context, req Req) error {
 	_, span := otel.Tracer("endpoint").Start(ctx, "validate")
 	defer span.End()
 
-	v, ok := any(req).(Validator)
-	if !ok {
-		return nil
-	}
-
-	err := v.Validate()
+	err := req.Validate()
 	span.RecordError(err)
 	return err
 }
@@ -455,49 +453,52 @@ func validate[Req any](ctx context.Context, req Req) error {
 // ErrNilHandlerResponse
 var ErrNilHandlerResponse = errors.New("received nil for response that is expected to be in response body")
 
-func (op *Operation[Req, Resp]) writeResponse(ctx context.Context, w http.ResponseWriter, resp *Resp) error {
+func (op *Operation[I, O, Req, Resp]) writeResponse(ctx context.Context, w http.ResponseWriter, resp Resp) error {
 	_, span := otel.Tracer("endpoint").Start(ctx, "Operation.writeResponse")
 	defer span.End()
 
-	switch x := any(resp).(type) {
-	case io.WriterTo:
-		if resp == nil {
-			span.RecordError(ErrNilHandlerResponse)
-			return ErrNilHandlerResponse
-		}
+	buf := op.getWriteBuf()
+	defer op.putWriteBuf(buf)
 
-		_, err := x.WriteTo(w)
+	_, err := resp.WriteTo(buf)
+	if err != nil {
 		span.RecordError(err)
 		return err
-	case encoding.BinaryMarshaler:
-		if resp == nil {
-			span.RecordError(ErrNilHandlerResponse)
-			return ErrNilHandlerResponse
-		}
-
-		b, err := x.MarshalBinary()
-		if err != nil {
-			span.RecordError(err)
-			return err
-		}
-
-		if ct, ok := any(resp).(ContentTyper); ok {
-			w.Header().Set("Content-Type", ct.ContentType())
-		}
-
-		w.WriteHeader(op.statusCode)
-		_, err = io.Copy(w, bytes.NewReader(b))
-		span.RecordError(err)
-		return err
-	default:
-		w.WriteHeader(op.statusCode)
-		return nil
 	}
+
+	ct := resp.ContentType()
+	if len(ct) > 0 {
+		w.Header().Set("Content-Type", ct)
+	}
+
+	w.WriteHeader(op.statusCode)
+
+	span.RecordError(err)
+	_, err = io.Copy(w, buf)
+	return err
 }
 
-func (op *Operation[Req, Resp]) handleError(ctx context.Context, w http.ResponseWriter, err error) {
+func (op *Operation[I, O, Req, Resp]) handleError(ctx context.Context, w http.ResponseWriter, err error) {
 	spanCtx, span := otel.Tracer("endpoint").Start(ctx, "Operation.handleError")
 	defer span.End()
 
 	op.errHandler.HandleError(spanCtx, w, err)
+}
+
+func (op *Operation[I, O, Req, Resp]) getWriteBuf() *bytes.Buffer {
+	v := op.writeBufPool.Get()
+	if v == nil {
+		return new(bytes.Buffer)
+	}
+
+	buf, ok := v.(*bytes.Buffer)
+	if !ok {
+		return new(bytes.Buffer)
+	}
+	return buf
+}
+
+func (op *Operation[I, O, Req, Resp]) putWriteBuf(buf *bytes.Buffer) {
+	buf.Reset()
+	op.writeBufPool.Put(buf)
 }

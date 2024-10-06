@@ -17,14 +17,37 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/swaggest/jsonschema-go"
+	"github.com/swaggest/openapi-go/openapi3"
 )
 
 type Empty struct{}
 
-type noopHandler struct{}
+func (Empty) ContentType() string {
+	return ""
+}
 
-func (noopHandler) Handle(_ context.Context, _ *Empty) (*Empty, error) {
-	return &Empty{}, nil
+func (Empty) Validate() error {
+	return nil
+}
+
+func (Empty) OpenApiV3Schema() (*openapi3.Schema, error) {
+	return nil, nil
+}
+
+func (*Empty) ReadFrom(r io.Reader) (int64, error) {
+	return 0, nil
+}
+
+func (*Empty) WriteTo(w io.Writer) (int64, error) {
+	return 0, nil
+}
+
+type noopHandler[Req, Resp any] struct{}
+
+func (noopHandler[Req, Resp]) Handle(_ context.Context, _ *Req) (*Resp, error) {
+	var resp Resp
+	return &resp, nil
 }
 
 type JsonContent struct {
@@ -35,12 +58,36 @@ func (JsonContent) ContentType() string {
 	return "application/json"
 }
 
-func (x *JsonContent) UnmarshalBinary(b []byte) error {
-	return json.Unmarshal(b, x)
+func (JsonContent) Validate() error {
+	return nil
 }
 
-func (x *JsonContent) MarshalBinary() ([]byte, error) {
-	return json.Marshal(x)
+func (x *JsonContent) OpenApiV3Schema() (*openapi3.Schema, error) {
+	var reflector jsonschema.Reflector
+	jsonSchema, err := reflector.Reflect(x)
+	if err != nil {
+		return nil, err
+	}
+	var schemaOrRef openapi3.SchemaOrRef
+	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
+	return schemaOrRef.Schema, nil
+}
+
+func (x *JsonContent) ReadFrom(r io.Reader) (int64, error) {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return 0, err
+	}
+	err = json.Unmarshal(b, &x)
+	return int64(len(b)), err
+}
+
+func (x *JsonContent) WriteTo(w io.Writer) (int64, error) {
+	b, err := json.Marshal(x)
+	if err != nil {
+		return 0, err
+	}
+	return io.Copy(w, bytes.NewReader(b))
 }
 
 type ReaderContent struct {
@@ -49,6 +96,14 @@ type ReaderContent struct {
 
 func (ReaderContent) ContentType() string {
 	return "application/octet"
+}
+
+func (ReaderContent) Validate() error {
+	return nil
+}
+
+func (ReaderContent) OpenApiV3Schema() (*openapi3.Schema, error) {
+	return nil, nil
 }
 
 func (x *ReaderContent) ReadFrom(r io.Reader) (int64, error) {
@@ -64,18 +119,30 @@ func (x *ReaderContent) WriteTo(w io.Writer) (int64, error) {
 	return io.Copy(w, x.r)
 }
 
-type FailUnmarshalBinary struct{}
+type FailReadFrom struct{}
 
-var errUnmarshalBinary = errors.New("failed to unmarshal from binary")
+var errReadFrom = errors.New("failed to read from io.Reader")
 
-func (*FailUnmarshalBinary) UnmarshalBinary(b []byte) error {
-	return errUnmarshalBinary
+func (FailReadFrom) ContentType() string {
+	return ""
+}
+
+func (FailReadFrom) Validate() error {
+	return nil
+}
+
+func (FailReadFrom) OpenApiV3Schema() (*openapi3.Schema, error) {
+	return nil, nil
+}
+
+func (*FailReadFrom) ReadFrom(r io.Reader) (int64, error) {
+	return 0, errReadFrom
 }
 
 type InvalidRequest struct{}
 
-func (*InvalidRequest) UnmarshalBinary(b []byte) error {
-	return nil
+func (InvalidRequest) ContentType() string {
+	return ""
 }
 
 var errInvalidRequest = errors.New("invalid request")
@@ -84,18 +151,34 @@ func (InvalidRequest) Validate() error {
 	return errInvalidRequest
 }
 
-type FailMarshalBinary struct{}
+func (InvalidRequest) OpenApiV3Schema() (*openapi3.Schema, error) {
+	return nil, nil
+}
 
-var errMarshalBinary = errors.New("failed to marshal to binary")
+func (*InvalidRequest) ReadFrom(r io.Reader) (int64, error) {
+	return 0, nil
+}
 
-func (*FailMarshalBinary) MarshalBinary() ([]byte, error) {
-	return nil, errMarshalBinary
+type FailWriteTo struct{}
+
+func (FailWriteTo) ContentType() string {
+	return ""
+}
+
+func (FailWriteTo) OpenApiV3Schema() (*openapi3.Schema, error) {
+	return nil, nil
+}
+
+var errWriteTo = errors.New("failed to write response")
+
+func (*FailWriteTo) WriteTo(w io.Writer) (int64, error) {
+	return 0, errWriteTo
 }
 
 func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return the default success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler succeeds with an empty response", func(t *testing.T) {
-			e := NewOperation(noopHandler{})
+			e := NewOperation(noopHandler[Empty, Empty]{})
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -131,38 +214,6 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, "hello, world", string(b)) {
-				return
-			}
-		})
-
-		t.Run("if the underlying Handler succeeds with a encoding.BinaryMarshaler response", func(t *testing.T) {
-			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
-					return &JsonContent{Value: "hello, world"}, nil
-				}),
-			)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
-
-			e.ServeHTTP(w, r)
-
-			resp := w.Result()
-			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
-				return
-			}
-
-			b, err := io.ReadAll(resp.Body)
-			if !assert.Nil(t, err) {
-				return
-			}
-
-			var jsonResp JsonContent
-			err = json.Unmarshal(b, &jsonResp)
-			if !assert.Nil(t, err) {
-				return
-			}
-			if !assert.Equal(t, "hello, world", jsonResp.Value) {
 				return
 			}
 		})
@@ -411,7 +462,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				StatusCode(statusCode),
 			)
 
@@ -567,7 +618,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a required path param is missing", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				PathParams(
 					PathParam{
 						Name:     "id",
@@ -603,7 +654,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a path param does not match its expected pattern", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				PathParams(
 					PathParam{
 						Name:    "id",
@@ -640,7 +691,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a required http header is missing", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				Headers(
 					Header{
 						Name:     "Authorization",
@@ -676,7 +727,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a http header does not match its expected pattern", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				Headers(
 					Header{
 						Name:    "Authorization",
@@ -713,7 +764,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a required query param is missing", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				QueryParams(
 					QueryParam{
 						Name:     "test",
@@ -749,7 +800,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a query param does not match its expected pattern", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				QueryParams(
 					QueryParam{
 						Name:    "test",
@@ -818,7 +869,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the request body fails to unmarshal", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[FailUnmarshalBinary, Empty](func(_ context.Context, _ *FailUnmarshalBinary) (*Empty, error) {
+				HandlerFunc[FailReadFrom, Empty](func(_ context.Context, _ *FailReadFrom) (*Empty, error) {
 					return &Empty{}, nil
 				}),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
@@ -837,7 +888,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
 				return
 			}
-			if !assert.Equal(t, errUnmarshalBinary, caughtError) {
+			if !assert.Equal(t, errReadFrom, caughtError) {
 				return
 			}
 		})
@@ -872,8 +923,9 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the response body fails to marshal itself to binary", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[Empty, FailMarshalBinary](func(_ context.Context, _ *Empty) (*FailMarshalBinary, error) {
-					return &FailMarshalBinary{}, nil
+				HandlerFunc[Empty, FailWriteTo](func(_ context.Context, _ *Empty) (*FailWriteTo, error) {
+					t.Log("request received")
+					return &FailWriteTo{}, nil
 				}),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
@@ -891,7 +943,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
 				return
 			}
-			if !assert.Equal(t, errMarshalBinary, caughtError) {
+			if !assert.Equal(t, errWriteTo, caughtError) {
 				return
 			}
 		})
