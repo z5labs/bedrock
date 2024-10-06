@@ -6,17 +6,13 @@
 package endpoint
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 
 	"github.com/z5labs/bedrock/example/custom_framework/framework/rest"
 
-	"github.com/swaggest/jsonschema-go"
-	"github.com/swaggest/openapi-go/openapi3"
+	"github.com/z5labs/bedrock/rest/endpoint"
 )
 
 type echoHandler struct {
@@ -29,9 +25,13 @@ func Echo(log *slog.Logger) rest.Endpoint {
 	}
 
 	return rest.Endpoint{
-		Method:    http.MethodPost,
-		Path:      "/echo",
-		Operation: rest.NewOperation(h),
+		Method: http.MethodPost,
+		Path:   "/echo",
+		Operation: rest.NewOperation(
+			endpoint.ConsumesJson(
+				endpoint.ProducesJson(h),
+			),
+		),
 	}
 }
 
@@ -39,59 +39,8 @@ type EchoRequest struct {
 	Msg string `json:"msg"`
 }
 
-func (EchoRequest) ContentType() string {
-	return "application/json"
-}
-
-func (EchoRequest) Validate() error {
-	return nil
-}
-
-func (req EchoRequest) OpenApiV3Schema() (*openapi3.Schema, error) {
-	var reflector jsonschema.Reflector
-	jsonSchema, err := reflector.Reflect(req)
-	if err != nil {
-		return nil, err
-	}
-	var schemaOrRef openapi3.SchemaOrRef
-	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
-	return schemaOrRef.Schema, nil
-}
-
-func (req *EchoRequest) ReadFrom(r io.Reader) (int64, error) {
-	b, err := io.ReadAll(r)
-	if err != nil {
-		return 0, err
-	}
-	err = json.Unmarshal(b, &req)
-	return int64(len(b)), err
-}
-
 type EchoResponse struct {
 	Msg string `json:"msg"`
-}
-
-func (EchoResponse) ContentType() string {
-	return "application/json"
-}
-
-func (resp EchoResponse) OpenApiV3Schema() (*openapi3.Schema, error) {
-	var reflector jsonschema.Reflector
-	jsonSchema, err := reflector.Reflect(resp)
-	if err != nil {
-		return nil, err
-	}
-	var schemaOrRef openapi3.SchemaOrRef
-	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
-	return schemaOrRef.Schema, nil
-}
-
-func (resp *EchoResponse) WriteTo(w io.Writer) (int64, error) {
-	b, err := json.Marshal(resp)
-	if err != nil {
-		return 0, err
-	}
-	return io.Copy(w, bytes.NewReader(b))
 }
 
 func (h *echoHandler) Handle(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
