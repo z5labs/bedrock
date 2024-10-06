@@ -6,12 +6,17 @@
 package endpoint
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 
 	"github.com/z5labs/bedrock/example/custom_framework/framework/rest"
+
+	"github.com/swaggest/jsonschema-go"
+	"github.com/swaggest/openapi-go/openapi3"
 )
 
 type echoHandler struct {
@@ -38,8 +43,28 @@ func (EchoRequest) ContentType() string {
 	return "application/json"
 }
 
-func (req *EchoRequest) UnmarshalBinary(b []byte) error {
-	return json.Unmarshal(b, req)
+func (EchoRequest) Validate() error {
+	return nil
+}
+
+func (req EchoRequest) OpenApiV3Schema() (*openapi3.Schema, error) {
+	var reflector jsonschema.Reflector
+	jsonSchema, err := reflector.Reflect(req)
+	if err != nil {
+		return nil, err
+	}
+	var schemaOrRef openapi3.SchemaOrRef
+	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
+	return schemaOrRef.Schema, nil
+}
+
+func (req *EchoRequest) ReadFrom(r io.Reader) (int64, error) {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return 0, err
+	}
+	err = json.Unmarshal(b, &req)
+	return int64(len(b)), err
 }
 
 type EchoResponse struct {
@@ -50,8 +75,23 @@ func (EchoResponse) ContentType() string {
 	return "application/json"
 }
 
-func (resp *EchoResponse) MarshalBinary() ([]byte, error) {
-	return json.Marshal(resp)
+func (resp EchoResponse) OpenApiV3Schema() (*openapi3.Schema, error) {
+	var reflector jsonschema.Reflector
+	jsonSchema, err := reflector.Reflect(resp)
+	if err != nil {
+		return nil, err
+	}
+	var schemaOrRef openapi3.SchemaOrRef
+	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
+	return schemaOrRef.Schema, nil
+}
+
+func (resp *EchoResponse) WriteTo(w io.Writer) (int64, error) {
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return 0, err
+	}
+	return io.Copy(w, bytes.NewReader(b))
 }
 
 func (h *echoHandler) Handle(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
