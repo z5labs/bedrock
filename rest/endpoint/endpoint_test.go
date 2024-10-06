@@ -43,10 +43,11 @@ func (*Empty) WriteTo(w io.Writer) (int64, error) {
 	return 0, nil
 }
 
-type noopHandler struct{}
+type noopHandler[Req, Resp any] struct{}
 
-func (noopHandler) Handle(_ context.Context, _ *Empty) (*Empty, error) {
-	return &Empty{}, nil
+func (noopHandler[Req, Resp]) Handle(_ context.Context, _ *Req) (*Resp, error) {
+	var resp Resp
+	return &resp, nil
 }
 
 type JsonContent struct {
@@ -177,7 +178,7 @@ func (*FailWriteTo) WriteTo(w io.Writer) (int64, error) {
 func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return the default success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler succeeds with an empty response", func(t *testing.T) {
-			e := NewOperation(noopHandler{})
+			e := NewOperation(noopHandler[Empty, Empty]{})
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -461,7 +462,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				StatusCode(statusCode),
 			)
 
@@ -617,7 +618,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a required path param is missing", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				PathParams(
 					PathParam{
 						Name:     "id",
@@ -653,7 +654,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a path param does not match its expected pattern", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				PathParams(
 					PathParam{
 						Name:    "id",
@@ -690,7 +691,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a required http header is missing", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				Headers(
 					Header{
 						Name:     "Authorization",
@@ -726,7 +727,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a http header does not match its expected pattern", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				Headers(
 					Header{
 						Name:    "Authorization",
@@ -763,7 +764,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a required query param is missing", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				QueryParams(
 					QueryParam{
 						Name:     "test",
@@ -799,7 +800,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a query param does not match its expected pattern", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler{},
+				noopHandler[Empty, Empty]{},
 				QueryParams(
 					QueryParam{
 						Name:    "test",
