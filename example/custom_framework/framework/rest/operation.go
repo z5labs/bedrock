@@ -30,7 +30,7 @@ func Header(name string, required bool, pattern string) OperationOption {
 	}
 }
 
-func NewOperation[Req, Resp any](h OperationHandler[Req, Resp], opts ...OperationOption) rest.Operation {
+func NewOperation[I, O any, Req endpoint.Request[I], Resp endpoint.Response[O]](h OperationHandler[I, O], opts ...OperationOption) rest.Operation {
 	opOpts := &operationConfig{}
 	for _, opt := range opts {
 		opt(opOpts)
@@ -41,5 +41,5 @@ func NewOperation[Req, Resp any](h OperationHandler[Req, Resp], opts ...Operatio
 		endpointOpts = append(endpointOpts, endpoint.Headers(opOpts.headers...))
 	}
 
-	return endpoint.NewOperation(h, endpointOpts...)
+	return endpoint.NewOperation[I, O, Req, Resp](h, endpointOpts...)
 }
