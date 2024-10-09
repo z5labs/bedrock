@@ -31,18 +31,21 @@ type Request[T any] interface {
 	RequestReader
 }
 
-type jsonRequestHandler[Req, Resp any] struct {
+// JsonRequestHandler wraps a given [Handler] and handles reading the underlying
+// request type, Req, from JSON.
+type JsonRequestHandler[Req, Resp any] struct {
 	inner Handler[Req, Resp]
 }
 
-// ConsumesJson
-func ConsumesJson[Req, Resp any](h Handler[Req, Resp]) Handler[JsonRequest[Req], Resp] {
-	return &jsonRequestHandler[Req, Resp]{
+// ConsumesJson constructs a [JsonRequestHandler] from the given [Handler].
+func ConsumesJson[Req, Resp any](h Handler[Req, Resp]) *JsonRequestHandler[Req, Resp] {
+	return &JsonRequestHandler[Req, Resp]{
 		inner: h,
 	}
 }
 
-func (h *jsonRequestHandler[Req, Resp]) Handle(ctx context.Context, req *JsonRequest[Req]) (*Resp, error) {
+// Handle implements the [Handler] interface.
+func (h *JsonRequestHandler[Req, Resp]) Handle(ctx context.Context, req *JsonRequest[Req]) (*Resp, error) {
 	return h.inner.Handle(ctx, &req.inner)
 }
 
