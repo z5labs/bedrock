@@ -6,14 +6,11 @@
 package endpoint
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
-	"sync"
 
 	"github.com/z5labs/bedrock/pkg/ptr"
 
@@ -68,9 +65,8 @@ type Operation[I, O any, Req Request[I], Resp Response[O]] struct {
 	validators []func(*http.Request) error
 	injectors  []injector
 
-	statusCode   int
-	handler      Handler[I, O]
-	writeBufPool *sync.Pool
+	statusCode int
+	handler    Handler[I, O]
 
 	errHandler ErrorHandler
 
@@ -324,11 +320,6 @@ func NewOperation[I, O any, Req Request[I], Resp Response[O]](handler Handler[I,
 		validators: o.validators,
 		statusCode: o.defaultStatusCode,
 		handler:    handler,
-		writeBufPool: &sync.Pool{
-			New: func() any {
-				return new(bytes.Buffer)
-			},
-		},
 		errHandler: o.errHandler,
 		openapi:    o.openapi,
 	}
@@ -444,24 +435,14 @@ func (op *Operation[I, O, Req, Resp]) writeResponse(ctx context.Context, w http.
 	_, span := otel.Tracer("endpoint").Start(ctx, "Operation.writeResponse")
 	defer span.End()
 
-	buf := op.getWriteBuf()
-	defer op.putWriteBuf(buf)
-
-	_, err := resp.WriteTo(buf)
-	if err != nil {
-		span.RecordError(err)
-		return err
-	}
-
 	ct := resp.ContentType()
 	if len(ct) > 0 {
 		w.Header().Set("Content-Type", ct)
 	}
-
 	w.WriteHeader(op.statusCode)
 
+	_, err := resp.WriteTo(w)
 	span.RecordError(err)
-	_, err = io.Copy(w, buf)
 	return err
 }
 
@@ -470,22 +451,4 @@ func (op *Operation[I, O, Req, Resp]) handleError(ctx context.Context, w http.Re
 	defer span.End()
 
 	op.errHandler.HandleError(spanCtx, w, err)
-}
-
-func (op *Operation[I, O, Req, Resp]) getWriteBuf() *bytes.Buffer {
-	v := op.writeBufPool.Get()
-	if v == nil {
-		return new(bytes.Buffer)
-	}
-
-	buf, ok := v.(*bytes.Buffer)
-	if !ok {
-		return new(bytes.Buffer)
-	}
-	return buf
-}
-
-func (op *Operation[I, O, Req, Resp]) putWriteBuf(buf *bytes.Buffer) {
-	buf.Reset()
-	op.writeBufPool.Put(buf)
 }
