@@ -238,10 +238,14 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set request body type", func(t *testing.T) {
 		t.Run("if the request type implements ContentTyper interface", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			e := NewOperation(
-				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ *JsonContent) (*Empty, error) {
+				ConsumesJson(HandlerFunc[jsonContent, Empty](func(_ context.Context, _ *jsonContent) (*Empty, error) {
 					return &Empty{}, nil
-				}),
+				})),
 			)
 
 			b, err := json.Marshal(e.OpenApi())
@@ -269,11 +273,13 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			if !assert.Len(t, content, 1) {
 				return
 			}
-			if !assert.Contains(t, content, JsonContent{}.ContentType()) {
+
+			ct := (&JsonResponse[jsonContent]{}).ContentType()
+			if !assert.Contains(t, content, ct) {
 				return
 			}
 
-			schemaOrRef := content[JsonContent{}.ContentType()].Schema
+			schemaOrRef := content[ct].Schema
 			if !assert.NotNil(t, schemaOrRef) {
 				return
 			}
@@ -295,10 +301,14 @@ func TestEndpoint_OpenApi(t *testing.T) {
 
 	t.Run("will set response body type", func(t *testing.T) {
 		t.Run("if the response type implements ContentTyper interface", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
-					return &JsonContent{}, nil
-				}),
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(_ context.Context, _ *Empty) (*jsonContent, error) {
+					return &jsonContent{}, nil
+				})),
 			)
 
 			b, err := json.Marshal(e.OpenApi())
@@ -329,11 +339,13 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			if !assert.Len(t, content, 1) {
 				return
 			}
-			if !assert.Contains(t, content, JsonContent{}.ContentType()) {
+
+			ct := (&JsonResponse[jsonContent]{}).ContentType()
+			if !assert.Contains(t, content, ct) {
 				return
 			}
 
-			schemaOrRef := content[JsonContent{}.ContentType()].Schema
+			schemaOrRef := content[ct].Schema
 			if !assert.NotNil(t, schemaOrRef) {
 				return
 			}

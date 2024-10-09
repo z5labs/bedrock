@@ -6,7 +6,6 @@
 package rest
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,8 +16,6 @@ import (
 
 	re "github.com/z5labs/bedrock/rest/endpoint"
 
-	"github.com/swaggest/jsonschema-go"
-	"github.com/swaggest/openapi-go/openapi3"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -28,63 +25,8 @@ type EchoRequest struct {
 	Msg string `json:"msg"`
 }
 
-func (EchoRequest) ContentType() string {
-	return "application/json"
-}
-
-func (EchoRequest) Validate() error {
-	return nil
-}
-
-func (req EchoRequest) OpenApiV3Schema() (*openapi3.Schema, error) {
-	var reflector jsonschema.Reflector
-	jsonSchema, err := reflector.Reflect(req)
-	if err != nil {
-		return nil, err
-	}
-	var schemaOrRef openapi3.SchemaOrRef
-	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
-	return schemaOrRef.Schema, nil
-}
-
-func (req *EchoRequest) ReadFrom(r io.Reader) (int64, error) {
-	b, err := io.ReadAll(r)
-	if err != nil {
-		return 0, err
-	}
-	err = json.Unmarshal(b, &req)
-	return int64(len(b)), err
-}
-
 type EchoResponse struct {
 	Msg string `json:"msg"`
-}
-
-func (EchoResponse) ContentType() string {
-	return "application/json"
-}
-
-func (resp EchoResponse) OpenApiV3Schema() (*openapi3.Schema, error) {
-	var reflector jsonschema.Reflector
-	jsonSchema, err := reflector.Reflect(resp)
-	if err != nil {
-		return nil, err
-	}
-	var schemaOrRef openapi3.SchemaOrRef
-	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
-	return schemaOrRef.Schema, nil
-}
-
-func (resp *EchoResponse) WriteTo(w io.Writer) (int64, error) {
-	b, err := json.Marshal(resp)
-	if err != nil {
-		return 0, err
-	}
-	return io.Copy(w, bytes.NewReader(b))
-}
-
-func (resp EchoResponse) MarshalBinary() ([]byte, error) {
-	return json.Marshal(resp)
 }
 
 func (echoService) Handle(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
@@ -106,7 +48,9 @@ func Example() {
 			http.MethodPost,
 			"/",
 			re.NewOperation(
-				echoService{},
+				re.ConsumesJson(
+					re.ProducesJson(echoService{}),
+				),
 			),
 		),
 	)

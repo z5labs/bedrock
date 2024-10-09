@@ -24,21 +24,27 @@ type Response[T any] interface {
 	io.WriterTo
 }
 
-type jsonResponseHandler[Req, Resp any] struct {
+// JsonResponseHandler wraps a given [Handler] and handles writing the underlying
+// response type, Resp, to JSON.
+type JsonResponseHandler[Req, Resp any] struct {
 	inner Handler[Req, Resp]
 }
 
-// ProducesJson
-func ProducesJson[Req, Resp any](h Handler[Req, Resp]) Handler[Req, JsonResponse[Resp]] {
-	return &jsonResponseHandler[Req, Resp]{
+// ProducesJson constructs a [JsonResponseHandler] from the given [Handler].
+func ProducesJson[Req, Resp any](h Handler[Req, Resp]) *JsonResponseHandler[Req, Resp] {
+	return &JsonResponseHandler[Req, Resp]{
 		inner: h,
 	}
 }
 
-func (h *jsonResponseHandler[Req, Resp]) Handle(ctx context.Context, req *Req) (*JsonResponse[Resp], error) {
+// Handle implements the [Handler] interface.
+func (h *JsonResponseHandler[Req, Resp]) Handle(ctx context.Context, req *Req) (*JsonResponse[Resp], error) {
 	resp, err := h.inner.Handle(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	if resp == nil {
+		return nil, ErrNilHandlerResponse
 	}
 	return &JsonResponse[Resp]{inner: resp}, nil
 }
