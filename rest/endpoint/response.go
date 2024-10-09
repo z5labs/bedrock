@@ -40,6 +40,9 @@ func (h *jsonResponseHandler[Req, Resp]) Handle(ctx context.Context, req *Req) (
 	if err != nil {
 		return nil, err
 	}
+	if resp == nil {
+		return nil, ErrNilHandlerResponse
+	}
 	return &JsonResponse[Resp]{inner: resp}, nil
 }
 
