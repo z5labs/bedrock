@@ -8,11 +8,18 @@ package endpoint
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net/http"
 
 	"github.com/swaggest/jsonschema-go"
 	"github.com/swaggest/openapi-go/openapi3"
 )
+
+// RequestReader
+type RequestReader interface {
+	ReadRequest(r *http.Request) error
+}
 
 // Request
 type Request[T any] interface {
@@ -21,21 +28,24 @@ type Request[T any] interface {
 	ContentTyper
 	Validator
 	OpenApiV3Schemaer
-	io.ReaderFrom
+	RequestReader
 }
 
-type jsonRequestHandler[Req, Resp any] struct {
+// JsonRequestHandler wraps a given [Handler] and handles reading the underlying
+// request type, Req, from JSON.
+type JsonRequestHandler[Req, Resp any] struct {
 	inner Handler[Req, Resp]
 }
 
-// ConsumesJson
-func ConsumesJson[Req, Resp any](h Handler[Req, Resp]) Handler[JsonRequest[Req], Resp] {
-	return &jsonRequestHandler[Req, Resp]{
+// ConsumesJson constructs a [JsonRequestHandler] from the given [Handler].
+func ConsumesJson[Req, Resp any](h Handler[Req, Resp]) *JsonRequestHandler[Req, Resp] {
+	return &JsonRequestHandler[Req, Resp]{
 		inner: h,
 	}
 }
 
-func (h *jsonRequestHandler[Req, Resp]) Handle(ctx context.Context, req *JsonRequest[Req]) (*Resp, error) {
+// Handle implements the [Handler] interface.
+func (h *JsonRequestHandler[Req, Resp]) Handle(ctx context.Context, req *JsonRequest[Req]) (*Resp, error) {
 	return h.inner.Handle(ctx, &req.inner)
 }
 
@@ -71,12 +81,27 @@ func (JsonRequest[T]) OpenApiV3Schema() (*openapi3.Schema, error) {
 	return schemaOrRef.Schema, nil
 }
 
-// ReadFrom implements the [io.ReaderFrom] interface.
-func (req *JsonRequest[T]) ReadFrom(r io.Reader) (int64, error) {
-	b, err := io.ReadAll(r)
+// ReadRequest implements the [RequestReader] interface.
+func (req *JsonRequest[T]) ReadRequest(r *http.Request) (err error) {
+	defer close(&err, r.Body)
+
+	var b []byte
+	b, err = io.ReadAll(r.Body)
 	if err != nil {
-		return 0, err
+		return
 	}
 	err = json.Unmarshal(b, &req.inner)
-	return int64(len(b)), err
+	return
+}
+
+func close(err *error, c io.Closer) {
+	closeErr := c.Close()
+	if closeErr == nil {
+		return
+	}
+	if *err == nil {
+		*err = closeErr
+		return
+	}
+	*err = errors.Join(*err, closeErr)
 }
