@@ -179,6 +179,34 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 		})
+
+		t.Run("if the response fails to write itself to the http.ResponseWriter", func(t *testing.T) {
+			var caughtError error
+			e := NewOperation(
+				HandlerFunc[Empty, FailWriteTo](func(_ context.Context, _ *Empty) (*FailWriteTo, error) {
+					t.Log("request received")
+					return &FailWriteTo{}, nil
+				}),
+				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
+					caughtError = err
+
+					w.WriteHeader(DefaultErrorStatusCode)
+				})),
+			)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+
+			e.ServeHTTP(w, r)
+
+			resp := w.Result()
+			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
+				return
+			}
+			if !assert.Equal(t, errWriteTo, caughtError) {
+				return
+			}
+		})
 	})
 
 	t.Run("will inject path params", func(t *testing.T) {
@@ -913,34 +941,6 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, errInvalidRequest, caughtError) {
-				return
-			}
-		})
-
-		t.Run("if the response body fails to marshal itself to binary", func(t *testing.T) {
-			var caughtError error
-			e := NewOperation(
-				HandlerFunc[Empty, FailWriteTo](func(_ context.Context, _ *Empty) (*FailWriteTo, error) {
-					t.Log("request received")
-					return &FailWriteTo{}, nil
-				}),
-				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
-					caughtError = err
-
-					w.WriteHeader(DefaultErrorStatusCode)
-				})),
-			)
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
-
-			e.ServeHTTP(w, r)
-
-			resp := w.Result()
-			if !assert.Equal(t, DefaultErrorStatusCode, resp.StatusCode) {
-				return
-			}
-			if !assert.Equal(t, errWriteTo, caughtError) {
 				return
 			}
 		})
