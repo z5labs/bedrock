@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/swaggest/jsonschema-go"
 	"github.com/swaggest/openapi-go/openapi3"
 )
 
@@ -35,8 +34,8 @@ func (Empty) OpenApiV3Schema() (*openapi3.Schema, error) {
 	return nil, nil
 }
 
-func (*Empty) ReadFrom(r io.Reader) (int64, error) {
-	return 0, nil
+func (*Empty) ReadRequest(r *http.Request) error {
+	return nil
 }
 
 func (*Empty) WriteTo(w io.Writer) (int64, error) {
@@ -48,46 +47,6 @@ type noopHandler[Req, Resp any] struct{}
 func (noopHandler[Req, Resp]) Handle(_ context.Context, _ *Req) (*Resp, error) {
 	var resp Resp
 	return &resp, nil
-}
-
-type JsonContent struct {
-	Value string `json:"value"`
-}
-
-func (JsonContent) ContentType() string {
-	return "application/json"
-}
-
-func (JsonContent) Validate() error {
-	return nil
-}
-
-func (x *JsonContent) OpenApiV3Schema() (*openapi3.Schema, error) {
-	var reflector jsonschema.Reflector
-	jsonSchema, err := reflector.Reflect(x)
-	if err != nil {
-		return nil, err
-	}
-	var schemaOrRef openapi3.SchemaOrRef
-	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
-	return schemaOrRef.Schema, nil
-}
-
-func (x *JsonContent) ReadFrom(r io.Reader) (int64, error) {
-	b, err := io.ReadAll(r)
-	if err != nil {
-		return 0, err
-	}
-	err = json.Unmarshal(b, &x)
-	return int64(len(b)), err
-}
-
-func (x *JsonContent) WriteTo(w io.Writer) (int64, error) {
-	b, err := json.Marshal(x)
-	if err != nil {
-		return 0, err
-	}
-	return io.Copy(w, bytes.NewReader(b))
 }
 
 type ReaderContent struct {
@@ -106,13 +65,16 @@ func (ReaderContent) OpenApiV3Schema() (*openapi3.Schema, error) {
 	return nil, nil
 }
 
-func (x *ReaderContent) ReadFrom(r io.Reader) (int64, error) {
-	b, err := io.ReadAll(r)
+func (x *ReaderContent) ReadRequest(r *http.Request) (err error) {
+	defer close(&err, r.Body)
+
+	var b []byte
+	b, err = io.ReadAll(r.Body)
 	if err != nil {
-		return 0, err
+		return
 	}
 	x.r = bytes.NewReader(b)
-	return int64(len(b)), nil
+	return
 }
 
 func (x *ReaderContent) WriteTo(w io.Writer) (int64, error) {
@@ -135,8 +97,8 @@ func (FailReadFrom) OpenApiV3Schema() (*openapi3.Schema, error) {
 	return nil, nil
 }
 
-func (*FailReadFrom) ReadFrom(r io.Reader) (int64, error) {
-	return 0, errReadFrom
+func (*FailReadFrom) ReadRequest(r *http.Request) error {
+	return errReadFrom
 }
 
 type InvalidRequest struct{}
@@ -155,8 +117,8 @@ func (InvalidRequest) OpenApiV3Schema() (*openapi3.Schema, error) {
 	return nil, nil
 }
 
-func (*InvalidRequest) ReadFrom(r io.Reader) (int64, error) {
-	return 0, nil
+func (*InvalidRequest) ReadRequest(r *http.Request) error {
+	return nil
 }
 
 type FailWriteTo struct{}
@@ -221,11 +183,15 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will inject path params", func(t *testing.T) {
 		t.Run("if a valid http.ServeMux path param pattern is used", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
 					v := PathValue(ctx, "id")
-					return &JsonContent{Value: v}, nil
-				}),
+					return &jsonContent{Value: v}, nil
+				})),
 				PathParams(PathParam{
 					Name: "id",
 				}),
@@ -250,7 +216,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 
-			var jsonResp JsonContent
+			var jsonResp jsonContent
 			err = json.Unmarshal(b, &jsonResp)
 			if !assert.Nil(t, err) {
 				return
@@ -261,11 +227,15 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if a valid http.ServeMux path param pattern is used and it's marked as required", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
 					v := PathValue(ctx, "id")
-					return &JsonContent{Value: v}, nil
-				}),
+					return &jsonContent{Value: v}, nil
+				})),
 				PathParams(PathParam{
 					Name:     "id",
 					Required: true,
@@ -291,7 +261,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 
-			var jsonResp JsonContent
+			var jsonResp jsonContent
 			err = json.Unmarshal(b, &jsonResp)
 			if !assert.Nil(t, err) {
 				return
@@ -304,11 +274,15 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will inject headers", func(t *testing.T) {
 		t.Run("if a header is configured with the Headers option", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
 					v := HeaderValue(ctx, "test-header")
-					return &JsonContent{Value: v}, nil
-				}),
+					return &jsonContent{Value: v}, nil
+				})),
 				Headers(Header{
 					Name: "test-header",
 				}),
@@ -330,7 +304,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 
-			var jsonResp JsonContent
+			var jsonResp jsonContent
 			err = json.Unmarshal(b, &jsonResp)
 			if !assert.Nil(t, err) {
 				return
@@ -341,11 +315,15 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if a header is configured with the Headers option and marked as required", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
 					v := HeaderValue(ctx, "test-header")
-					return &JsonContent{Value: v}, nil
-				}),
+					return &jsonContent{Value: v}, nil
+				})),
 				Headers(Header{
 					Name:     "test-header",
 					Required: true,
@@ -368,7 +346,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 
-			var jsonResp JsonContent
+			var jsonResp jsonContent
 			err = json.Unmarshal(b, &jsonResp)
 			if !assert.Nil(t, err) {
 				return
@@ -381,11 +359,15 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will inject query params", func(t *testing.T) {
 		t.Run("if a query param is configured with the QueryParams option", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
 					v := QueryValue(ctx, "test-query")
-					return &JsonContent{Value: v}, nil
-				}),
+					return &jsonContent{Value: v}, nil
+				})),
 				QueryParams(QueryParam{
 					Name: "test-query",
 				}),
@@ -406,7 +388,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 
-			var jsonResp JsonContent
+			var jsonResp jsonContent
 			err = json.Unmarshal(b, &jsonResp)
 			if !assert.Nil(t, err) {
 				return
@@ -417,11 +399,15 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if a query param is configured with the QueryParams option and marked required", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(ctx context.Context, _ *Empty) (*JsonContent, error) {
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
 					v := QueryValue(ctx, "test-query")
-					return &JsonContent{Value: v}, nil
-				}),
+					return &jsonContent{Value: v}, nil
+				})),
 				QueryParams(QueryParam{
 					Name:     "test-query",
 					Required: true,
@@ -443,7 +429,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 
-			var jsonResp JsonContent
+			var jsonResp jsonContent
 			err = json.Unmarshal(b, &jsonResp)
 			if !assert.Nil(t, err) {
 				return
@@ -482,11 +468,14 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			if !assert.NotEqual(t, DefaultStatusCode, statusCode) {
 				return
 			}
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
 
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
-					return &JsonContent{Value: "hello, world"}, nil
-				}),
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(_ context.Context, _ *Empty) (*jsonContent, error) {
+					return &jsonContent{Value: "hello, world"}, nil
+				})),
 				StatusCode(statusCode),
 			)
 
@@ -505,7 +494,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 
-			var jsonResp JsonContent
+			var jsonResp jsonContent
 			err = json.Unmarshal(b, &jsonResp)
 			if !assert.Nil(t, err) {
 				return
@@ -535,12 +524,16 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 		})
 
-		t.Run("if the underlying Handler returns a nil encoding.Marshaler", func(t *testing.T) {
+		t.Run("if the underlying Handler returns a nil Response", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(_ context.Context, _ *Empty) (*jsonContent, error) {
 					return nil, nil
-				}),
+				})),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
@@ -834,11 +827,15 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		})
 
 		t.Run("if the request content type header does not match the content type from ContentTyper", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[JsonContent, Empty](func(_ context.Context, _ *JsonContent) (*Empty, error) {
+				ConsumesJson(HandlerFunc[jsonContent, Empty](func(_ context.Context, _ *jsonContent) (*Empty, error) {
 					return &Empty{}, nil
-				}),
+				})),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
 
@@ -951,10 +948,14 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 	t.Run("will return response header", func(t *testing.T) {
 		t.Run("if the response body implements ContentTyper", func(t *testing.T) {
+			type jsonContent struct {
+				Value string `json:"value"`
+			}
+
 			e := NewOperation(
-				HandlerFunc[Empty, JsonContent](func(_ context.Context, _ *Empty) (*JsonContent, error) {
-					return &JsonContent{Value: "hello, world"}, nil
-				}),
+				ProducesJson(HandlerFunc[Empty, jsonContent](func(_ context.Context, _ *Empty) (*jsonContent, error) {
+					return &jsonContent{Value: "hello, world"}, nil
+				})),
 			)
 
 			w := httptest.NewRecorder()
@@ -966,7 +967,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			if !assert.Equal(t, DefaultStatusCode, resp.StatusCode) {
 				return
 			}
-			if !assert.Equal(t, JsonContent{}.ContentType(), resp.Header.Get("Content-Type")) {
+			if !assert.Equal(t, (&JsonResponse[jsonContent]{}).ContentType(), resp.Header.Get("Content-Type")) {
 				return
 			}
 
@@ -975,7 +976,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 				return
 			}
 
-			var content JsonContent
+			var content jsonContent
 			err = json.Unmarshal(b, &content)
 			if !assert.Nil(t, err) {
 				return

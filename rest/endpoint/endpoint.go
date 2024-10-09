@@ -392,7 +392,7 @@ func (op *Operation[I, O, Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.R
 
 	var i I
 	var req Req = &i
-	err = readRequest(ctx, r.Body, req)
+	err = readRequest(ctx, r, req)
 	if err != nil {
 		op.handleError(ctx, w, err)
 		return
@@ -421,24 +421,11 @@ func (op *Operation[I, O, Req, Resp]) ServeHTTP(w http.ResponseWriter, r *http.R
 	}
 }
 
-func readRequest[Req io.ReaderFrom](ctx context.Context, rc io.ReadCloser, req Req) (err error) {
-	_, span := otel.Tracer("endpoint").Start(ctx, "unmarshal")
+func readRequest[Req RequestReader](ctx context.Context, r *http.Request, req Req) error {
+	_, span := otel.Tracer("endpoint").Start(ctx, "readRequest")
 	defer span.End()
 
-	defer func() {
-		closeErr := rc.Close()
-		if closeErr == nil {
-			return
-		}
-		if err == nil {
-			err = closeErr
-			return
-		}
-		err = errors.Join(err, closeErr)
-	}()
-
-	_, err = req.ReadFrom(rc)
-	return
+	return req.ReadRequest(r)
 }
 
 func validate[Req Validator](ctx context.Context, req Req) error {
