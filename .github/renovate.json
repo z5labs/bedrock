@@ -1,0 +1,9 @@
+{
+    "extends": [
+        "config:best-practices"
+    ],
+    "osvVulnerabilityAlerts": true,
+    "schedule": ["before 4am"],
+    "baseBranches": ["main"],
+    "labels": ["dependencies"]
+}
