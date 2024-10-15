@@ -16,12 +16,12 @@ jobs:
     name: Update coverage badge
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
         with:
           fetch-depth: 0 # otherwise, there would be errors pushing refs to the destination repository.
 
       - name: Setup go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5
         with:
           go-version-file: 'go.mod'
 
@@ -32,12 +32,12 @@ jobs:
           go tool cover -func=coverage.out -o=coverage.out
 
       - name: Go Coverage Badge  # Pass the `coverage.out` output to this action
-        uses: tj-actions/coverage-badge-go@v2
+        uses: tj-actions/coverage-badge-go@84540b9f82b4f569ac9f248cf6f2893ac3cc4791 # v2
         with:
           filename: coverage.out
 
       - name: Verify Changed files
-        uses: tj-actions/verify-changed-files@v20
+        uses: tj-actions/verify-changed-files@6ed7632824d235029086612d4330d659005af687 # v20
         id: verify-changed-files
         with:
           files: README.md
