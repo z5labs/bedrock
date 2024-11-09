@@ -51,6 +51,8 @@ github.com/yudai/golcs v0.0.0-20170316035057-ecda9a501e82 h1:BHyfKlQyqbsFN5p3Ifn
 github.com/yudai/golcs v0.0.0-20170316035057-ecda9a501e82/go.mod h1:lgjkn3NuSvDfVJdfcVVdX+jpBxNmX4rDAzaS45IcYoM=
 go.opentelemetry.io/contrib/bridges/otelslog v0.6.0 h1:V/XtFJ8mMisAO2E0tXcgwi40wJUxbiz8I2/RtgaZ8AU=
 go.opentelemetry.io/contrib/bridges/otelslog v0.6.0/go.mod h1:g7kkoEznNXb0li+YvlwPWoqxTbpC3BtmZtZutB39G4M=
+go.opentelemetry.io/contrib/bridges/otelslog v0.7.0 h1:uLoBPCQtxi5eFRryx5yd3DTxOKRQSils1VJUKjFnlSc=
+go.opentelemetry.io/contrib/bridges/otelslog v0.7.0/go.mod h1:1nWHCQN5JjEeWriWKuEY9Zycy0P8OHaPV64KudYbaKw=
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.55.0 h1:ZIg3ZT/aQ7AfKqdwp7ECpOK6vHqquXXuyTjIO8ZdmPs=
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.55.0/go.mod h1:DQAwmETtZV00skUwgD6+0U89g80NKsJE3DCKeLLPQMI=
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.56.0 h1:UP6IpuHFkUgOQL9FFQFrZ+5LiwhhYRbi7VZSIx6Nj5s=
