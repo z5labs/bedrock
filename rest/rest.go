@@ -85,24 +85,22 @@ type Operation interface {
 	OpenApi() openapi3.Operation
 }
 
-type endpoint struct {
-	method  mux.Method
-	pattern string
-	op      Operation
+// Endpoint represents all information necessary for registering
+// an [Operation] with a [App].
+type Endpoint struct {
+	Method    mux.Method
+	Pattern   string
+	Operation Operation
 }
 
-// Endpoint registers the [Operation] with both
+// Register registers the [Endpoint] with both
 // the App wide OpenAPI spec and the App wide HTTP server.
 //
 // "/" is always treated as "/{$}" because it would otherwise
 // match too broadly and cause conflicts with other paths.
-func Endpoint(method mux.Method, pattern string, op Operation) Option {
+func Register(e Endpoint) Option {
 	return func(app *App) {
-		app.endpoints = append(app.endpoints, endpoint{
-			method:  method,
-			pattern: pattern,
-			op:      op,
-		})
+		app.endpoints = append(app.endpoints, e)
 	}
 }
 
@@ -147,7 +145,7 @@ type App struct {
 
 	spec      *openapi3.Spec
 	mux       Mux
-	endpoints []endpoint
+	endpoints []Endpoint
 
 	openApiEndpoint func(Mux)
 
@@ -226,7 +224,7 @@ func (app *App) registerEndpoints() error {
 		// This means that when registering the pattern with the OpenAPI spec
 		// the {$} needs to be stripped because OpenAPI will believe it's
 		// an actual path parameter.
-		trimmedPattern := strings.TrimSuffix(e.pattern, "{$}")
+		trimmedPattern := strings.TrimSuffix(e.Pattern, "{$}")
 
 		// Per the net/http.ServeMux docs, https://pkg.go.dev/net/http#ServeMux:
 		//
@@ -236,7 +234,7 @@ func (app *App) registerEndpoints() error {
 		// before registering the OpenAPI operation with the spec.
 		trimmedPattern = strings.ReplaceAll(trimmedPattern, "...", "")
 
-		err := app.spec.AddOperation(string(e.method), trimmedPattern, e.op.OpenApi())
+		err := app.spec.AddOperation(string(e.Method), trimmedPattern, e.Operation.OpenApi())
 		if err != nil {
 			return err
 		}
@@ -244,14 +242,14 @@ func (app *App) registerEndpoints() error {
 		// enforce strict matching for top-level path
 		// otherwise "/" would match too broadly and http.ServeMux
 		// will panic when other paths are registered e.g. /openapi.json
-		if e.pattern == "/" {
-			e.pattern = "/{$}"
+		if e.Pattern == "/" {
+			e.Pattern = "/{$}"
 		}
 
 		app.mux.Handle(
-			e.method,
-			e.pattern,
-			otelhttp.WithRouteTag(trimmedPattern, e.op),
+			e.Method,
+			e.Pattern,
+			otelhttp.WithRouteTag(trimmedPattern, e.Operation),
 		)
 	}
 	return nil

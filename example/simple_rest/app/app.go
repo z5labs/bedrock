@@ -47,10 +47,10 @@ func Init(ctx context.Context, cfg Config) (bedrock.App, error) {
 
 	restApp := rest.NewApp(
 		rest.Listener(ls),
-		rest.Endpoint(
-			http.MethodPost,
-			"/echo",
-			endpoint.NewOperation(
+		rest.Register(rest.Endpoint{
+			Method:  http.MethodPost,
+			Pattern: "/echo",
+			Operation: endpoint.NewOperation(
 				endpoint.ConsumesJson(
 					endpoint.ProducesJson(echoService),
 				),
@@ -60,7 +60,7 @@ func Init(ctx context.Context, cfg Config) (bedrock.App, error) {
 					},
 				),
 			),
-		),
+		}),
 	)
 
 	app := app.WithSignalNotifications(restApp, os.Interrupt, os.Kill)

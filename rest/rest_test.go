@@ -109,7 +109,11 @@ func TestNotFoundHandler(t *testing.T) {
 					if testCase.RegisterPattern == "" {
 						return
 					}
-					Endpoint(http.MethodGet, testCase.RegisterPattern, statusCodeHandler(http.StatusOK))(a)
+					Register(Endpoint{
+						Method:    http.MethodGet,
+						Pattern:   testCase.RegisterPattern,
+						Operation: statusCodeHandler(http.StatusOK),
+					})(a)
 				},
 			)
 
@@ -237,7 +241,11 @@ func TestMethodNotAllowedHandler(t *testing.T) {
 				WithMux(mux),
 				func(a *App) {
 					for method, pattern := range testCase.RegisterPatterns {
-						Endpoint(method, pattern, statusCodeHandler(http.StatusOK))(a)
+						Register(Endpoint{
+							Method:    method,
+							Pattern:   pattern,
+							Operation: statusCodeHandler(http.StatusOK),
+						})(a)
 					}
 				},
 			)
@@ -609,7 +617,11 @@ func TestApp_Run(t *testing.T) {
 
 			app := NewApp(
 				Listener(ls),
-				Endpoint(http.MethodGet, "/", h),
+				Register(Endpoint{
+					Method:    http.MethodGet,
+					Pattern:   "/",
+					Operation: h,
+				}),
 			)
 
 			err = app.Run(context.Background())
@@ -661,7 +673,11 @@ func TestApp_Run(t *testing.T) {
 
 			app := NewApp(
 				Listener(ls),
-				Endpoint(http.MethodGet, "/{id}", h),
+				Register(Endpoint{
+					Method:    http.MethodGet,
+					Pattern:   "/{id}",
+					Operation: h,
+				}),
 			)
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -732,7 +748,11 @@ func TestApp_Run(t *testing.T) {
 
 			app := NewApp(
 				Listener(ls),
-				Endpoint(http.MethodGet, "/{id...}", h),
+				Register(Endpoint{
+					Method:    http.MethodGet,
+					Pattern:   "/{id...}",
+					Operation: h,
+				}),
 			)
 
 			ctx, cancel := context.WithCancel(context.Background())
