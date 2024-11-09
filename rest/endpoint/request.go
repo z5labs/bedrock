@@ -31,6 +31,52 @@ type Request[T any] interface {
 	RequestReader
 }
 
+// EmptyRequest
+type EmptyRequest struct{}
+
+// ContentType implements [ContentTyper] interface.
+func (EmptyRequest) ContentType() string {
+	return ""
+}
+
+// Validate implements the [Validator] interface.
+func (EmptyRequest) Validate() error {
+	return nil
+}
+
+// OpenApiV3Schema implements the [OpenApiV3Schemaer] interface.
+func (EmptyRequest) OpenApiV3Schema() (*openapi3.Schema, error) {
+	return nil, nil
+}
+
+// ReadRequest implements the [RequestReader] interface.
+func (*EmptyRequest) ReadRequest(r *http.Request) error {
+	return nil
+}
+
+// ResponseOnlyHandler
+type ResponseOnlyHandler[Resp any] interface {
+	Handle(context.Context) (*Resp, error)
+}
+
+// EmptyRequestHandler wraps a given [ResponseOnlyHandler] into a complete [Handler]
+// which expects an empty request body.
+type EmptyRequestHandler[Resp any] struct {
+	inner ResponseOnlyHandler[Resp]
+}
+
+// ConsumesNothing constructs a [EmptyRequestHandler] from the given [ResponseOnlyHandler].
+func ConsumesNothing[Resp any](h ResponseOnlyHandler[Resp]) *EmptyRequestHandler[Resp] {
+	return &EmptyRequestHandler[Resp]{
+		inner: h,
+	}
+}
+
+// Handle implements the [Handler] interface.
+func (h *EmptyRequestHandler[Resp]) Handle(ctx context.Context, _ *EmptyRequest) (*Resp, error) {
+	return h.inner.Handle(ctx)
+}
+
 // JsonRequestHandler wraps a given [Handler] and handles reading the underlying
 // request type, Req, from JSON.
 type JsonRequestHandler[Req, Resp any] struct {

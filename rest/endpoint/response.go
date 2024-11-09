@@ -24,6 +24,51 @@ type Response[T any] interface {
 	io.WriterTo
 }
 
+// EmptyResponse
+type EmptyResponse struct{}
+
+// ContentType implements the [ContentTyper] interface.
+func (EmptyResponse) ContentType() string {
+	return ""
+}
+
+// OpenApiV3Schema implements the [OpenApiV3Schemaer] interface.
+func (EmptyResponse) OpenApiV3Schema() (*openapi3.Schema, error) {
+	return nil, nil
+}
+
+// WriteTo implements the [io.WriterTo] interface.
+func (EmptyResponse) WriteTo(w io.Writer) (int64, error) {
+	return 0, nil
+}
+
+// RequestOnlyHandler
+type RequestOnlyHandler[Req any] interface {
+	Handle(context.Context, *Req) error
+}
+
+// EmptyResponseHandler wraps a given [RequestOnlyHandler] into a complete [Handler]
+// which does not return a response body.
+type EmptyResponseHandler[Req any] struct {
+	inner RequestOnlyHandler[Req]
+}
+
+// ProducesNothing constructs a [EmptyResponseHandler] from the given [RequestOnlyHandler].
+func ProducesNothing[Req any](h RequestOnlyHandler[Req]) *EmptyResponseHandler[Req] {
+	return &EmptyResponseHandler[Req]{
+		inner: h,
+	}
+}
+
+// Handle implements the [Handler] interface.
+func (h *EmptyResponseHandler[Req]) Handle(ctx context.Context, req *Req) (*EmptyResponse, error) {
+	err := h.inner.Handle(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &EmptyResponse{}, nil
+}
+
 // JsonResponseHandler wraps a given [Handler] and handles writing the underlying
 // response type, Resp, to JSON.
 type JsonResponseHandler[Req, Resp any] struct {
