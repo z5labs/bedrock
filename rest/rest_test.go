@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/z5labs/bedrock/pkg/ptr"
+	"github.com/z5labs/bedrock/rest/endpoint"
 	"github.com/z5labs/bedrock/rest/mux"
 
 	"github.com/stretchr/testify/assert"
@@ -389,7 +390,7 @@ func TestOpenApiJsonHandler(t *testing.T) {
 
 			app := NewApp(
 				Listener(ls),
-				OpenApiEndpoint(http.MethodGet, "/openapi.json", OpenApiJsonHandler),
+				OpenApiEndpoint(http.MethodGet, "/openapi.json", OpenApiJsonHandler(endpoint.DefaultErrorHandler)),
 			)
 
 			respCh := make(chan *http.Response, 1)

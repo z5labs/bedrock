@@ -8,12 +8,12 @@ package rest
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net"
 	"net/http"
 	"strings"
 
+	"github.com/z5labs/bedrock/rest/endpoint"
 	"github.com/z5labs/bedrock/rest/mux"
 
 	"github.com/swaggest/openapi-go/openapi3"
@@ -61,11 +61,29 @@ func (h openApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, bytes.NewReader(b))
 }
 
+type specHandler struct {
+	spec *openapi3.Spec
+}
+
+func (h *specHandler) Handle(ctx context.Context) (*openapi3.Spec, error) {
+	return h.spec, nil
+}
+
 // OpenApiJsonHandler returns an [http.Handler] which will respond with the OpenAPI schema as JSON.
-func OpenApiJsonHandler(spec *openapi3.Spec) http.Handler {
-	return openApiHandler{
-		spec:    spec,
-		marshal: json.Marshal,
+func OpenApiJsonHandler(eh endpoint.ErrorHandler) func(*openapi3.Spec) http.Handler {
+	return func(spec *openapi3.Spec) http.Handler {
+		h := &specHandler{
+			spec: spec,
+		}
+
+		return endpoint.NewOperation(
+			endpoint.ProducesJson(
+				endpoint.ConsumesNothing(
+					h,
+				),
+			),
+			endpoint.OnError(eh),
+		)
 	}
 }
 
