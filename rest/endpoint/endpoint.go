@@ -289,6 +289,11 @@ func (f errorHandlerFunc) HandleError(ctx context.Context, w http.ResponseWriter
 	f(ctx, w, err)
 }
 
+// DefaultErrorHandler
+var DefaultErrorHandler ErrorHandler = errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
+	w.WriteHeader(DefaultErrorStatusCode)
+})
+
 // DefaultErrorStatusCode is the default HTTP status code returned by
 // an [Operation] if no [ErrorHandler] has been registered with the
 // [OnError] option and the underlying [Handler] returns an [error].
@@ -301,9 +306,7 @@ func NewOperation[I, O any, Req Request[I], Resp Response[O]](handler Handler[I,
 		pathParams:        make(map[PathParam]struct{}),
 		headerParams:      make(map[Header]struct{}),
 		queryParams:       make(map[QueryParam]struct{}),
-		errHandler: errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
-			w.WriteHeader(DefaultErrorStatusCode)
-		}),
+		errHandler:        DefaultErrorHandler,
 		openapi: openapi3.Operation{
 			Responses: openapi3.Responses{
 				MapOfResponseOrRefValues: make(map[string]openapi3.ResponseOrRef),

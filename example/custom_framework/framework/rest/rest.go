@@ -135,7 +135,11 @@ func (e Endpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func WithEndpoint(e Endpoint) Option {
 	return func(ra *App) {
-		ra.restOpts = append(ra.restOpts, rest.Endpoint(e.Method, e.Path, e.Operation))
+		ra.restOpts = append(ra.restOpts, rest.Register(rest.Endpoint{
+			Method:    e.Method,
+			Pattern:   e.Path,
+			Operation: e.Operation,
+		}))
 	}
 }
 

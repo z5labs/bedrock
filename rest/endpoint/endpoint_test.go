@@ -20,28 +20,6 @@ import (
 	"github.com/swaggest/openapi-go/openapi3"
 )
 
-type Empty struct{}
-
-func (Empty) ContentType() string {
-	return ""
-}
-
-func (Empty) Validate() error {
-	return nil
-}
-
-func (Empty) OpenApiV3Schema() (*openapi3.Schema, error) {
-	return nil, nil
-}
-
-func (*Empty) ReadRequest(r *http.Request) error {
-	return nil
-}
-
-func (*Empty) WriteTo(w io.Writer) (int64, error) {
-	return 0, nil
-}
-
 type noopHandler[Req, Resp any] struct{}
 
 func (noopHandler[Req, Resp]) Handle(_ context.Context, _ *Req) (*Resp, error) {
@@ -140,7 +118,7 @@ func (*FailWriteTo) WriteTo(w io.Writer) (int64, error) {
 func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return the default success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler succeeds with an empty response", func(t *testing.T) {
-			e := NewOperation(noopHandler[Empty, Empty]{})
+			e := NewOperation(noopHandler[EmptyRequest, EmptyResponse]{})
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -183,7 +161,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the response fails to write itself to the http.ResponseWriter", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[Empty, FailWriteTo](func(_ context.Context, _ *Empty) (*FailWriteTo, error) {
+				HandlerFunc[EmptyRequest, FailWriteTo](func(_ context.Context, _ *EmptyRequest) (*FailWriteTo, error) {
 					t.Log("request received")
 					return &FailWriteTo{}, nil
 				}),
@@ -216,7 +194,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(ctx context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					v := PathValue(ctx, "id")
 					return &jsonContent{Value: v}, nil
 				})),
@@ -260,7 +238,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(ctx context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					v := PathValue(ctx, "id")
 					return &jsonContent{Value: v}, nil
 				})),
@@ -307,7 +285,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(ctx context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					v := HeaderValue(ctx, "test-header")
 					return &jsonContent{Value: v}, nil
 				})),
@@ -348,7 +326,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(ctx context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					v := HeaderValue(ctx, "test-header")
 					return &jsonContent{Value: v}, nil
 				})),
@@ -392,7 +370,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(ctx context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					v := QueryValue(ctx, "test-query")
 					return &jsonContent{Value: v}, nil
 				})),
@@ -432,7 +410,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(ctx context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(ctx context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					v := QueryValue(ctx, "test-query")
 					return &jsonContent{Value: v}, nil
 				})),
@@ -476,7 +454,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				StatusCode(statusCode),
 			)
 
@@ -501,7 +479,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(_ context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(_ context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					return &jsonContent{Value: "hello, world"}, nil
 				})),
 				StatusCode(statusCode),
@@ -536,7 +514,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 	t.Run("will return non-success http status code", func(t *testing.T) {
 		t.Run("if the underlying Handler returns an error", func(t *testing.T) {
 			e := NewOperation(
-				HandlerFunc[Empty, Empty](func(_ context.Context, _ *Empty) (*Empty, error) {
+				HandlerFunc[EmptyRequest, EmptyResponse](func(_ context.Context, _ *EmptyRequest) (*EmptyResponse, error) {
 					return nil, errors.New("failed")
 				}),
 			)
@@ -559,7 +537,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 			var caughtError error
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(_ context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(_ context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					return nil, nil
 				})),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
@@ -586,7 +564,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the underlying Handler return a nil io.WriterTo", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[Empty, ReaderContent](func(_ context.Context, _ *Empty) (*ReaderContent, error) {
+				HandlerFunc[EmptyRequest, ReaderContent](func(_ context.Context, _ *EmptyRequest) (*ReaderContent, error) {
 					return nil, nil
 				}),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
@@ -617,7 +595,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				HandlerFunc[Empty, Empty](func(_ context.Context, _ *Empty) (*Empty, error) {
+				HandlerFunc[EmptyRequest, EmptyResponse](func(_ context.Context, _ *EmptyRequest) (*EmptyResponse, error) {
 					return nil, errors.New("failed")
 				}),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
@@ -639,7 +617,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a required path param is missing", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				PathParams(
 					PathParam{
 						Name:     "id",
@@ -675,7 +653,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a path param does not match its expected pattern", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				PathParams(
 					PathParam{
 						Name:    "id",
@@ -712,7 +690,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a required http header is missing", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				Headers(
 					Header{
 						Name:     "Authorization",
@@ -748,7 +726,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a http header does not match its expected pattern", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				Headers(
 					Header{
 						Name:    "Authorization",
@@ -785,7 +763,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a required query param is missing", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				QueryParams(
 					QueryParam{
 						Name:     "test",
@@ -821,7 +799,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if a query param does not match its expected pattern", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				QueryParams(
 					QueryParam{
 						Name:    "test",
@@ -861,8 +839,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 			var caughtError error
 			e := NewOperation(
-				ConsumesJson(HandlerFunc[jsonContent, Empty](func(_ context.Context, _ *jsonContent) (*Empty, error) {
-					return &Empty{}, nil
+				ConsumesJson(HandlerFunc[jsonContent, EmptyResponse](func(_ context.Context, _ *jsonContent) (*EmptyResponse, error) {
+					return &EmptyResponse{}, nil
 				})),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
@@ -894,8 +872,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the request body fails to unmarshal", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[FailReadFrom, Empty](func(_ context.Context, _ *FailReadFrom) (*Empty, error) {
-					return &Empty{}, nil
+				HandlerFunc[FailReadFrom, EmptyResponse](func(_ context.Context, _ *FailReadFrom) (*EmptyResponse, error) {
+					return &EmptyResponse{}, nil
 				}),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
@@ -921,8 +899,8 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 		t.Run("if the unmarshaled request body is invalid", func(t *testing.T) {
 			var caughtError error
 			e := NewOperation(
-				HandlerFunc[InvalidRequest, Empty](func(_ context.Context, _ *InvalidRequest) (*Empty, error) {
-					return &Empty{}, nil
+				HandlerFunc[InvalidRequest, EmptyResponse](func(_ context.Context, _ *InvalidRequest) (*EmptyResponse, error) {
+					return &EmptyResponse{}, nil
 				}),
 				OnError(errorHandlerFunc(func(ctx context.Context, w http.ResponseWriter, err error) {
 					caughtError = err
@@ -953,7 +931,7 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(_ context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(_ context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					return &jsonContent{Value: "hello, world"}, nil
 				})),
 			)
@@ -988,9 +966,9 @@ func TestEndpoint_ServeHTTP(t *testing.T) {
 
 		t.Run("if the underlying Handler sets a custom response header using the context", func(t *testing.T) {
 			e := NewOperation(
-				HandlerFunc[Empty, Empty](func(ctx context.Context, _ *Empty) (*Empty, error) {
+				HandlerFunc[EmptyRequest, EmptyResponse](func(ctx context.Context, _ *EmptyRequest) (*EmptyResponse, error) {
 					SetResponseHeader(ctx, "Content-Type", "test-content-type")
-					return &Empty{}, nil
+					return &EmptyResponse{}, nil
 				}),
 			)
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/swaggest/jsonschema-go"
 	"github.com/swaggest/openapi-go/openapi3"
+	"gopkg.in/yaml.v3"
 )
 
 // Response
@@ -22,6 +23,51 @@ type Response[T any] interface {
 	ContentTyper
 	OpenApiV3Schemaer
 	io.WriterTo
+}
+
+// EmptyResponse
+type EmptyResponse struct{}
+
+// ContentType implements the [ContentTyper] interface.
+func (EmptyResponse) ContentType() string {
+	return ""
+}
+
+// OpenApiV3Schema implements the [OpenApiV3Schemaer] interface.
+func (EmptyResponse) OpenApiV3Schema() (*openapi3.Schema, error) {
+	return nil, nil
+}
+
+// WriteTo implements the [io.WriterTo] interface.
+func (EmptyResponse) WriteTo(w io.Writer) (int64, error) {
+	return 0, nil
+}
+
+// RequestOnlyHandler
+type RequestOnlyHandler[Req any] interface {
+	Handle(context.Context, *Req) error
+}
+
+// EmptyResponseHandler wraps a given [RequestOnlyHandler] into a complete [Handler]
+// which does not return a response body.
+type EmptyResponseHandler[Req any] struct {
+	inner RequestOnlyHandler[Req]
+}
+
+// ProducesNothing constructs a [EmptyResponseHandler] from the given [RequestOnlyHandler].
+func ProducesNothing[Req any](h RequestOnlyHandler[Req]) *EmptyResponseHandler[Req] {
+	return &EmptyResponseHandler[Req]{
+		inner: h,
+	}
+}
+
+// Handle implements the [Handler] interface.
+func (h *EmptyResponseHandler[Req]) Handle(ctx context.Context, req *Req) (*EmptyResponse, error) {
+	err := h.inner.Handle(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &EmptyResponse{}, nil
 }
 
 // JsonResponseHandler wraps a given [Handler] and handles writing the underlying
@@ -75,6 +121,63 @@ func (JsonResponse[T]) OpenApiV3Schema() (*openapi3.Schema, error) {
 // WriteTo implements the [io.WriterTo] interface.
 func (resp *JsonResponse[T]) WriteTo(w io.Writer) (int64, error) {
 	b, err := json.Marshal(resp.inner)
+	if err != nil {
+		return 0, err
+	}
+	return io.Copy(w, bytes.NewReader(b))
+}
+
+// YamlResponseHandler wraps a given [Handler] and handles writing the underlying
+// response type, Resp, to YAML.
+type YamlResponseHandler[Req, Resp any] struct {
+	inner Handler[Req, Resp]
+}
+
+// ProducesYaml constructs a [YamlResponseHandler] from the given [Handler].
+func ProducesYaml[Req, Resp any](h Handler[Req, Resp]) *YamlResponseHandler[Req, Resp] {
+	return &YamlResponseHandler[Req, Resp]{
+		inner: h,
+	}
+}
+
+// Handle implements the [Handler] interface.
+func (h *YamlResponseHandler[Req, Resp]) Handle(ctx context.Context, req *Req) (*YamlResponse[Resp], error) {
+	resp, err := h.inner.Handle(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, ErrNilHandlerResponse
+	}
+	return &YamlResponse[Resp]{inner: resp}, nil
+}
+
+// YamlResponse
+type YamlResponse[T any] struct {
+	inner *T
+}
+
+// ContentType implements the [ContentTyper] interface.
+func (*YamlResponse[T]) ContentType() string {
+	return "application/yaml"
+}
+
+// OpenApiV3Schema implements the [OpenApiV3Schemaer] interface.
+func (YamlResponse[T]) OpenApiV3Schema() (*openapi3.Schema, error) {
+	var reflector jsonschema.Reflector
+	var t T
+	jsonSchema, err := reflector.Reflect(t)
+	if err != nil {
+		return nil, err
+	}
+	var schemaOrRef openapi3.SchemaOrRef
+	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
+	return schemaOrRef.Schema, nil
+}
+
+// WriteTo implements the [io.WriterTo] interface.
+func (resp *YamlResponse[T]) WriteTo(w io.Writer) (int64, error) {
+	b, err := yaml.Marshal(resp.inner)
 	if err != nil {
 		return 0, err
 	}
