@@ -44,15 +44,15 @@ func Example() {
 		Listener(ls),
 		Title("Example"),
 		Version("v0.0.0"),
-		Endpoint(
-			http.MethodPost,
-			"/",
-			re.NewOperation(
+		Register(Endpoint{
+			Method:  http.MethodPost,
+			Pattern: "/",
+			Operation: re.NewOperation(
 				re.ConsumesJson(
 					re.ProducesJson(echoService{}),
 				),
 			),
-		),
+		}),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
