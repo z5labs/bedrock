@@ -6,9 +6,7 @@
 package rest
 
 import (
-	"bytes"
 	"context"
-	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -19,7 +17,6 @@ import (
 	"github.com/swaggest/openapi-go/openapi3"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 )
 
 // Option represents configurable attributes of [App].
@@ -44,21 +41,6 @@ func OpenApiEndpoint(method mux.Method, pattern string, f func(*openapi3.Spec) h
 			mux.Handle(method, pattern, f(a.spec))
 		}
 	}
-}
-
-type openApiHandler struct {
-	spec    *openapi3.Spec
-	marshal func(any) ([]byte, error)
-}
-
-func (h openApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	b, err := h.marshal(h.spec)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	_, _ = io.Copy(w, bytes.NewReader(b))
 }
 
 type specHandler struct {
@@ -88,10 +70,20 @@ func OpenApiJsonHandler(eh endpoint.ErrorHandler) func(*openapi3.Spec) http.Hand
 }
 
 // OpenApiYamlHandler returns an [http.Handler] which will respond with the OpenAPI schema as YAML.
-func OpenApiYamlHandler(spec *openapi3.Spec) http.Handler {
-	return openApiHandler{
-		spec:    spec,
-		marshal: yaml.Marshal,
+func OpenApiYamlHandler(eh endpoint.ErrorHandler) func(*openapi3.Spec) http.Handler {
+	return func(spec *openapi3.Spec) http.Handler {
+		h := &specHandler{
+			spec: spec,
+		}
+
+		return endpoint.NewOperation(
+			endpoint.ProducesYaml(
+				endpoint.ConsumesNothing(
+					h,
+				),
+			),
+			endpoint.OnError(eh),
+		)
 	}
 }
 
