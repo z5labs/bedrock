@@ -14,6 +14,7 @@ import (
 
 	"github.com/swaggest/jsonschema-go"
 	"github.com/swaggest/openapi-go/openapi3"
+	"gopkg.in/yaml.v3"
 )
 
 // RequestReader
@@ -137,6 +138,69 @@ func (req *JsonRequest[T]) ReadRequest(r *http.Request) (err error) {
 		return
 	}
 	err = json.Unmarshal(b, &req.inner)
+	return
+}
+
+// YamlRequestHandler wraps a given [Handler] and handles reading the underlying
+// request type, Req, from YAML.
+type YamlRequestHandler[Req, Resp any] struct {
+	inner Handler[Req, Resp]
+}
+
+// ConsumesYaml constructs a [YamlRequestHandler] from the given [Handler].
+func ConsumesYaml[Req, Resp any](h Handler[Req, Resp]) *YamlRequestHandler[Req, Resp] {
+	return &YamlRequestHandler[Req, Resp]{
+		inner: h,
+	}
+}
+
+// Handle implements the [Handler] interface.
+func (h *YamlRequestHandler[Req, Resp]) Handle(ctx context.Context, req *YamlRequest[Req]) (*Resp, error) {
+	return h.inner.Handle(ctx, &req.inner)
+}
+
+// YamlRequest
+type YamlRequest[T any] struct {
+	inner T
+}
+
+// ContentType implements the [ContentTyper] interface.
+func (YamlRequest[T]) ContentType() string {
+	return "application/yaml"
+}
+
+// Validate implements the [Validator] interface.
+func (req YamlRequest[T]) Validate() error {
+	iv, ok := any(req.inner).(Validator)
+	if !ok {
+		return nil
+	}
+	return iv.Validate()
+}
+
+// OpenApiV3Schema implements the [OpenApiV3Schemaer] interface.
+func (YamlRequest[T]) OpenApiV3Schema() (*openapi3.Schema, error) {
+	var reflector jsonschema.Reflector
+	var t T
+	jsonSchema, err := reflector.Reflect(t)
+	if err != nil {
+		return nil, err
+	}
+	var schemaOrRef openapi3.SchemaOrRef
+	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
+	return schemaOrRef.Schema, nil
+}
+
+// ReadRequest implements the [RequestReader] interface.
+func (req *YamlRequest[T]) ReadRequest(r *http.Request) (err error) {
+	defer close(&err, r.Body)
+
+	var b []byte
+	b, err = io.ReadAll(r.Body)
+	if err != nil {
+		return
+	}
+	err = yaml.Unmarshal(b, &req.inner)
 	return
 }
 

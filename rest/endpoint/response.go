@@ -13,6 +13,7 @@ import (
 
 	"github.com/swaggest/jsonschema-go"
 	"github.com/swaggest/openapi-go/openapi3"
+	"gopkg.in/yaml.v3"
 )
 
 // Response
@@ -120,6 +121,63 @@ func (JsonResponse[T]) OpenApiV3Schema() (*openapi3.Schema, error) {
 // WriteTo implements the [io.WriterTo] interface.
 func (resp *JsonResponse[T]) WriteTo(w io.Writer) (int64, error) {
 	b, err := json.Marshal(resp.inner)
+	if err != nil {
+		return 0, err
+	}
+	return io.Copy(w, bytes.NewReader(b))
+}
+
+// YamlResponseHandler wraps a given [Handler] and handles writing the underlying
+// response type, Resp, to YAML.
+type YamlResponseHandler[Req, Resp any] struct {
+	inner Handler[Req, Resp]
+}
+
+// ProducesYaml constructs a [YamlResponseHandler] from the given [Handler].
+func ProducesYaml[Req, Resp any](h Handler[Req, Resp]) *YamlResponseHandler[Req, Resp] {
+	return &YamlResponseHandler[Req, Resp]{
+		inner: h,
+	}
+}
+
+// Handle implements the [Handler] interface.
+func (h *YamlResponseHandler[Req, Resp]) Handle(ctx context.Context, req *Req) (*YamlResponse[Resp], error) {
+	resp, err := h.inner.Handle(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, ErrNilHandlerResponse
+	}
+	return &YamlResponse[Resp]{inner: resp}, nil
+}
+
+// YamlResponse
+type YamlResponse[T any] struct {
+	inner *T
+}
+
+// ContentType implements the [ContentTyper] interface.
+func (*YamlResponse[T]) ContentType() string {
+	return "application/yaml"
+}
+
+// OpenApiV3Schema implements the [OpenApiV3Schemaer] interface.
+func (YamlResponse[T]) OpenApiV3Schema() (*openapi3.Schema, error) {
+	var reflector jsonschema.Reflector
+	var t T
+	jsonSchema, err := reflector.Reflect(t)
+	if err != nil {
+		return nil, err
+	}
+	var schemaOrRef openapi3.SchemaOrRef
+	schemaOrRef.FromJSONSchema(jsonSchema.ToSchemaOrBool())
+	return schemaOrRef.Schema, nil
+}
+
+// WriteTo implements the [io.WriterTo] interface.
+func (resp *YamlResponse[T]) WriteTo(w io.Writer) (int64, error) {
+	b, err := yaml.Marshal(resp.inner)
 	if err != nil {
 		return 0, err
 	}
