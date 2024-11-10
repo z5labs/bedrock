@@ -6,20 +6,17 @@
 package rest
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"io"
 	"net"
 	"net/http"
 	"strings"
 
+	"github.com/z5labs/bedrock/rest/endpoint"
 	"github.com/z5labs/bedrock/rest/mux"
 
 	"github.com/swaggest/openapi-go/openapi3"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 )
 
 // Option represents configurable attributes of [App].
@@ -46,34 +43,47 @@ func OpenApiEndpoint(method mux.Method, pattern string, f func(*openapi3.Spec) h
 	}
 }
 
-type openApiHandler struct {
-	spec    *openapi3.Spec
-	marshal func(any) ([]byte, error)
+type specHandler struct {
+	spec *openapi3.Spec
 }
 
-func (h openApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	b, err := h.marshal(h.spec)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	_, _ = io.Copy(w, bytes.NewReader(b))
+func (h *specHandler) Handle(ctx context.Context) (*openapi3.Spec, error) {
+	return h.spec, nil
 }
 
 // OpenApiJsonHandler returns an [http.Handler] which will respond with the OpenAPI schema as JSON.
-func OpenApiJsonHandler(spec *openapi3.Spec) http.Handler {
-	return openApiHandler{
-		spec:    spec,
-		marshal: json.Marshal,
+func OpenApiJsonHandler(eh endpoint.ErrorHandler) func(*openapi3.Spec) http.Handler {
+	return func(spec *openapi3.Spec) http.Handler {
+		h := &specHandler{
+			spec: spec,
+		}
+
+		return endpoint.NewOperation(
+			endpoint.ProducesJson(
+				endpoint.ConsumesNothing(
+					h,
+				),
+			),
+			endpoint.OnError(eh),
+		)
 	}
 }
 
 // OpenApiYamlHandler returns an [http.Handler] which will respond with the OpenAPI schema as YAML.
-func OpenApiYamlHandler(spec *openapi3.Spec) http.Handler {
-	return openApiHandler{
-		spec:    spec,
-		marshal: yaml.Marshal,
+func OpenApiYamlHandler(eh endpoint.ErrorHandler) func(*openapi3.Spec) http.Handler {
+	return func(spec *openapi3.Spec) http.Handler {
+		h := &specHandler{
+			spec: spec,
+		}
+
+		return endpoint.NewOperation(
+			endpoint.ProducesYaml(
+				endpoint.ConsumesNothing(
+					h,
+				),
+			),
+			endpoint.OnError(eh),
+		)
 	}
 }
 
@@ -85,24 +95,22 @@ type Operation interface {
 	OpenApi() openapi3.Operation
 }
 
-type endpoint struct {
-	method  mux.Method
-	pattern string
-	op      Operation
+// Endpoint represents all information necessary for registering
+// an [Operation] with a [App].
+type Endpoint struct {
+	Method    mux.Method
+	Pattern   string
+	Operation Operation
 }
 
-// Endpoint registers the [Operation] with both
+// Register registers the [Endpoint] with both
 // the App wide OpenAPI spec and the App wide HTTP server.
 //
 // "/" is always treated as "/{$}" because it would otherwise
 // match too broadly and cause conflicts with other paths.
-func Endpoint(method mux.Method, pattern string, op Operation) Option {
+func Register(e Endpoint) Option {
 	return func(app *App) {
-		app.endpoints = append(app.endpoints, endpoint{
-			method:  method,
-			pattern: pattern,
-			op:      op,
-		})
+		app.endpoints = append(app.endpoints, e)
 	}
 }
 
@@ -147,7 +155,7 @@ type App struct {
 
 	spec      *openapi3.Spec
 	mux       Mux
-	endpoints []endpoint
+	endpoints []Endpoint
 
 	openApiEndpoint func(Mux)
 
@@ -226,7 +234,7 @@ func (app *App) registerEndpoints() error {
 		// This means that when registering the pattern with the OpenAPI spec
 		// the {$} needs to be stripped because OpenAPI will believe it's
 		// an actual path parameter.
-		trimmedPattern := strings.TrimSuffix(e.pattern, "{$}")
+		trimmedPattern := strings.TrimSuffix(e.Pattern, "{$}")
 
 		// Per the net/http.ServeMux docs, https://pkg.go.dev/net/http#ServeMux:
 		//
@@ -236,7 +244,7 @@ func (app *App) registerEndpoints() error {
 		// before registering the OpenAPI operation with the spec.
 		trimmedPattern = strings.ReplaceAll(trimmedPattern, "...", "")
 
-		err := app.spec.AddOperation(string(e.method), trimmedPattern, e.op.OpenApi())
+		err := app.spec.AddOperation(string(e.Method), trimmedPattern, e.Operation.OpenApi())
 		if err != nil {
 			return err
 		}
@@ -244,14 +252,14 @@ func (app *App) registerEndpoints() error {
 		// enforce strict matching for top-level path
 		// otherwise "/" would match too broadly and http.ServeMux
 		// will panic when other paths are registered e.g. /openapi.json
-		if e.pattern == "/" {
-			e.pattern = "/{$}"
+		if e.Pattern == "/" {
+			e.Pattern = "/{$}"
 		}
 
 		app.mux.Handle(
-			e.method,
-			e.pattern,
-			otelhttp.WithRouteTag(trimmedPattern, e.op),
+			e.Method,
+			e.Pattern,
+			otelhttp.WithRouteTag(trimmedPattern, e.Operation),
 		)
 	}
 	return nil
