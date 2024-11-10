@@ -22,7 +22,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 	t.Run("will required path parameter", func(t *testing.T) {
 		t.Run("if a http.ServeMux path parameter pattern is used", func(t *testing.T) {
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				PathParams(PathParam{
 					Name:     "id",
 					Required: true,
@@ -69,7 +69,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				Headers(header),
 			)
 
@@ -113,7 +113,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				Headers(header),
 			)
 
@@ -156,7 +156,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				QueryParams(queryParam),
 			)
 
@@ -200,7 +200,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				QueryParams(queryParam),
 			)
 
@@ -243,8 +243,8 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ConsumesJson(HandlerFunc[jsonContent, Empty](func(_ context.Context, _ *jsonContent) (*Empty, error) {
-					return &Empty{}, nil
+				ConsumesJson(HandlerFunc[jsonContent, EmptyResponse](func(_ context.Context, _ *jsonContent) (*EmptyResponse, error) {
+					return &EmptyResponse{}, nil
 				})),
 			)
 
@@ -306,7 +306,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				ProducesJson(HandlerFunc[Empty, jsonContent](func(_ context.Context, _ *Empty) (*jsonContent, error) {
+				ProducesJson(HandlerFunc[EmptyRequest, jsonContent](func(_ context.Context, _ *EmptyRequest) (*jsonContent, error) {
 					return &jsonContent{}, nil
 				})),
 			)
@@ -368,7 +368,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 	t.Run("will set a empty response body", func(t *testing.T) {
 		t.Run("if the response type does not implement ContentTyper", func(t *testing.T) {
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 			)
 
 			b, err := json.Marshal(e.OpenApi())
@@ -405,7 +405,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			statusCode := http.StatusBadRequest
 
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				Returns(statusCode),
 			)
 
@@ -457,7 +457,7 @@ func TestEndpoint_OpenApi(t *testing.T) {
 			}
 
 			e := NewOperation(
-				noopHandler[Empty, Empty]{},
+				noopHandler[EmptyRequest, EmptyResponse]{},
 				StatusCode(statusCode),
 			)
 

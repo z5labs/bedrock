@@ -26,7 +26,7 @@ func (successValidator) Validate() error {
 func TestConsumesJson(t *testing.T) {
 	t.Run("will return an error while reading", func(t *testing.T) {
 		t.Run("if the request body is not valid json", func(t *testing.T) {
-			h := noopHandler[Empty, Empty]{}
+			h := noopHandler[EmptyRequest, EmptyResponse]{}
 
 			var caughtError error
 			op := NewOperation(
@@ -40,7 +40,7 @@ func TestConsumesJson(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/", strings.NewReader(``))
-			r.Header.Set("Content-Type", JsonRequest[Empty]{}.ContentType())
+			r.Header.Set("Content-Type", JsonRequest[EmptyRequest]{}.ContentType())
 
 			op.ServeHTTP(w, r)
 
@@ -58,7 +58,7 @@ func TestConsumesJson(t *testing.T) {
 
 	t.Run("will return a validation error", func(t *testing.T) {
 		t.Run("if the inner type fails to validate", func(t *testing.T) {
-			h := noopHandler[InvalidRequest, Empty]{}
+			h := noopHandler[InvalidRequest, EmptyResponse]{}
 
 			var caughtError error
 			op := NewOperation(
@@ -89,7 +89,7 @@ func TestConsumesJson(t *testing.T) {
 
 	t.Run("will not return a validation error", func(t *testing.T) {
 		t.Run("if the inner types successfully validates", func(t *testing.T) {
-			h := noopHandler[successValidator, Empty]{}
+			h := noopHandler[successValidator, EmptyResponse]{}
 
 			var caughtError error
 			op := NewOperation(
@@ -119,7 +119,7 @@ func TestConsumesJson(t *testing.T) {
 		t.Run("if the inner type does not implement the Validator interface", func(t *testing.T) {
 			type noop struct{}
 
-			h := noopHandler[noop, Empty]{}
+			h := noopHandler[noop, EmptyResponse]{}
 
 			var caughtError error
 			op := NewOperation(
@@ -151,7 +151,7 @@ func TestConsumesJson(t *testing.T) {
 func TestConsumesYaml(t *testing.T) {
 	t.Run("will return an error while reading", func(t *testing.T) {
 		t.Run("if the request body is not valid yaml", func(t *testing.T) {
-			h := noopHandler[Empty, Empty]{}
+			h := noopHandler[EmptyRequest, EmptyResponse]{}
 
 			var caughtError error
 			op := NewOperation(
@@ -165,7 +165,7 @@ func TestConsumesYaml(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/", strings.NewReader(`hello world`))
-			r.Header.Set("Content-Type", YamlRequest[Empty]{}.ContentType())
+			r.Header.Set("Content-Type", YamlRequest[EmptyRequest]{}.ContentType())
 
 			op.ServeHTTP(w, r)
 
@@ -183,7 +183,7 @@ func TestConsumesYaml(t *testing.T) {
 
 	t.Run("will return a validation error", func(t *testing.T) {
 		t.Run("if the inner type fails to validate", func(t *testing.T) {
-			h := noopHandler[InvalidRequest, Empty]{}
+			h := noopHandler[InvalidRequest, EmptyResponse]{}
 
 			var caughtError error
 			op := NewOperation(
@@ -214,7 +214,7 @@ func TestConsumesYaml(t *testing.T) {
 
 	t.Run("will not return a validation error", func(t *testing.T) {
 		t.Run("if the inner types successfully validates", func(t *testing.T) {
-			h := noopHandler[successValidator, Empty]{}
+			h := noopHandler[successValidator, EmptyResponse]{}
 
 			var caughtError error
 			op := NewOperation(
@@ -244,7 +244,7 @@ func TestConsumesYaml(t *testing.T) {
 		t.Run("if the inner type does not implement the Validator interface", func(t *testing.T) {
 			type noop struct{}
 
-			h := noopHandler[noop, Empty]{}
+			h := noopHandler[noop, EmptyResponse]{}
 
 			var caughtError error
 			op := NewOperation(

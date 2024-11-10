@@ -22,7 +22,7 @@ func TestProducesJson(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
 		t.Run("if the inner handler returns an error", func(t *testing.T) {
 			handleErr := errors.New("failed to handle request")
-			h := HandlerFunc[Empty, Empty](func(ctx context.Context, req *Empty) (*Empty, error) {
+			h := HandlerFunc[EmptyRequest, EmptyResponse](func(ctx context.Context, req *EmptyRequest) (*EmptyResponse, error) {
 				return nil, handleErr
 			})
 
@@ -57,7 +57,7 @@ func TestProducesJson(t *testing.T) {
 				Msg string `json:"msg"`
 			}
 
-			h := HandlerFunc[Empty, echo](func(ctx context.Context, req *Empty) (*echo, error) {
+			h := HandlerFunc[EmptyRequest, echo](func(ctx context.Context, req *EmptyRequest) (*echo, error) {
 				return &echo{Msg: "hello world"}, nil
 			})
 
@@ -106,7 +106,7 @@ func TestProducesYaml(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
 		t.Run("if the inner handler returns an error", func(t *testing.T) {
 			handleErr := errors.New("failed to handle request")
-			h := HandlerFunc[Empty, Empty](func(ctx context.Context, req *Empty) (*Empty, error) {
+			h := HandlerFunc[EmptyRequest, EmptyResponse](func(ctx context.Context, req *EmptyRequest) (*EmptyResponse, error) {
 				return nil, handleErr
 			})
 
@@ -141,7 +141,7 @@ func TestProducesYaml(t *testing.T) {
 				Msg string `yaml:"msg"`
 			}
 
-			h := HandlerFunc[Empty, echo](func(ctx context.Context, req *Empty) (*echo, error) {
+			h := HandlerFunc[EmptyRequest, echo](func(ctx context.Context, req *EmptyRequest) (*echo, error) {
 				return &echo{Msg: "hello world"}, nil
 			})
 
