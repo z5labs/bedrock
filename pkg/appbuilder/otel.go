@@ -18,57 +18,70 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-type otelOptions struct {
-	initPropogator     func(context.Context) (propagation.TextMapPropagator, error)
-	initTracerProvider func(context.Context) (trace.TracerProvider, error)
-	initMeterProvider  func(context.Context) (metric.MeterProvider, error)
-	initLoggerProvider func(context.Context) (log.LoggerProvider, error)
+// TextMapPropagatorInitializer
+type TextMapPropagatorInitializer interface {
+	InitTextMapPropogator(context.Context) (propagation.TextMapPropagator, error)
 }
 
-// OTelOption
-type OTelOption func(*otelOptions)
-
-// OTelTextMapPropogator
-func OTelTextMapPropogator(f func(context.Context) (propagation.TextMapPropagator, error)) OTelOption {
-	return func(oo *otelOptions) {
-		oo.initPropogator = f
-	}
+// TracerProviderInitializer
+type TracerProviderInitializer interface {
+	InitTracerProvider(context.Context) (trace.TracerProvider, error)
 }
 
-// OTelTracerProvider
-func OTelTracerProvider(f func(context.Context) (trace.TracerProvider, error)) OTelOption {
-	return func(oo *otelOptions) {
-		oo.initTracerProvider = f
-	}
+// MeterProviderInitializer
+type MeterProviderInitializer interface {
+	InitMeterProvider(context.Context) (metric.MeterProvider, error)
 }
 
-// OTelMeterProvider
-func OTelMeterProvider(f func(context.Context) (metric.MeterProvider, error)) OTelOption {
-	return func(oo *otelOptions) {
-		oo.initMeterProvider = f
-	}
+// LoggerProviderInitializer
+type LoggerProviderInitializer interface {
+	InitLoggerProvider(context.Context) (log.LoggerProvider, error)
 }
 
-// OTelLoggerProvider
-func OTelLoggerProvider(f func(context.Context) (log.LoggerProvider, error)) OTelOption {
-	return func(oo *otelOptions) {
-		oo.initLoggerProvider = f
-	}
+// OTelInitializer
+type OTelInitializer interface {
+	TextMapPropagatorInitializer
+	TracerProviderInitializer
+	MeterProviderInitializer
+	LoggerProviderInitializer
 }
 
-// WithOTel
-func WithOTel[T any](builder bedrock.AppBuilder[T], opts ...OTelOption) bedrock.AppBuilder[T] {
-	oo := &otelOptions{}
-	for _, opt := range opts {
-		opt(oo)
-	}
-
+// OTel
+func OTel[T OTelInitializer](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[T] {
 	return bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
 		fs := []func(context.Context) error{
-			initTextMapPropogator(oo),
-			initTracerProvider(oo),
-			initMeterProvider(oo),
-			initLoggerProvider(oo),
+			func(ctx context.Context) error {
+				tmp, err := cfg.InitTextMapPropogator(ctx)
+				if err != nil || tmp == nil {
+					return err
+				}
+				otel.SetTextMapPropagator(tmp)
+				return nil
+			},
+			func(ctx context.Context) error {
+				tp, err := cfg.InitTracerProvider(ctx)
+				if err != nil || tp == nil {
+					return err
+				}
+				otel.SetTracerProvider(tp)
+				return nil
+			},
+			func(ctx context.Context) error {
+				mp, err := cfg.InitMeterProvider(ctx)
+				if err != nil || mp == nil {
+					return err
+				}
+				otel.SetMeterProvider(mp)
+				return nil
+			},
+			func(ctx context.Context) error {
+				lp, err := cfg.InitLoggerProvider(ctx)
+				if err != nil || lp == nil {
+					return err
+				}
+				global.SetLoggerProvider(lp)
+				return nil
+			},
 		}
 
 		for _, f := range fs {
@@ -80,68 +93,4 @@ func WithOTel[T any](builder bedrock.AppBuilder[T], opts ...OTelOption) bedrock.
 
 		return builder.Build(ctx, cfg)
 	})
-}
-
-func initTextMapPropogator(oo *otelOptions) func(context.Context) error {
-	return func(ctx context.Context) error {
-		if oo.initPropogator == nil {
-			return nil
-		}
-
-		p, err := oo.initPropogator(ctx)
-		if err != nil {
-			return err
-		}
-
-		otel.SetTextMapPropagator(p)
-		return nil
-	}
-}
-
-func initTracerProvider(oo *otelOptions) func(context.Context) error {
-	return func(ctx context.Context) error {
-		if oo.initTracerProvider == nil {
-			return nil
-		}
-
-		tp, err := oo.initTracerProvider(ctx)
-		if err != nil {
-			return err
-		}
-
-		otel.SetTracerProvider(tp)
-		return nil
-	}
-}
-
-func initMeterProvider(oo *otelOptions) func(context.Context) error {
-	return func(ctx context.Context) error {
-		if oo.initMeterProvider == nil {
-			return nil
-		}
-
-		mp, err := oo.initMeterProvider(ctx)
-		if err != nil {
-			return err
-		}
-
-		otel.SetMeterProvider(mp)
-		return nil
-	}
-}
-
-func initLoggerProvider(oo *otelOptions) func(context.Context) error {
-	return func(ctx context.Context) error {
-		if oo.initLoggerProvider == nil {
-			return nil
-		}
-
-		lp, err := oo.initLoggerProvider(ctx)
-		if err != nil {
-			return err
-		}
-
-		global.SetLoggerProvider(lp)
-		return nil
-	}
 }
