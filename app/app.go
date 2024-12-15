@@ -60,6 +60,27 @@ func (f LifecycleHookFunc) Run(ctx context.Context) error {
 	return f(ctx)
 }
 
+// ComposeLifecycleHooks combines multiple [LifecycleHook]s into a single hook.
+// Each hook is called sequentially and each hook is called irregardless if a
+// previous hook returned an error or not. Any and all errors are then returned
+// after all hooks have been ran.
+func ComposeLifecycleHooks(hooks ...LifecycleHook) LifecycleHook {
+	return LifecycleHookFunc(func(ctx context.Context) error {
+		errs := make([]error, 0, len(hooks))
+		for _, hook := range hooks {
+			err := hook.Run(ctx)
+			if err == nil {
+				continue
+			}
+			errs = append(errs, err)
+		}
+		if len(errs) == 0 {
+			return nil
+		}
+		return errors.Join(errs...)
+	})
+}
+
 // Lifecycle
 type Lifecycle struct {
 	// PostRun is always executed regardless if the underlying [bedrock.App]

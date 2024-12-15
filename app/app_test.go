@@ -165,3 +165,57 @@ func TestWithLifecycleHooks(t *testing.T) {
 		})
 	})
 }
+
+func TestComposeLifecycleHooks(t *testing.T) {
+	t.Run("will return an error", func(t *testing.T) {
+		t.Run("if a single lifecycle hook failed", func(t *testing.T) {
+			errHookFailed := errors.New("failed to run hook")
+
+			hook := ComposeLifecycleHooks(
+				LifecycleHookFunc(func(ctx context.Context) error {
+					return nil
+				}),
+				LifecycleHookFunc(func(ctx context.Context) error {
+					return errHookFailed
+				}),
+				LifecycleHookFunc(func(ctx context.Context) error {
+					return nil
+				}),
+			)
+
+			err := hook.Run(context.Background())
+			if !assert.ErrorIs(t, err, errHookFailed) {
+				return
+			}
+		})
+
+		t.Run("if multiple lifecycle hooks failed", func(t *testing.T) {
+			errHookFailedOne := errors.New("failed to run hook: one")
+			errHookFailedTwo := errors.New("failed to run hook: two")
+			errHookFailedThree := errors.New("failed to run hook: three")
+
+			hook := ComposeLifecycleHooks(
+				LifecycleHookFunc(func(ctx context.Context) error {
+					return errHookFailedOne
+				}),
+				LifecycleHookFunc(func(ctx context.Context) error {
+					return errHookFailedTwo
+				}),
+				LifecycleHookFunc(func(ctx context.Context) error {
+					return errHookFailedThree
+				}),
+			)
+
+			err := hook.Run(context.Background())
+			if !assert.ErrorIs(t, err, errHookFailedOne) {
+				return
+			}
+			if !assert.ErrorIs(t, err, errHookFailedTwo) {
+				return
+			}
+			if !assert.ErrorIs(t, err, errHookFailedThree) {
+				return
+			}
+		})
+	})
+}

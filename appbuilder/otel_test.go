@@ -10,206 +10,193 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/z5labs/bedrock"
-
 	"github.com/stretchr/testify/assert"
-	"go.opentelemetry.io/otel/log"
+	"github.com/z5labs/bedrock"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/log/global"
 	lognoop "go.opentelemetry.io/otel/log/noop"
-	"go.opentelemetry.io/otel/metric"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 )
 
-type config struct {
-	initTextMapPropogator func(context.Context) (propagation.TextMapPropagator, error)
-	initTracerProvider    func(context.Context) (trace.TracerProvider, error)
-	initMeterProvider     func(context.Context) (metric.MeterProvider, error)
-	initLoggerProvider    func(context.Context) (log.LoggerProvider, error)
+type failToInitOTel struct{}
+
+var failedToInitOTelErr = errors.New("failed to init otel")
+
+func (failToInitOTel) InitializeOTel(ctx context.Context) error {
+	return failedToInitOTelErr
 }
 
-func (c config) InitTextMapPropogator(ctx context.Context) (propagation.TextMapPropagator, error) {
-	if c.initTextMapPropogator == nil {
-		return nil, nil
-	}
-	return c.initTextMapPropogator(ctx)
+type noopInitOTel struct{}
+
+func (noopInitOTel) InitializeOTel(ctx context.Context) error {
+	return nil
 }
 
-func (c config) InitTracerProvider(ctx context.Context) (trace.TracerProvider, error) {
-	if c.initTracerProvider == nil {
-		return nil, nil
-	}
-	return c.initTracerProvider(ctx)
+type appFunc func(context.Context) error
+
+func (f appFunc) Run(ctx context.Context) error {
+	return f(ctx)
 }
 
-func (c config) InitMeterProvider(ctx context.Context) (metric.MeterProvider, error) {
-	if c.initMeterProvider == nil {
-		return nil, nil
-	}
-	return c.initMeterProvider(ctx)
+type tracerProvider struct {
+	tracenoop.TracerProvider
+	shutdown func(context.Context) error
 }
 
-func (c config) InitLoggerProvider(ctx context.Context) (log.LoggerProvider, error) {
-	if c.initLoggerProvider == nil {
-		return nil, nil
+func newTracerProvider(shutdown func(context.Context) error) tracerProvider {
+	return tracerProvider{
+		shutdown: shutdown,
 	}
-	return c.initLoggerProvider(ctx)
+}
+
+func (tp tracerProvider) Shutdown(ctx context.Context) error {
+	return tp.shutdown(ctx)
+}
+
+type tracerProviderInitOTel struct{}
+
+var errTracerProviderFailedShutdown = errors.New("failed to shutdown tracer provider")
+
+func (tracerProviderInitOTel) InitializeOTel(ctx context.Context) error {
+	otel.SetTracerProvider(newTracerProvider(func(ctx context.Context) error {
+		return errTracerProviderFailedShutdown
+	}))
+	return nil
+}
+
+type meterProvider struct {
+	metricnoop.MeterProvider
+	shutdown func(context.Context) error
+}
+
+func newMeterProvider(shutdown func(context.Context) error) meterProvider {
+	return meterProvider{
+		shutdown: shutdown,
+	}
+}
+
+func (mp meterProvider) Shutdown(ctx context.Context) error {
+	return mp.shutdown(ctx)
+}
+
+type meterProviderInitOTel struct{}
+
+var errMeterProviderFailedShutdown = errors.New("failed to shutdown meter provider")
+
+func (meterProviderInitOTel) InitializeOTel(ctx context.Context) error {
+	otel.SetMeterProvider(newMeterProvider(func(ctx context.Context) error {
+		return errMeterProviderFailedShutdown
+	}))
+	return nil
+}
+
+type loggerProvider struct {
+	lognoop.LoggerProvider
+	shutdown func(context.Context) error
+}
+
+func newLoggerProvider(shutdown func(context.Context) error) loggerProvider {
+	return loggerProvider{
+		shutdown: shutdown,
+	}
+}
+
+func (mp loggerProvider) Shutdown(ctx context.Context) error {
+	return mp.shutdown(ctx)
+}
+
+type loggerProviderInitOTel struct{}
+
+var errLoggerProviderFailedShutdown = errors.New("failed to shutdown logger provider")
+
+func (loggerProviderInitOTel) InitializeOTel(ctx context.Context) error {
+	global.SetLoggerProvider(newLoggerProvider(func(ctx context.Context) error {
+		return errLoggerProviderFailedShutdown
+	}))
+	return nil
 }
 
 func TestOTel(t *testing.T) {
-	t.Run("will return an error", func(t *testing.T) {
-		t.Run("if the base bedrock.AppBuilder fails to run", func(t *testing.T) {
-			baseErr := errors.New("failed to run")
-			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
-				return nil, baseErr
-			})
+	t.Run("bedrock.AppBuilder will return an error", func(t *testing.T) {
+		t.Run("if InitializeOTel fails", func(t *testing.T) {
+			b := OTel(bedrock.AppBuilderFunc[failToInitOTel](func(ctx context.Context, cfg failToInitOTel) (bedrock.App, error) {
+				return nil, nil
+			}))
 
-			app := OTel(base)
-			_, err := app.Build(context.Background(), config{})
-			if !assert.ErrorIs(t, err, baseErr) {
+			_, err := b.Build(context.Background(), failToInitOTel{})
+			if !assert.ErrorIs(t, err, failedToInitOTelErr) {
 				return
 			}
 		})
 
-		t.Run("if propagation.TextMapPropagator fails to initialize", func(t *testing.T) {
-			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
-				return nil, nil
-			})
+		t.Run("if the given bedrock.AppBuilder fails", func(t *testing.T) {
+			buildErr := errors.New("failed to build")
+			b := OTel(bedrock.AppBuilderFunc[noopInitOTel](func(ctx context.Context, cfg noopInitOTel) (bedrock.App, error) {
+				return nil, buildErr
+			}))
 
-			initErr := errors.New("failed to init")
-			app := OTel(base)
-
-			_, err := app.Build(context.Background(), config{
-				initTextMapPropogator: func(ctx context.Context) (propagation.TextMapPropagator, error) {
-					return nil, initErr
-				},
-			})
-			if !assert.ErrorIs(t, err, initErr) {
-				return
-			}
-		})
-
-		t.Run("if trace.TracerProvider fails to initialize", func(t *testing.T) {
-			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
-				return nil, nil
-			})
-
-			initErr := errors.New("failed to init")
-			app := OTel(base)
-
-			_, err := app.Build(context.Background(), config{
-				initTracerProvider: func(ctx context.Context) (trace.TracerProvider, error) {
-					return nil, initErr
-				},
-			})
-			if !assert.ErrorIs(t, err, initErr) {
-				return
-			}
-		})
-
-		t.Run("if metric.MeterProvider fails to initialize", func(t *testing.T) {
-			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
-				return nil, nil
-			})
-
-			initErr := errors.New("failed to init")
-			app := OTel(base)
-
-			_, err := app.Build(context.Background(), config{
-				initMeterProvider: func(ctx context.Context) (metric.MeterProvider, error) {
-					return nil, initErr
-				},
-			})
-			if !assert.ErrorIs(t, err, initErr) {
-				return
-			}
-		})
-
-		t.Run("if log.LoggerProvider fails to initialize", func(t *testing.T) {
-			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
-				return nil, nil
-			})
-
-			initErr := errors.New("failed to init")
-			app := OTel(base)
-
-			_, err := app.Build(context.Background(), config{
-				initLoggerProvider: func(ctx context.Context) (log.LoggerProvider, error) {
-					return nil, initErr
-				},
-			})
-			if !assert.ErrorIs(t, err, initErr) {
+			_, err := b.Build(context.Background(), noopInitOTel{})
+			if !assert.ErrorIs(t, err, buildErr) {
 				return
 			}
 		})
 	})
 
-	t.Run("will not return an error", func(t *testing.T) {
-		t.Run("if propagation.TextMapPropagator succeeds to initialize", func(t *testing.T) {
-			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
-				return nil, nil
-			})
+	t.Run("the built bedrock.App will return an error", func(t *testing.T) {
+		t.Run("if it fails to shutdown the tracer provider", func(t *testing.T) {
+			b := OTel(bedrock.AppBuilderFunc[tracerProviderInitOTel](func(ctx context.Context, cfg tracerProviderInitOTel) (bedrock.App, error) {
+				a := appFunc(func(ctx context.Context) error {
+					return nil
+				})
+				return a, nil
+			}))
 
-			app := OTel(base)
-
-			_, err := app.Build(context.Background(), config{
-				initTextMapPropogator: func(ctx context.Context) (propagation.TextMapPropagator, error) {
-					return propagation.TraceContext{}, nil
-				},
-			})
+			app, err := b.Build(context.Background(), tracerProviderInitOTel{})
 			if !assert.Nil(t, err) {
+				return
+			}
+
+			err = app.Run(context.Background())
+			if !assert.ErrorIs(t, err, errTracerProviderFailedShutdown) {
 				return
 			}
 		})
 
-		t.Run("if trace.TracerProvider succeeds to initialize", func(t *testing.T) {
-			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
-				return nil, nil
-			})
+		t.Run("if it fails to shutdown the meter provider", func(t *testing.T) {
+			b := OTel(bedrock.AppBuilderFunc[meterProviderInitOTel](func(ctx context.Context, cfg meterProviderInitOTel) (bedrock.App, error) {
+				a := appFunc(func(ctx context.Context) error {
+					return nil
+				})
+				return a, nil
+			}))
 
-			app := OTel(base)
-
-			_, err := app.Build(context.Background(), config{
-				initTracerProvider: func(ctx context.Context) (trace.TracerProvider, error) {
-					return tracenoop.NewTracerProvider(), nil
-				},
-			})
+			app, err := b.Build(context.Background(), meterProviderInitOTel{})
 			if !assert.Nil(t, err) {
+				return
+			}
+
+			err = app.Run(context.Background())
+			if !assert.ErrorIs(t, err, errMeterProviderFailedShutdown) {
 				return
 			}
 		})
 
-		t.Run("if metric.MeterProvider succeeds to initialize", func(t *testing.T) {
-			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
-				return nil, nil
-			})
+		t.Run("if it fails to shutdown the logger provider", func(t *testing.T) {
+			b := OTel(bedrock.AppBuilderFunc[loggerProviderInitOTel](func(ctx context.Context, cfg loggerProviderInitOTel) (bedrock.App, error) {
+				a := appFunc(func(ctx context.Context) error {
+					return nil
+				})
+				return a, nil
+			}))
 
-			app := OTel(base)
-
-			_, err := app.Build(context.Background(), config{
-				initMeterProvider: func(ctx context.Context) (metric.MeterProvider, error) {
-					return metricnoop.NewMeterProvider(), nil
-				},
-			})
+			app, err := b.Build(context.Background(), loggerProviderInitOTel{})
 			if !assert.Nil(t, err) {
 				return
 			}
-		})
 
-		t.Run("if log.LoggerProvider succeeds to initialize", func(t *testing.T) {
-			base := bedrock.AppBuilderFunc[config](func(ctx context.Context, cfg config) (bedrock.App, error) {
-				return nil, nil
-			})
-
-			app := OTel(base)
-
-			_, err := app.Build(context.Background(), config{
-				initLoggerProvider: func(ctx context.Context) (log.LoggerProvider, error) {
-					return lognoop.NewLoggerProvider(), nil
-				},
-			})
-			if !assert.Nil(t, err) {
+			err = app.Run(context.Background())
+			if !assert.ErrorIs(t, err, errMeterProviderFailedShutdown) {
 				return
 			}
 		})
