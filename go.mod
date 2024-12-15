@@ -8,7 +8,7 @@ require (
 	github.com/swaggest/jsonschema-go v0.3.72
 	github.com/swaggest/openapi-go v0.2.54
 	go.opentelemetry.io/contrib/bridges/otelslog v0.8.0
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.57.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.58.0
 	go.opentelemetry.io/otel v1.33.0
 	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.8.0
 	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.32.0
