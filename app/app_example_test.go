@@ -104,3 +104,36 @@ func ExampleWithLifecycleHooks_unrecoveredPanic() {
 
 	// Output: ran post run hook
 }
+
+func ExampleComposeLifecycleHooks() {
+	var app bedrock.App = runFunc(func(ctx context.Context) error {
+		return nil
+	})
+
+	app = WithLifecycleHooks(app, Lifecycle{
+		PostRun: ComposeLifecycleHooks(
+			LifecycleHookFunc(func(ctx context.Context) error {
+				fmt.Println("one")
+				return nil
+			}),
+			LifecycleHookFunc(func(ctx context.Context) error {
+				fmt.Println("two")
+				return nil
+			}),
+			LifecycleHookFunc(func(ctx context.Context) error {
+				fmt.Println("three")
+				return nil
+			}),
+		),
+	})
+
+	err := app.Run(context.Background())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// Output: one
+	// two
+	// three
+}
