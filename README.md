@@ -84,7 +84,7 @@ Below is a tiny and simplistic example of all the core concepts of [bedrock](htt
 
 ```yaml
 logging:
-	min_level: {{env "MIN_LOG_LEVEL"}}
+  min_level: {{env "MIN_LOG_LEVEL"}}
 ```
 
 ### main.go
