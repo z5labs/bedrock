@@ -19,7 +19,7 @@ jobs:
 
         - uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5
           with:
-            go-version: '1.22'
+            go-version: '1.23'
 
         - name: Lint Go Code
           uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v6
@@ -33,19 +33,3 @@ jobs:
 
         - name: Test
           run: go test -race -cover ./...
-
-        - name: Login to GitHub Container Registry
-          uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
-          with:
-            registry: ghcr.io
-            username: ${{ github.actor }}
-            password: ${{ secrets.GITHUB_TOKEN }}
-
-        - name: Build example container images
-          uses: goreleaser/goreleaser-action@9ed2f89a662bf1735a48bc8557fd212fa902bebf # v6
-          with:
-            distribution: goreleaser
-            version: latest
-            args: release --clean
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
