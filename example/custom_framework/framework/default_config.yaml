@@ -1,9 +1,0 @@
-otel:
-  service_name: {{env "SERVICE_NAME"}}
-  service_version: {{env "SERVICE_VERSION"}}
-  otlp:
-    target: {{env "OTLP_ADDR"}}
-
-logging:
-  level: {{env "LOG_LEVEL" | default "INFO"}}
-

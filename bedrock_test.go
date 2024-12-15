@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/z5labs/bedrock/pkg/config"
+	"github.com/z5labs/bedrock/config"
 
 	"github.com/stretchr/testify/assert"
 )
