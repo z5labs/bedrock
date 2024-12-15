@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/z5labs/bedrock/pkg/config"
+	"github.com/z5labs/bedrock/config"
 )
 
 // App represents the entry point for user specific code.

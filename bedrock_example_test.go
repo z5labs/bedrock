@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/z5labs/bedrock/pkg/config"
+	"github.com/z5labs/bedrock/config"
 )
 
 type appFunc func(context.Context) error
