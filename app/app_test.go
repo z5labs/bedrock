@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/z5labs/bedrock/internal/try"
+	"github.com/z5labs/bedrock/lifecycle"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -64,7 +65,7 @@ func TestRecover(t *testing.T) {
 	})
 }
 
-func TestWithSignalNotifications(t *testing.T) {
+func TestInterruptOn(t *testing.T) {
 	t.Run("will propogate context cancellation", func(t *testing.T) {
 		t.Run("if the parent context is cancelled", func(t *testing.T) {
 			app := InterruptOn(runFunc(func(ctx context.Context) error {
@@ -77,6 +78,70 @@ func TestWithSignalNotifications(t *testing.T) {
 
 			err := app.Run(ctx)
 			if !assert.ErrorIs(t, err, context.Canceled) {
+				return
+			}
+		})
+	})
+}
+
+func TestPostRun(t *testing.T) {
+	t.Run("will return a single error", func(t *testing.T) {
+		t.Run("if the underlying App fails but the PostRun hook succeeds", func(t *testing.T) {
+			baseErr := errors.New("failed to run app")
+			base := runFunc(func(ctx context.Context) error {
+				return baseErr
+			})
+
+			hook := lifecycle.HookFunc(func(ctx context.Context) error {
+				return nil
+			})
+
+			app := PostRun(base, hook)
+
+			err := app.Run(context.Background())
+			if !assert.Equal(t, baseErr, err) {
+				return
+			}
+		})
+
+		t.Run("if the PostRun hook fails but the underlying App succeeds", func(t *testing.T) {
+			base := runFunc(func(ctx context.Context) error {
+				return nil
+			})
+
+			hookErr := errors.New("failed to run hook")
+			hook := lifecycle.HookFunc(func(ctx context.Context) error {
+				return hookErr
+			})
+
+			app := PostRun(base, hook)
+
+			err := app.Run(context.Background())
+			if !assert.Equal(t, hookErr, err) {
+				return
+			}
+		})
+	})
+
+	t.Run("will return multiple errors", func(t *testing.T) {
+		t.Run("if the underlying App fails and the PostRun hook fails", func(t *testing.T) {
+			baseErr := errors.New("failed to run app")
+			base := runFunc(func(ctx context.Context) error {
+				return baseErr
+			})
+
+			hookErr := errors.New("failed to run hook")
+			hook := lifecycle.HookFunc(func(ctx context.Context) error {
+				return hookErr
+			})
+
+			app := PostRun(base, hook)
+
+			err := app.Run(context.Background())
+			if !assert.ErrorIs(t, err, baseErr) {
+				return
+			}
+			if !assert.ErrorIs(t, err, hookErr) {
 				return
 			}
 		})

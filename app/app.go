@@ -47,7 +47,10 @@ func InterruptOn(app bedrock.App, signals ...os.Signal) bedrock.App {
 	})
 }
 
-// PostRun
+// PostRun defers the execution of the given [lifecycle.Hook] until
+// after the given [bedrock.App] returns from its Run method. Since
+// the [lifecycle.Hook] execution is deferred it will always execute
+// even if the [bedrock.App.Run] panics.
 func PostRun(app bedrock.App, hook lifecycle.Hook) bedrock.App {
 	return runFunc(func(ctx context.Context) (err error) {
 		defer runPostHook(&err, ctx, hook)
