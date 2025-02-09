@@ -13,6 +13,7 @@ import (
 	"os/signal"
 
 	"github.com/z5labs/bedrock"
+	"github.com/z5labs/bedrock/internal/try"
 )
 
 type runFunc func(context.Context) error
@@ -27,7 +28,7 @@ func (f runFunc) Run(ctx context.Context) error {
 // [PanicError] will be returned instead.
 func Recover(app bedrock.App) bedrock.App {
 	return runFunc(func(ctx context.Context) (err error) {
-		defer bedrock.Recover(&err)
+		defer try.Recover(&err)
 
 		return app.Run(ctx)
 	})
