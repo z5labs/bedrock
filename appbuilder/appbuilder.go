@@ -55,10 +55,6 @@ func LifecycleContext[T any](builder bedrock.AppBuilder[T], lc *lifecycle.Contex
 		base, err := builder.Build(ctx, cfg)
 		if err != nil {
 			hook := lc.PostRun()
-			if hook == nil {
-				return nil, err
-			}
-
 			hookErr := hook.Run(ctx)
 			if hookErr == nil {
 				return nil, err
