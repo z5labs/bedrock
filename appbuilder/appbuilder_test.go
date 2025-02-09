@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/z5labs/bedrock"
+	"github.com/z5labs/bedrock/config"
+	"github.com/z5labs/bedrock/internal/try"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -50,7 +52,7 @@ func TestRecover(t *testing.T) {
 
 			_, err := builder.Build(context.Background(), struct{}{})
 
-			var perr bedrock.PanicError
+			var perr try.PanicError
 			if !assert.ErrorAs(t, err, &perr) {
 				return
 			}
@@ -58,6 +60,32 @@ func TestRecover(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, "hello world", perr.Value) {
+				return
+			}
+		})
+	})
+}
+
+type configSourceFunc func(config.Store) error
+
+func (f configSourceFunc) Apply(store config.Store) error {
+	return f(store)
+}
+
+func TestFromConfig(t *testing.T) {
+	t.Run("will return an error", func(t *testing.T) {
+		t.Run("if the config source fails to apply to the config store", func(t *testing.T) {
+			applyErr := errors.New("failed to apply config")
+			cfgSrc := configSourceFunc(func(s config.Store) error {
+				return applyErr
+			})
+
+			builder := FromConfig(bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
+				return nil, nil
+			}))
+
+			_, err := builder.Build(context.Background(), cfgSrc)
+			if !assert.ErrorIs(t, err, applyErr) {
 				return
 			}
 		})

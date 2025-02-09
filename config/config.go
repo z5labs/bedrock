@@ -29,6 +29,25 @@ type Source interface {
 	Apply(Store) error
 }
 
+type multiSource []Source
+
+func (ms multiSource) Apply(store Store) error {
+	for _, src := range ms {
+		err := src.Apply(store)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MultiSource returns a Source that's the logical concatenation of the
+// provided [Source]s. They're applied sequentially. If any of the [Source]s
+// return a non-nil error, Apply will return that error.
+func MultiSource(srcs ...Source) Source {
+	return multiSource(srcs)
+}
+
 // Manager
 type Manager struct {
 	store Store

@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/z5labs/bedrock/internal/ioutil"
+	"github.com/z5labs/bedrock/internal/try"
 )
 
 // Json represents a Source where its underlying format is JSON.
@@ -41,9 +41,11 @@ func (e InvalidJsonError) Unwrap() error {
 }
 
 // Apply implements the Source interface.
-func (src Json) Apply(store Store) error {
-	b, err := ioutil.ReadAllAndTryClose(src.r)
-	if err != nil && !errors.Is(err, ioutil.CloseError{}) {
+func (src Json) Apply(store Store) (err error) {
+	defer try.Close(&err, src.r)
+
+	b, err := io.ReadAll(src.r)
+	if err != nil && !errors.Is(err, try.CloseError{}) {
 		// We can ignore ioutil.CloseError because we've successfully
 		// read the file contents and closing is just a nice clean up
 		// practice to follow but not mandatory.
