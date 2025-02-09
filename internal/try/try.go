@@ -62,9 +62,13 @@ func Close(err *error, v any) {
 		return
 	}
 
+	ce := CloseError{
+		Cause: cerr,
+	}
+
 	if *err == nil {
-		*err = cerr
+		*err = ce
 		return
 	}
-	*err = errors.Join(*err, cerr)
+	*err = errors.Join(*err, ce)
 }
