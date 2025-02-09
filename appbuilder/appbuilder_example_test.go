@@ -7,7 +7,6 @@ package appbuilder
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/z5labs/bedrock"
@@ -22,33 +21,6 @@ func ExampleRecover() {
 	})
 
 	_, err := Recover(builder).Build(context.Background(), MyConfig{})
-
-	var perr bedrock.PanicError
-	if !errors.As(err, &perr) {
-		fmt.Println("should be a panic error.")
-		return
-	}
-
-	fmt.Println(perr.Value)
-	// Output: hello world
-}
-
-func ExampleRecover_errorValue() {
-	type MyConfig struct{}
-
-	builder := bedrock.AppBuilderFunc[MyConfig](func(ctx context.Context, cfg MyConfig) (bedrock.App, error) {
-		panic(errors.New("hello world"))
-		return nil, nil
-	})
-
-	_, err := Recover(builder).Build(context.Background(), MyConfig{})
-
-	var perr bedrock.PanicError
-	if !errors.As(err, &perr) {
-		fmt.Println("should be a panic error.")
-		return
-	}
-
-	fmt.Println(perr.Unwrap())
-	// Output: hello world
+	fmt.Println(err)
+	// Output: recovered from panic: hello world
 }

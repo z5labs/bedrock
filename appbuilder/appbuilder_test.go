@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/z5labs/bedrock"
+	"github.com/z5labs/bedrock/internal/try"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -50,7 +51,7 @@ func TestRecover(t *testing.T) {
 
 			_, err := builder.Build(context.Background(), struct{}{})
 
-			var perr bedrock.PanicError
+			var perr try.PanicError
 			if !assert.ErrorAs(t, err, &perr) {
 				return
 			}
