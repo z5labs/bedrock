@@ -53,7 +53,21 @@ func MultiHook(hooks ...Hook) Hook {
 // Context allows users to set actions which should be performed relative
 // to the [bedrock.App.Run] execution.
 type Context struct {
-	PostRun Hook
+	postRuns multiHook
+}
+
+// PostRun returns the [Hook] which is meant to be executed after
+// a [bedrock.App] Run method returns.
+func (c *Context) PostRun() Hook {
+	return c.postRuns
+}
+
+// OnPostRun registers the given [Hook] to be executed after a [bedrock.App]
+// Run method returns. This can be called multiple times to register
+// multiple [Hook]s and they will all be composed together into a single
+// [Hook] which is returned by [Context.PostRun].
+func (c *Context) OnPostRun(hook Hook) {
+	c.postRuns = append(c.postRuns, hook)
 }
 
 type key struct{}

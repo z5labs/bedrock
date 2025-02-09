@@ -84,12 +84,13 @@ func ExampleMultiHook_multipleErrors() {
 }
 
 func ExampleContext() {
-	ctx := NewContext(context.Background(), &Context{
-		PostRun: HookFunc(func(ctx context.Context) error {
-			fmt.Println("post run")
-			return nil
-		}),
-	})
+	var lc Context
+	lc.OnPostRun(HookFunc(func(ctx context.Context) error {
+		fmt.Println("post run")
+		return nil
+	}))
+
+	ctx := NewContext(context.Background(), &lc)
 
 	c, ok := FromContext(ctx)
 	if !ok {
@@ -97,7 +98,7 @@ func ExampleContext() {
 		return
 	}
 
-	err := c.PostRun.Run(context.Background())
+	err := c.PostRun().Run(context.Background())
 	if err != nil {
 		fmt.Println(err)
 		return
