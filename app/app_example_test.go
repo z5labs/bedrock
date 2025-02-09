@@ -8,6 +8,8 @@ package app
 import (
 	"context"
 	"fmt"
+
+	"github.com/z5labs/bedrock/lifecycle"
 )
 
 func ExampleRecover() {
@@ -20,4 +22,23 @@ func ExampleRecover() {
 
 	fmt.Println(err)
 	// Output: recovered from panic: hello world
+}
+
+func ExamplePostRun() {
+	app := runFunc(func(ctx context.Context) error {
+		return nil
+	})
+
+	hook := lifecycle.HookFunc(func(ctx context.Context) error {
+		fmt.Println("hook ran")
+		return nil
+	})
+
+	err := PostRun(app, hook).Run(context.Background())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// Output: hook ran
 }
