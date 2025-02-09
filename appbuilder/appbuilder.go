@@ -9,8 +9,10 @@ import (
 	"context"
 
 	"github.com/z5labs/bedrock"
+	"github.com/z5labs/bedrock/app"
 	"github.com/z5labs/bedrock/config"
 	"github.com/z5labs/bedrock/internal/try"
+	"github.com/z5labs/bedrock/lifecycle"
 )
 
 // Recover will wrap the given [bedrock.AppBuilder] with panic recovery.
@@ -38,5 +40,19 @@ func FromConfig[T any](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[config.
 		}
 
 		return builder.Build(ctx, cfg)
+	})
+}
+
+// LifecycleContext
+func LifecycleContext[T any](builder bedrock.AppBuilder[T], lc *lifecycle.Context) bedrock.AppBuilder[T] {
+	return bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
+		ctx = lifecycle.NewContext(ctx, lc)
+		base, err := builder.Build(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+
+		base = app.PostRun(base, lc.PostRun)
+		return base, nil
 	})
 }
