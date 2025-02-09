@@ -14,6 +14,7 @@ import (
 
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/internal/try"
+	"github.com/z5labs/bedrock/lifecycle"
 )
 
 type runFunc func(context.Context) error
@@ -34,10 +35,10 @@ func Recover(app bedrock.App) bedrock.App {
 	})
 }
 
-// WithSignalNotifications wraps a given [bedrock.App] in an implementation
+// InterruptOn wraps a given [bedrock.App] in an implementation
 // that cancels the [context.Context] that's passed to app.Run if an [os.Signal]
 // is received by the running process.
-func WithSignalNotifications(app bedrock.App, signals ...os.Signal) bedrock.App {
+func InterruptOn(app bedrock.App, signals ...os.Signal) bedrock.App {
 	return runFunc(func(ctx context.Context) error {
 		sigCtx, cancel := signal.NotifyContext(ctx, signals...)
 		defer cancel()
@@ -46,68 +47,25 @@ func WithSignalNotifications(app bedrock.App, signals ...os.Signal) bedrock.App 
 	})
 }
 
-// LifecycleHook represents functionality that needs to be performed
-// at a specific "time" relative to the execution of [bedrock.App.Run].
-type LifecycleHook interface {
-	Run(context.Context) error
-}
-
-// LifecycleHookFunc is a convenient helper type for implementing a [LifecycleHook]
-// from just a regular func.
-type LifecycleHookFunc func(context.Context) error
-
-// Run implements the [LifecycleHook] interface.
-func (f LifecycleHookFunc) Run(ctx context.Context) error {
-	return f(ctx)
-}
-
-// ComposeLifecycleHooks combines multiple [LifecycleHook]s into a single hook.
-// Each hook is called sequentially and each hook is called irregardless if a
-// previous hook returned an error or not. Any and all errors are then returned
-// after all hooks have been ran.
-func ComposeLifecycleHooks(hooks ...LifecycleHook) LifecycleHook {
-	return LifecycleHookFunc(func(ctx context.Context) error {
-		errs := make([]error, 0, len(hooks))
-		for _, hook := range hooks {
-			err := hook.Run(ctx)
-			if err == nil {
-				continue
-			}
-			errs = append(errs, err)
-		}
-		if len(errs) == 0 {
-			return nil
-		}
-		return errors.Join(errs...)
-	})
-}
-
-// Lifecycle
-type Lifecycle struct {
-	// PostRun is always executed regardless if the underlying [bedrock.App]
-	// returns an error or panics.
-	PostRun LifecycleHook
-}
-
-// WithLifecycleHooks wraps a given [bedrock.App] in an implementation
-// that runs [LifecycleHook]s around the execution of app.Run.
-func WithLifecycleHooks(app bedrock.App, lifecycle Lifecycle) bedrock.App {
+// PostRun defers the execution of the given [lifecycle.Hook] until
+// after the given [bedrock.App] returns from its Run method. Since
+// the [lifecycle.Hook] execution is deferred it will always execute
+// even if the [bedrock.App.Run] panics.
+func PostRun(app bedrock.App, hook lifecycle.Hook) bedrock.App {
 	return runFunc(func(ctx context.Context) (err error) {
-		// Always run PostRun hook regardless if app returns an error or panics.
-		defer runPostRunHook(ctx, lifecycle.PostRun, &err)
-
+		defer runPostHook(&err, ctx, hook)
 		return app.Run(ctx)
 	})
 }
 
-func runPostRunHook(ctx context.Context, hook LifecycleHook, err *error) {
-	if hook == nil {
+func runPostHook(err *error, ctx context.Context, hook lifecycle.Hook) {
+	hookErr := hook.Run(ctx)
+	if hookErr == nil {
 		return
 	}
-
-	hookErr := hook.Run(ctx)
-
-	// errors.Join will not return an error if both
-	// *err and hookErr are nil.
+	if *err == nil {
+		*err = hookErr
+		return
+	}
 	*err = errors.Join(*err, hookErr)
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/app"
+	"github.com/z5labs/bedrock/lifecycle"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/log/global"
 )
@@ -34,13 +35,19 @@ func OTel[T OTelInitializer](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[T
 			return nil, err
 		}
 
-		base = app.WithLifecycleHooks(base, app.Lifecycle{
-			PostRun: app.ComposeLifecycleHooks(
-				tryShutdown(otel.GetTracerProvider()),
-				tryShutdown(otel.GetMeterProvider()),
-				tryShutdown(global.GetLoggerProvider()),
-			),
-		})
+		onPostRun := lifecycle.MultiHook(
+			tryShutdown(otel.GetTracerProvider()),
+			tryShutdown(otel.GetMeterProvider()),
+			tryShutdown(global.GetLoggerProvider()),
+		)
+
+		lc, ok := lifecycle.FromContext(ctx)
+		if !ok {
+			base = app.PostRun(base, onPostRun)
+			return base, nil
+		}
+
+		lc.OnPostRun(onPostRun)
 		return base, nil
 	})
 }
@@ -49,7 +56,7 @@ type shutdowner interface {
 	Shutdown(context.Context) error
 }
 
-func tryShutdown(v any) app.LifecycleHookFunc {
+func tryShutdown(v any) lifecycle.HookFunc {
 	return func(ctx context.Context) error {
 		if v == nil {
 			return nil
