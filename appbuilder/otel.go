@@ -47,7 +47,7 @@ func OTel[T OTelInitializer](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[T
 			return base, nil
 		}
 
-		lc.PostRun = lifecycle.MultiHook(lc.PostRun, onPostRun)
+		lc.OnPostRun(onPostRun)
 		return base, nil
 	})
 }
