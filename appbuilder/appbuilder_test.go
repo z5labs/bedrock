@@ -13,6 +13,7 @@ import (
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/config"
 	"github.com/z5labs/bedrock/internal/try"
+	"github.com/z5labs/bedrock/lifecycle"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -86,6 +87,70 @@ func TestFromConfig(t *testing.T) {
 
 			_, err := builder.Build(context.Background(), cfgSrc)
 			if !assert.ErrorIs(t, err, applyErr) {
+				return
+			}
+		})
+	})
+}
+
+func TestLifecycleContext(t *testing.T) {
+	t.Run("will return a single error", func(t *testing.T) {
+		t.Run("if the given AppBuilder fails to build and no post run hook is registered", func(t *testing.T) {
+			buildErr := errors.New("build failed")
+			builder := bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
+				return nil, buildErr
+			})
+
+			_, err := LifecycleContext(builder, &lifecycle.Context{}).Build(context.Background(), struct{}{})
+			if !assert.Equal(t, err, buildErr) {
+				return
+			}
+		})
+
+		t.Run("if the given AppBuilder fails to build and the post run hook succeeds", func(t *testing.T) {
+			buildErr := errors.New("build failed")
+			builder := bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
+				lc, ok := lifecycle.FromContext(ctx)
+				if !ok {
+					return nil, errors.New("expected lifecycle context in build context")
+				}
+
+				lc.OnPostRun(lifecycle.HookFunc(func(ctx context.Context) error {
+					return nil
+				}))
+
+				return nil, buildErr
+			})
+
+			_, err := LifecycleContext(builder, &lifecycle.Context{}).Build(context.Background(), struct{}{})
+			if !assert.Equal(t, err, buildErr) {
+				return
+			}
+		})
+	})
+
+	t.Run("will return multiple errors", func(t *testing.T) {
+		t.Run("if the given AppBuilder fails to build and the post run hook fails", func(t *testing.T) {
+			buildErr := errors.New("build failed")
+			hookErr := errors.New("hook failed")
+			builder := bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
+				lc, ok := lifecycle.FromContext(ctx)
+				if !ok {
+					return nil, errors.New("expected lifecycle context in build context")
+				}
+
+				lc.OnPostRun(lifecycle.HookFunc(func(ctx context.Context) error {
+					return hookErr
+				}))
+
+				return nil, buildErr
+			})
+
+			_, err := LifecycleContext(builder, &lifecycle.Context{}).Build(context.Background(), struct{}{})
+			if !assert.ErrorIs(t, err, buildErr) {
+				return
+			}
+			if !assert.ErrorIs(t, err, hookErr) {
 				return
 			}
 		})
