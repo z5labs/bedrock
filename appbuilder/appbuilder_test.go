@@ -20,6 +20,20 @@ import (
 
 func TestRecover(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
+		t.Run("if the build context was cancelled before starting to build", func(t *testing.T) {
+			builder := bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
+				return nil, nil
+			})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			_, err := Recover(builder).Build(ctx, struct{}{})
+			if !assert.ErrorIs(t, err, context.Canceled) {
+				return
+			}
+		})
+
 		t.Run("if the underlying App returns an error", func(t *testing.T) {
 			buildErr := errors.New("failed to build")
 			builder := Recover(bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
@@ -75,6 +89,20 @@ func (f configSourceFunc) Apply(store config.Store) error {
 
 func TestFromConfig(t *testing.T) {
 	t.Run("will return an error", func(t *testing.T) {
+		t.Run("if the build context was cancelled before starting to build", func(t *testing.T) {
+			builder := bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
+				return nil, nil
+			})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			_, err := FromConfig(builder).Build(ctx, nil)
+			if !assert.ErrorIs(t, err, context.Canceled) {
+				return
+			}
+		})
+
 		t.Run("if the config source fails to apply to the config store", func(t *testing.T) {
 			applyErr := errors.New("failed to apply config")
 			cfgSrc := configSourceFunc(func(s config.Store) error {
@@ -95,6 +123,20 @@ func TestFromConfig(t *testing.T) {
 
 func TestLifecycleContext(t *testing.T) {
 	t.Run("will return a single error", func(t *testing.T) {
+		t.Run("if the build context was cancelled before starting to build", func(t *testing.T) {
+			builder := bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
+				return nil, nil
+			})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			_, err := LifecycleContext(builder, &lifecycle.Context{}).Build(ctx, struct{}{})
+			if !assert.ErrorIs(t, err, context.Canceled) {
+				return
+			}
+		})
+
 		t.Run("if the given AppBuilder fails to build and no post run hook is registered", func(t *testing.T) {
 			buildErr := errors.New("build failed")
 			builder := bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
@@ -151,6 +193,25 @@ func TestLifecycleContext(t *testing.T) {
 				return
 			}
 			if !assert.ErrorIs(t, err, hookErr) {
+				return
+			}
+		})
+	})
+}
+
+func TestInterruptOn(t *testing.T) {
+	t.Run("will propogate context cancellation", func(t *testing.T) {
+		t.Run("if the parent context is cancelled", func(t *testing.T) {
+			builder := InterruptOn(bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, _ struct{}) (bedrock.App, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}))
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			_, err := builder.Build(ctx, struct{}{})
+			if !assert.ErrorIs(t, err, context.Canceled) {
 				return
 			}
 		})

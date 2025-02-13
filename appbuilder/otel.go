@@ -7,6 +7,7 @@ package appbuilder
 
 import (
 	"context"
+	"errors"
 
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/app"
@@ -25,12 +26,11 @@ type OTelInitializer interface {
 // stops running.
 func OTel[T OTelInitializer](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[T] {
 	return bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
-		err := cfg.InitializeOTel(ctx)
-		if err != nil {
-			return nil, err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
 
-		base, err := builder.Build(ctx, cfg)
+		err := cfg.InitializeOTel(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -40,6 +40,15 @@ func OTel[T OTelInitializer](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[T
 			tryShutdown(otel.GetMeterProvider()),
 			tryShutdown(global.GetLoggerProvider()),
 		)
+
+		base, err := builder.Build(ctx, cfg)
+		if err != nil {
+			shutdownErr := onPostRun.Run(ctx)
+			if shutdownErr == nil {
+				return nil, err
+			}
+			return nil, errors.Join(err, shutdownErr)
+		}
 
 		lc, ok := lifecycle.FromContext(ctx)
 		if !ok {
