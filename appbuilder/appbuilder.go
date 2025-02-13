@@ -8,6 +8,8 @@ package appbuilder
 import (
 	"context"
 	"errors"
+	"os"
+	"os/signal"
 
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/app"
@@ -20,6 +22,9 @@ import (
 func Recover[T any](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[T] {
 	return bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (_ bedrock.App, err error) {
 		defer try.Recover(&err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 
 		return builder.Build(ctx, cfg)
 	})
@@ -29,6 +34,10 @@ func Recover[T any](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[T] {
 // the given [bedrock.AppBuilder]s input type, T, from a [config.Source].
 func FromConfig[T any](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[config.Source] {
 	return bedrock.AppBuilderFunc[config.Source](func(ctx context.Context, src config.Source) (bedrock.App, error) {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		m, err := config.Read(src)
 		if err != nil {
 			return nil, err
@@ -51,6 +60,10 @@ func FromConfig[T any](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[config.
 // [bedrock.AppBuilder] fails.
 func LifecycleContext[T any](builder bedrock.AppBuilder[T], lc *lifecycle.Context) bedrock.AppBuilder[T] {
 	return bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		ctx = lifecycle.NewContext(ctx, lc)
 		base, err := builder.Build(ctx, cfg)
 		if err != nil {
@@ -64,5 +77,20 @@ func LifecycleContext[T any](builder bedrock.AppBuilder[T], lc *lifecycle.Contex
 
 		base = app.PostRun(base, lc.PostRun())
 		return base, nil
+	})
+}
+
+// InterruptOn wraps a given [bedrock.AppBuilder] in an implementation
+// that cancels the [context.Context] that's passed to builder.Build if an [os.Signal]
+// is received by the running process. Once builder.Build completes the [os.Signal]
+// listening is stopped. Thus, this middleware only applies to the given builder and does
+// not wrap the returned [bedrock.App] with signal cancellation. For [bedrock.App] signal
+// cancellation, please use the [app.InterruptOn] middleware.
+func InterruptOn[T any](builder bedrock.AppBuilder[T], signals ...os.Signal) bedrock.AppBuilder[T] {
+	return bedrock.AppBuilderFunc[T](func(ctx context.Context, cfg T) (bedrock.App, error) {
+		sigCtx, stop := signal.NotifyContext(ctx, signals...)
+		defer stop()
+
+		return builder.Build(sigCtx, cfg)
 	})
 }
