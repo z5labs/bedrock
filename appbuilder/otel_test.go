@@ -119,6 +119,20 @@ func (loggerProviderInitOTel) InitializeOTel(ctx context.Context) error {
 
 func TestOTel(t *testing.T) {
 	t.Run("bedrock.AppBuilder will return an error", func(t *testing.T) {
+		t.Run("if the build context was cancelled before starting to build", func(t *testing.T) {
+			builder := bedrock.AppBuilderFunc[noopInitOTel](func(ctx context.Context, cfg noopInitOTel) (bedrock.App, error) {
+				return nil, nil
+			})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			_, err := OTel(builder).Build(ctx, noopInitOTel{})
+			if !assert.ErrorIs(t, err, context.Canceled) {
+				return
+			}
+		})
+
 		t.Run("if InitializeOTel fails", func(t *testing.T) {
 			b := OTel(bedrock.AppBuilderFunc[failToInitOTel](func(ctx context.Context, cfg failToInitOTel) (bedrock.App, error) {
 				return nil, nil
@@ -138,6 +152,21 @@ func TestOTel(t *testing.T) {
 
 			_, err := b.Build(context.Background(), noopInitOTel{})
 			if !assert.ErrorIs(t, err, buildErr) {
+				return
+			}
+		})
+
+		t.Run("if the given bedrock.AppBuilder fails and it fails to shutdown the otel providers", func(t *testing.T) {
+			buildErr := errors.New("failed to build")
+			b := OTel(bedrock.AppBuilderFunc[tracerProviderInitOTel](func(ctx context.Context, cfg tracerProviderInitOTel) (bedrock.App, error) {
+				return nil, buildErr
+			}))
+
+			_, err := b.Build(context.Background(), tracerProviderInitOTel{})
+			if !assert.ErrorIs(t, err, buildErr) {
+				return
+			}
+			if !assert.ErrorIs(t, err, errTracerProviderFailedShutdown) {
 				return
 			}
 		})
