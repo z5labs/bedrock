@@ -5,7 +5,7 @@ go 1.23.0
 require (
 	github.com/go-viper/mapstructure/v2 v2.2.1
 	github.com/stretchr/testify v1.10.0
-	go.opentelemetry.io/contrib/bridges/otelslog v0.9.0
+	go.opentelemetry.io/contrib/bridges/otelslog v0.10.0
 	go.opentelemetry.io/otel v1.35.0
 	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.11.0
 	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.35.0
