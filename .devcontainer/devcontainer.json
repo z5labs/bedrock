@@ -1,0 +1,16 @@
+{
+    "name": "bedrock",
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+        "ghcr.io/devcontainers/features/go:1": {
+            "version": "1.24"
+        }
+    },
+    "containerEnv": {
+        "HOME": "/home/vscode"
+    },
+    "runArgs": [
+        "--userns=keep-id",
+        "--security-opt=label=disable"
+    ]
+}
