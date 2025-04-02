@@ -26,7 +26,6 @@ jobs:
           with:
             version: latest
             skip-cache: false
-            args: --timeout 3m --verbose --print-issued-lines=true --skip-dirs example --skip-files ".*_test.go"
 
         - name: Build
           run: go build ./...

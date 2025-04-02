@@ -6,6 +6,21 @@
             "version": "1.24"
         }
     },
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "go.lintTool": "golangci-lint",
+                "go.formatTool": "custom",
+                "go.alternateTools": {
+                    "customFormatter": "golangci-lint"
+                },
+                "go.formatFlags": [
+                    "fmt",
+                    "--stdin"
+                ]
+            }
+        }
+    },
     "containerEnv": {
         "HOME": "/home/vscode"
     },
