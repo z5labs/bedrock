@@ -12,5 +12,9 @@
             "matchDepTypes": ["indirect"],
             "enabled": true
         }
+    ],
+    "postUpdateOptions": [
+        "gomodTidy",
+        "gomodUpdateImportPaths"
     ]
 }
