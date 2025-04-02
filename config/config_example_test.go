@@ -205,7 +205,7 @@ func ExampleRead_textTemplateRenderer() {
 	// Output: bob
 }
 
-func ExampleRead_textTemplateRenderer_CustomDelims() {
+func ExampleRead_textTemplateRenderer_customDelims() {
 	r := strings.NewReader(`hello: (( myName ))`)
 	ttr := RenderTextTemplate(
 		r,
