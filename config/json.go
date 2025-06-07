@@ -7,11 +7,10 @@ package config
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 
-	"github.com/z5labs/bedrock/internal/try"
+	"github.com/z5labs/sdk-go/try"
 )
 
 // Json represents a Source where its underlying format is JSON.
@@ -42,13 +41,11 @@ func (e InvalidJsonError) Unwrap() error {
 
 // Apply implements the Source interface.
 func (src Json) Apply(store Store) (err error) {
-	defer try.Close(&err, src.r)
+	c, _ := src.r.(io.Closer)
+	defer try.Close(&err, c)
 
 	b, err := io.ReadAll(src.r)
-	if err != nil && !errors.Is(err, try.CloseError{}) {
-		// We can ignore ioutil.CloseError because we've successfully
-		// read the file contents and closing is just a nice clean up
-		// practice to follow but not mandatory.
+	if err != nil {
 		return err
 	}
 

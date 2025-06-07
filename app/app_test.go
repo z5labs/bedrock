@@ -10,10 +10,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/z5labs/bedrock/internal/try"
 	"github.com/z5labs/bedrock/lifecycle"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/z5labs/sdk-go/try"
 )
 
 func TestRecover(t *testing.T) {

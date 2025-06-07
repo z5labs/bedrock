@@ -7,14 +7,13 @@ package config
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"text/template"
 
-	"github.com/z5labs/bedrock/internal/try"
+	"github.com/z5labs/sdk-go/try"
 )
 
 // RenderTextTemplateOption represents options for configuring the TextTemplateRenderer.
@@ -97,14 +96,12 @@ func (e TextTemplateExecError) Unwrap() error {
 func (ttr *TextTemplateRenderer) Read(b []byte) (int, error) {
 	var err error
 	ttr.renderOnce.Do(func() {
-		defer try.Close(&err, ttr.r)
+		c, _ := ttr.r.(io.Closer)
+		defer try.Close(&err, c)
 
 		var sb strings.Builder
 		_, err = io.Copy(&sb, ttr.r)
-		if err != nil && !errors.Is(err, try.CloseError{}) {
-			// We can ignore ioutil.CloseError because we've successfully
-			// read the file contents and closing is just a nice clean up
-			// practice to follow but not mandatory.
+		if err != nil {
 			return
 		}
 
