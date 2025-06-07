@@ -13,8 +13,9 @@ import (
 	"os/signal"
 
 	"github.com/z5labs/bedrock"
-	"github.com/z5labs/bedrock/internal/try"
 	"github.com/z5labs/bedrock/lifecycle"
+
+	"github.com/z5labs/sdk-go/try"
 )
 
 type runFunc func(context.Context) error
