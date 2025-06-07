@@ -14,8 +14,9 @@ import (
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/app"
 	"github.com/z5labs/bedrock/config"
-	"github.com/z5labs/bedrock/internal/try"
 	"github.com/z5labs/bedrock/lifecycle"
+
+	"github.com/z5labs/sdk-go/try"
 )
 
 // Recover will wrap the given [bedrock.AppBuilder] with panic recovery.
