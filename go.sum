@@ -21,8 +21,8 @@ github.com/rogpeppe/go-internal v1.13.1 h1:KvO1DLK/DRN07sQ1LQKScxyZJuNnedQ5/wKSR
 github.com/rogpeppe/go-internal v1.13.1/go.mod h1:uMEvuHeurkdAXX61udpOXGD/AzZDWNMNyH2VO9fmH0o=
 github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOfJA=
 github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
-github.com/z5labs/sdk-go v0.1.0 h1:LgT/2B5QRcEM6aLF/c5SzAltuo3anpPL+7n1seTpe4s=
-github.com/z5labs/sdk-go v0.1.0/go.mod h1:WoxIKqKic8TeqSWUqDM4fjf6IkpBjPjF+aUhqSxWADY=
+github.com/z5labs/sdk-go v0.2.0 h1:mAkp64/6EMiu2fB4tcwd1p5lFNTLW/crI0nxWWXe53I=
+github.com/z5labs/sdk-go v0.2.0/go.mod h1:ycKynder4tJl3TkkeQHpI4yvogt0eQLwFWXlWALNptY=
 go.opentelemetry.io/auto/sdk v1.1.0 h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA=
 go.opentelemetry.io/auto/sdk v1.1.0/go.mod h1:3wSPjt5PWp2RhlCcmmOial7AvC4DQqZb7a7wCow3W8A=
 go.opentelemetry.io/contrib/bridges/otelslog v0.11.0 h1:EMIiYTms4Z4m3bBuKp1VmMNRLZcl6j4YbvOPL1IhlWo=
