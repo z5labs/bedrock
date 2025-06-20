@@ -1,11 +1,11 @@
 module github.com/z5labs/bedrock
 
-go 1.24.4
+go 1.24.0
 
 require (
 	github.com/go-viper/mapstructure/v2 v2.2.1
 	github.com/stretchr/testify v1.10.0
-	github.com/z5labs/sdk-go v0.1.0
+	github.com/z5labs/sdk-go v0.2.0
 	go.opentelemetry.io/contrib/bridges/otelslog v0.11.0
 	go.opentelemetry.io/otel v1.36.0
 	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.12.2
