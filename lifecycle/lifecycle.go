@@ -9,6 +9,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"io"
 )
 
 // Hook represents functionality that needs to be performed
@@ -83,4 +84,22 @@ func NewContext(parent context.Context, c *Context) context.Context {
 func FromContext(ctx context.Context) (*Context, bool) {
 	lc, ok := ctx.Value(contextKey).(*Context)
 	return lc, ok
+}
+
+// CloserHook wraps the given [io.Closer] into a [Hook].
+func CloserHook(c io.Closer) Hook {
+	return HookFunc(func(ctx context.Context) error {
+		return c.Close()
+	})
+}
+
+// TryCloseOnPostRun will try to extract a [Context] from the given [context.Context]
+// and register the [io.Closer] to be closed on post run.
+func TryCloseOnPostRun(ctx context.Context, c io.Closer) {
+	lc, ok := FromContext(ctx)
+	if !ok {
+		return
+	}
+
+	lc.OnPostRun(CloserHook(c))
 }

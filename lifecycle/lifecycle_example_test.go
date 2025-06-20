@@ -106,3 +106,28 @@ func ExampleContext() {
 
 	// Output: post run
 }
+
+type closeFunc func() error
+
+func (f closeFunc) Close() error {
+	return f()
+}
+
+func ExampleTryCloseOnPostRun() {
+	var lc Context
+
+	ctx := NewContext(context.Background(), &lc)
+
+	TryCloseOnPostRun(ctx, closeFunc(func() error {
+		fmt.Println("closed")
+		return nil
+	}))
+
+	err := lc.PostRun().Run(context.Background())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// Output: closed
+}
