@@ -3,13 +3,23 @@
         "config:best-practices"
     ],
     "osvVulnerabilityAlerts": true,
-    "schedule": ["before 4am"],
-    "baseBranches": ["main"],
-    "labels": ["dependencies"],
+    "schedule": [
+        "before 4am"
+    ],
+    "baseBranchPatterns": [
+        "main"
+    ],
+    "labels": [
+        "dependencies"
+    ],
     "packageRules": [
         {
-            "matchManagers": ["gomod"],
-            "matchDepTypes": ["indirect"],
+            "matchManagers": [
+                "gomod"
+            ],
+            "matchDepTypes": [
+                "indirect"
+            ],
             "enabled": true
         }
     ],
