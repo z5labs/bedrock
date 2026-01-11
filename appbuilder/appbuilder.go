@@ -13,7 +13,6 @@ import (
 
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/app"
-	"github.com/z5labs/bedrock/config"
 	"github.com/z5labs/bedrock/lifecycle"
 
 	"github.com/z5labs/sdk-go/try"
@@ -25,29 +24,6 @@ func Recover[T any](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[T] {
 		defer try.Recover(&err)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
-		}
-
-		return builder.Build(ctx, cfg)
-	})
-}
-
-// FromConfig returns a [bedrock.AppBuilder] which unmarshals
-// the given [bedrock.AppBuilder]s input type, T, from a [config.Source].
-func FromConfig[T any](builder bedrock.AppBuilder[T]) bedrock.AppBuilder[config.Source] {
-	return bedrock.AppBuilderFunc[config.Source](func(ctx context.Context, src config.Source) (bedrock.App, error) {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		m, err := config.Read(src)
-		if err != nil {
-			return nil, err
-		}
-
-		var cfg T
-		err = m.Unmarshal(&cfg)
-		if err != nil {
-			return nil, err
 		}
 
 		return builder.Build(ctx, cfg)

@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/z5labs/bedrock"
-	"github.com/z5labs/bedrock/config"
 	"github.com/z5labs/bedrock/lifecycle"
 
 	"github.com/stretchr/testify/assert"
@@ -75,46 +74,6 @@ func TestRecover(t *testing.T) {
 				return
 			}
 			if !assert.Equal(t, "hello world", perr.Value) {
-				return
-			}
-		})
-	})
-}
-
-type configSourceFunc func(config.Store) error
-
-func (f configSourceFunc) Apply(store config.Store) error {
-	return f(store)
-}
-
-func TestFromConfig(t *testing.T) {
-	t.Run("will return an error", func(t *testing.T) {
-		t.Run("if the build context was cancelled before starting to build", func(t *testing.T) {
-			builder := bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
-				return nil, nil
-			})
-
-			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
-
-			_, err := FromConfig(builder).Build(ctx, nil)
-			if !assert.ErrorIs(t, err, context.Canceled) {
-				return
-			}
-		})
-
-		t.Run("if the config source fails to apply to the config store", func(t *testing.T) {
-			applyErr := errors.New("failed to apply config")
-			cfgSrc := configSourceFunc(func(s config.Store) error {
-				return applyErr
-			})
-
-			builder := FromConfig(bedrock.AppBuilderFunc[struct{}](func(ctx context.Context, cfg struct{}) (bedrock.App, error) {
-				return nil, nil
-			}))
-
-			_, err := builder.Build(context.Background(), cfgSrc)
-			if !assert.ErrorIs(t, err, applyErr) {
 				return
 			}
 		})

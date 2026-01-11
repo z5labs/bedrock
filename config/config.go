@@ -1,166 +1,329 @@
-// Copyright (c) 2024 Z5Labs and Contributors
+// Copyright (c) 2026 Z5Labs and Contributors
 //
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-// Package config provides very easy to use and extensible configuration management capabilities.
+// Package config provides a functional approach to reading and composing configuration values.
+//
+// The package is built around the concept of a Reader[T], which represents a source of
+// configuration values that may or may not be present. Readers can be composed using
+// functional combinators to build complex configuration logic from simple building blocks.
+//
+// # Core Concepts
+//
+// Value[T] represents a configuration value that may or may not be set. This distinguishes
+// between "not set" and "set to zero value", which is important for configuration with defaults.
+//
+// Reader[T] is an interface for reading configuration values. Readers are composable and
+// can be chained together using combinators like Or, Map, Bind, and Default.
+//
+// # Basic Usage
+//
+// Read a value from an environment variable with a default:
+//
+//	port, err := config.Read(ctx,
+//	    config.Default(8080, config.IntFromString(config.Env("PORT"))),
+//	)
+//
+// Try multiple sources in order:
+//
+//	apiKey, err := config.Read(ctx,
+//	    config.Or(
+//	        config.Env("API_KEY"),
+//	        config.Env("LEGACY_API_KEY"),
+//	    ),
+//	)
+//
+// Transform values using Map:
+//
+//	timeout := config.Map(
+//	    config.Env("TIMEOUT"),
+//	    func(ctx context.Context, s string) (time.Duration, error) {
+//	        return time.ParseDuration(s)
+//	    },
+//	)
+//
+// # Composition
+//
+// Readers can be composed to build complex configuration logic:
+//
+//	dbConfig := config.Bind(
+//	    config.Env("DB_CONFIG_FILE"),
+//	    func(ctx context.Context, path string) config.Reader[DBConfig] {
+//	        return config.Map(
+//	            config.ReadFile(path),
+//	            parseDBConfig,
+//	        )
+//	    },
+//	)
+//
+// # Error Handling
+//
+// Readers distinguish between three states:
+//   - Value is set (returns Value with set=true)
+//   - Value is not set (returns Value with set=false, no error)
+//   - Error occurred (returns error)
+//
+// The Read function converts "not set" to ErrValueNotSet for convenience.
 package config
 
 import (
-	"encoding"
+	"context"
+	"encoding/binary"
 	"errors"
-	"fmt"
-	"reflect"
+	"io"
+	"os"
+	"strconv"
 	"time"
-
-	"github.com/z5labs/bedrock/config/key"
-
-	"github.com/go-viper/mapstructure/v2"
 )
 
-// Store represents a general key value structure.
-type Store interface {
-	Set(key.Keyer, any) error
+// Value represents a configuration value that may or may not be set.
+type Value[T any] struct {
+	val T
+	set bool
 }
 
-// Source defines valid config sources as those who can
-// serialize themselves into a key value like structure.
-type Source interface {
-	Apply(Store) error
+// ValueOf creates a Value that is set to the given value.
+func ValueOf[T any](v T) Value[T] {
+	return Value[T]{val: v, set: true}
 }
 
-type multiSource []Source
-
-func (ms multiSource) Apply(store Store) error {
-	for _, src := range ms {
-		err := src.Apply(store)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+// Value returns the value and a boolean indicating if it is set.
+func (v Value[T]) Value() (T, bool) {
+	return v.val, v.set
 }
 
-// MultiSource returns a Source that's the logical concatenation of the
-// provided [Source]s. They're applied sequentially. If any of the [Source]s
-// return a non-nil error, Apply will return that error.
-func MultiSource(srcs ...Source) Source {
-	return multiSource(srcs)
+// Reader is an interface for reading configuration values.
+type Reader[T any] interface {
+	Read(context.Context) (Value[T], error)
 }
 
-// Manager
-type Manager struct {
-	store Store
+// ReaderFunc is a function type that implements the Reader interface.
+type ReaderFunc[T any] func(context.Context) (Value[T], error)
+
+// Read implements the [Reader] interface for ReaderFunc.
+func (f ReaderFunc[T]) Read(ctx context.Context) (Value[T], error) {
+	return f(ctx)
 }
 
-// Read
-// Subsequent sources override previous sources.
-func Read(srcs ...Source) (*Manager, error) {
-	if len(srcs) == 0 {
-		return &Manager{store: make(Map)}, nil
-	}
-
-	store := make(Map)
-	for _, src := range srcs {
-		err := src.Apply(store)
-		if err != nil {
-			return nil, err
-		}
-	}
-	m := &Manager{
-		store: store,
-	}
-	return m, nil
-}
-
-// Unmarshal
-func (m *Manager) Unmarshal(v any) error {
-	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		TagName: "config",
-		Result:  v,
-		DecodeHook: composeDecodeHooks(
-			textUnmarshalerHookFunc(),
-			timeDurationHookFunc(),
-		),
+// EmptyReader creates a Reader that always returns no value.
+func EmptyReader[T any]() Reader[T] {
+	return ReaderFunc[T](func(ctx context.Context) (Value[T], error) {
+		return Value[T]{}, nil
 	})
+}
+
+// ReaderOf creates a Reader that always returns the given value.
+func ReaderOf[T any](val T) Reader[T] {
+	return ReaderFunc[T](func(ctx context.Context) (Value[T], error) {
+		return ValueOf(val), nil
+	})
+}
+
+// ErrValueNotSet is returned when a configuration value is not set.
+var ErrValueNotSet = errors.New("config: value not set")
+
+// Read reads the value from the given Reader.
+func Read[T any](ctx context.Context, r Reader[T]) (T, error) {
+	var zero T
+	val, err := r.Read(ctx)
 	if err != nil {
-		return err
+		return zero, err
 	}
-	return dec.Decode(m.store)
-}
-
-var errInvalidDecodeCondition = errors.New("invalid decode condition")
-
-// TypeCoercionError occurs when attempting to unmarshal a config
-// value to a struct field whose type does not match the config
-// value type, up to, coercion.
-type TypeCoercionError struct {
-	from  reflect.Value
-	to    reflect.Value
-	Cause error
-}
-
-// Error implements the error interface.
-func (e TypeCoercionError) Error() string {
-	return fmt.Sprintf("failed to coerce value from %s to %s: %s", e.from.Type().Name(), e.to.Type().Name(), e.Cause)
-}
-
-// Unwrap implements the implicit interface for usage with errors.Is and errors.As.
-func (e TypeCoercionError) Unwrap() error {
-	return e.Cause
-}
-
-func composeDecodeHooks(hs ...mapstructure.DecodeHookFunc) mapstructure.DecodeHookFuncValue {
-	return func(f, t reflect.Value) (any, error) {
-		for _, h := range hs {
-			v, err := mapstructure.DecodeHookExec(h, f, t)
-			if err == nil {
-				return v, nil
-			}
-			if err == errInvalidDecodeCondition {
-				continue
-			}
-			return nil, TypeCoercionError{
-				from:  f,
-				to:    t,
-				Cause: err,
-			}
-		}
-		return f.Interface(), nil
+	if !val.set {
+		return zero, ErrValueNotSet
 	}
+	return val.val, nil
 }
 
-func textUnmarshalerHookFunc() mapstructure.DecodeHookFuncType {
-	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
-		if f.Kind() != reflect.String {
-			return nil, errInvalidDecodeCondition
-		}
-		result := reflect.New(t).Interface()
-		u, ok := result.(encoding.TextUnmarshaler)
-		if !ok {
-			return nil, errInvalidDecodeCondition
-		}
-		err := u.UnmarshalText([]byte(data.(string)))
+// Must reads the value from the given Reader, panicking if the value is not set.
+func Must[T any](ctx context.Context, r Reader[T]) T {
+	val, err := Read(ctx, r)
+	if err != nil {
+		panic(err)
+	}
+	return val
+}
+
+// MustOr reads the value from the given Reader, returning the default value if the value is not set.
+func MustOr[T any](ctx context.Context, def T, r Reader[T]) T {
+	val, err := Read(ctx, r)
+	if err != nil {
+		return def
+	}
+	return val
+}
+
+// Default returns a Reader that provides a default value if the original Reader does not have a value set.
+func Default[T any](defaultVal T, reader Reader[T]) Reader[T] {
+	return ReaderFunc[T](func(ctx context.Context) (Value[T], error) {
+		val, err := reader.Read(ctx)
 		if err != nil {
-			return nil, err
+			return Value[T]{}, err
 		}
-		return result, nil
-	}
+
+		if v, ok := val.Value(); ok {
+			return ValueOf(v), nil
+		}
+
+		return ValueOf(defaultVal), nil
+	})
 }
 
-func timeDurationHookFunc() mapstructure.DecodeHookFuncType {
-	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
-		if t != reflect.TypeOf(time.Duration(0)) {
-			return nil, errInvalidDecodeCondition
+// Or returns a Reader that tries multiple Readers in order, returning the first value that is set.
+func Or[T any](readers ...Reader[T]) Reader[T] {
+	return ReaderFunc[T](func(ctx context.Context) (Value[T], error) {
+		for _, r := range readers {
+			val, err := r.Read(ctx)
+			if err != nil {
+				return Value[T]{}, err
+			}
+
+			if v, ok := val.Value(); ok {
+				return ValueOf(v), nil
+			}
 		}
 
-		switch f.Kind() {
-		case reflect.String:
-			return time.ParseDuration(data.(string))
-		case reflect.Int:
-			return time.Duration(int64(data.(int))), nil
-		default:
-			return nil, errInvalidDecodeCondition
+		return Value[T]{}, nil
+	})
+}
+
+// Map transforms the output of a Reader using the provided mapping function.
+func Map[A, B any](reader Reader[A], mapper func(context.Context, A) (B, error)) Reader[B] {
+	return ReaderFunc[B](func(ctx context.Context) (Value[B], error) {
+		aVal, err := reader.Read(ctx)
+		if err != nil {
+			return Value[B]{}, err
 		}
-	}
+
+		a, ok := aVal.Value()
+		if !ok {
+			return Value[B]{}, nil
+		}
+
+		b, err := mapper(ctx, a)
+		if err != nil {
+			return Value[B]{}, err
+		}
+
+		return ValueOf(b), nil
+	})
+}
+
+// Bind chains two Readers together, where the output of the first is used to create the second.
+func Bind[A, B any](reader Reader[A], binder func(context.Context, A) Reader[B]) Reader[B] {
+	return ReaderFunc[B](func(ctx context.Context) (Value[B], error) {
+		aVal, err := reader.Read(ctx)
+		if err != nil {
+			return Value[B]{}, err
+		}
+
+		a, ok := aVal.Value()
+		if !ok {
+			return Value[B]{}, nil
+		}
+
+		return binder(ctx, a).Read(ctx)
+	})
+}
+
+// Env returns a Reader that reads a string value from the environment variable with the given name.
+func Env(name string) Reader[string] {
+	return ReaderFunc[string](func(ctx context.Context) (Value[string], error) {
+		val, ok := os.LookupEnv(name)
+		if !ok {
+			return Value[string]{}, nil
+		}
+
+		return ValueOf(val), nil
+	})
+}
+
+// ReadFile returns a Reader that reads a file from the given path.
+func ReadFile(path string) Reader[*os.File] {
+	return ReaderFunc[*os.File](func(ctx context.Context) (Value[*os.File], error) {
+		f, err := os.Open(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return Value[*os.File]{}, nil
+			}
+			return Value[*os.File]{}, err
+		}
+
+		return ValueOf(f), nil
+	})
+}
+
+// BoolFromString returns a Reader that parses a boolean from a string Reader.
+func BoolFromString(r Reader[string]) Reader[bool] {
+	return Map(r, func(ctx context.Context, s string) (bool, error) {
+		b, err := strconv.ParseBool(s)
+		if err != nil {
+			return false, err
+		}
+
+		return b, nil
+	})
+}
+
+// IntFromString returns a Reader that parses an integer from a string Reader.
+func IntFromString(r Reader[string]) Reader[int] {
+	return Map(r, func(ctx context.Context, s string) (int, error) {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return 0, err
+		}
+
+		return n, nil
+	})
+}
+
+// Int64FromBytes returns a Reader that reads an int64 from a byte stream using the specified endianness.
+func Int64FromBytes[T io.Reader](endian binary.ByteOrder, r Reader[T]) Reader[int64] {
+	return Map(r, func(ctx context.Context, t T) (int64, error) {
+		var b [8]byte
+		_, err := t.Read(b[:])
+		if err != nil {
+			return 0, err
+		}
+
+		n := int64(endian.Uint64(b[:]))
+		return n, nil
+	})
+}
+
+// Int64FromString returns a Reader that parses an int64 from a string Reader.
+func Int64FromString(r Reader[string]) Reader[int64] {
+	return Map(r, func(ctx context.Context, s string) (int64, error) {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+
+		return n, nil
+	})
+}
+
+// Float64FromString returns a Reader that parses a float64 from a string Reader.
+func Float64FromString(r Reader[string]) Reader[float64] {
+	return Map(r, func(ctx context.Context, s string) (float64, error) {
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return 0, err
+		}
+
+		return f, nil
+	})
+}
+
+// DurationFromString returns a Reader that parses a time.Duration from a string Reader.
+func DurationFromString(r Reader[string]) Reader[time.Duration] {
+	return Map(r, func(ctx context.Context, s string) (time.Duration, error) {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return 0, err
+		}
+
+		return d, nil
+	})
 }
