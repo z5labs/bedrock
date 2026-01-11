@@ -7,23 +7,103 @@ package bedrock
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/signal"
 )
 
-// App represents the entry point for user specific code.
-type App interface {
+// Builder is a generic interface for building application components.
+type Builder[T any] interface {
+	Build(context.Context) (T, error)
+}
+
+// BuilderFunc is a function type that implements the Builder interface.
+type BuilderFunc[T any] func(context.Context) (T, error)
+
+// Build implements the [Builder] interface for BuilderFunc.
+func (f BuilderFunc[T]) Build(ctx context.Context) (T, error) {
+	return f(ctx)
+}
+
+// Map transforms the output of a Builder using the provided mapper function.
+func Map[A, B any](builder Builder[A], mapper func(A) (B, error)) Builder[B] {
+	return BuilderFunc[B](func(ctx context.Context) (B, error) {
+		appA, err := builder.Build(ctx)
+		if err != nil {
+			var zero B
+			return zero, err
+		}
+		return mapper(appA)
+	})
+}
+
+// Bind chains two Builders together, where the output of the first is used to create the second.
+func Bind[A, B any](builder Builder[A], binder func(A) Builder[B]) Builder[B] {
+	return BuilderFunc[B](func(ctx context.Context) (B, error) {
+		appA, err := builder.Build(ctx)
+		if err != nil {
+			var zero B
+			return zero, err
+		}
+		return binder(appA).Build(ctx)
+	})
+}
+
+// Runtime is an interface representing a runnable application component.
+type Runtime interface {
 	Run(context.Context) error
 }
 
-// AppBuilder represents anything which can initialize a Runtime.
-type AppBuilder[T any] interface {
-	Build(ctx context.Context, cfg T) (App, error)
+// RuntimeFunc is a function type that implements the Runtime interface.
+type RuntimeFunc func(context.Context) error
+
+// Run implements the [Runtime] interface for RuntimeFunc.
+func (f RuntimeFunc) Run(ctx context.Context) error {
+	return f(ctx)
 }
 
-// AppBuilderFunc is a functional implementation of
-// the AppBuilder interface.
-type AppBuilderFunc[T any] func(context.Context, T) (App, error)
+// Runner is a generic interface for running application components.
+type Runner[T Runtime] interface {
+	Run(context.Context, Builder[T]) error
+}
 
-// Build implements the RuntimeBuilder interface.
-func (f AppBuilderFunc[T]) Build(ctx context.Context, cfg T) (App, error) {
-	return f(ctx, cfg)
+// RunnerFunc is a function type that implements the Runner interface.
+type RunnerFunc[T Runtime] func(context.Context, Builder[T]) error
+
+// Run implements the [Runner] interface for RunnerFunc.
+func (f RunnerFunc[T]) Run(ctx context.Context, builder Builder[T]) error {
+	return f(ctx, builder)
+}
+
+// DefaultRunner returns a Runner that builds and runs the application component.
+func DefaultRunner[T Runtime]() Runner[T] {
+	return RunnerFunc[T](func(ctx context.Context, builder Builder[T]) error {
+		app, err := builder.Build(ctx)
+		if err != nil {
+			return err
+		}
+		return app.Run(ctx)
+	})
+}
+
+// NotifyOnSignal wraps a Runner to listen for specified OS signals and cancel the context when received.
+func NotifyOnSignal[T Runtime](runner Runner[T], signals ...os.Signal) Runner[T] {
+	return RunnerFunc[T](func(ctx context.Context, builder Builder[T]) error {
+		ctx, cancel := signal.NotifyContext(ctx, signals...)
+		defer cancel()
+
+		return runner.Run(ctx, builder)
+	})
+}
+
+// RecoverPanics wraps a Runner to recover from panics during execution and return them as errors.
+func RecoverPanics[T Runtime](runner Runner[T]) Runner[T] {
+	return RunnerFunc[T](func(ctx context.Context, builder Builder[T]) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("recovered from panic: %v", r)
+			}
+		}()
+		return runner.Run(ctx, builder)
+	})
 }
