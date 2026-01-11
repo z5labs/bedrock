@@ -28,7 +28,7 @@ jobs:
       - name: Run Test
         # re-enable new coverage flow once this issue is resolved, https://github.com/golang/go/issues/65570
         run: |
-          GOEXPERIMENT=nocoverageredesign go test -v ./... -covermode=count -coverprofile=coverage.out
+          go test -v ./... -covermode=count -coverprofile=coverage.out
           go tool cover -func=coverage.out -o=coverage.out
 
       - name: Go Coverage Badge  # Pass the `coverage.out` output to this action
