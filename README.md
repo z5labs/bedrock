@@ -29,63 +29,70 @@ organization would then be very easy to adapt to within your internal framework.
 
 ## Core Concepts
 
+### Builder
+
 ```go
-type App interface {
+type Builder[T any] interface {
+	Build(context.Context) (T, error)
+}
+```
+
+[Builder](https://pkg.go.dev/github.com/z5labs/bedrock#Builder) is a
+generic interface for constructing application components with context support.
+Builders can be composed using functional combinators like
+[Map](https://pkg.go.dev/github.com/z5labs/bedrock#Map) and
+[Bind](https://pkg.go.dev/github.com/z5labs/bedrock#Bind).
+
+### Runtime
+
+```go
+type Runtime interface {
 	Run(context.Context) error
 }
 ```
 
-[App](https://pkg.go.dev/github.com/z5labs/bedrock#App) is a
+[Runtime](https://pkg.go.dev/github.com/z5labs/bedrock#Runtime) is a
 simple abstraction over the execution of your specific application type
-e.g. HTTP server, gRPC server, etc.
+e.g. HTTP server, gRPC server, background worker, etc.
+
+### Runner
 
 ```go
-type AppBuilder[T any] interface {
-	Build(ctx context.Context, cfg T) (App, error)
+type Runner[T Runtime] interface {
+	Run(context.Context, Builder[T]) error
 }
 ```
 
-[AppBuilder](https://pkg.go.dev/github.com/z5labs/bedrock#AppBuilder) puts
-the responsibility of [App](https://pkg.go.dev/github.com/z5labs/bedrock#App) initialization
-in your hands!
+[Runner](https://pkg.go.dev/github.com/z5labs/bedrock#Runner) executes
+application components built from Builders. Runners can be wrapped to add
+cross-cutting concerns like signal handling with
+[NotifyOnSignal](https://pkg.go.dev/github.com/z5labs/bedrock#NotifyOnSignal)
+and panic recovery with
+[RecoverPanics](https://pkg.go.dev/github.com/z5labs/bedrock#RecoverPanics).
 
-The generic parameter provided to your [AppBuilder](https://pkg.go.dev/github.com/z5labs/bedrock#AppBuilder)
-is, in fact, your custom configuration type, which means no messing with config
-parsing and unmarshalling yourself!
+### Configuration
 
 ```go
 package config
 
-type Source interface {
-	Apply(Store) error
+type Reader[T any] interface {
+	Read(context.Context) (Value[T], error)
 }
 ```
 
-The [config.Source](https://pkg.go.dev/github.com/z5labs/bedrock/pkg/config#Source) is
+The [config.Reader](https://pkg.go.dev/github.com/z5labs/bedrock/config#Reader) is
 arguably the most powerful abstraction defined in any of the [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock)
-packages. It abstracts over the entire mechanic of sourcing your application configuration.
-This simple interface can then be implemented in various ways to support loading configuration
-from different files (e.g. YAML, JSON, TOML) to remote configuration stores (e.g. etcd).
-
-```go
-func Run[T any](ctx context.Context, builder AppBuilder[T], srcs ...config.Source) error
-```
-
-The final piece and most crucial piece [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock)
-provides is the [Run](https://pkg.go.dev/github.com/z5labs/bedrock#Run) function which
-handles the orchestration of config parsing, app building and, lastly, app execution by relying
-on the other core abstractions noted above.
+packages. It abstracts over reading configuration values that may or may not be present,
+distinguishing between "not set" and "set to zero value." Readers can be composed using
+functional combinators like
+[Or](https://pkg.go.dev/github.com/z5labs/bedrock/config#Or),
+[Map](https://pkg.go.dev/github.com/z5labs/bedrock/config#Map),
+[Bind](https://pkg.go.dev/github.com/z5labs/bedrock/config#Bind), and
+[Default](https://pkg.go.dev/github.com/z5labs/bedrock/config#Default).
 
 ## Putting them altogether
 
 Below is a tiny and simplistic example of all the core concepts of [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock).
-
-### config.yaml
-
-```yaml
-logging:
-  min_level: {{env "MIN_LOG_LEVEL"}}
-```
 
 ### main.go
 
@@ -93,40 +100,34 @@ logging:
 package main
 
 import (
-	"bytes"
 	"context"
-	_ "embed"
 	"log/slog"
 	"os"
+	"syscall"
 
 	"github.com/z5labs/bedrock"
-	"github.com/z5labs/bedrock/app"
-	"github.com/z5labs/bedrock/appbuilder"
 	"github.com/z5labs/bedrock/config"
 )
-
-//go:embed config.yaml
-var configBytes []byte
 
 func main() {
 	os.Exit(run())
 }
 
 func run() int {
-	// bedrock does not handle process exiting for you. This is mostly
-	// to aid framework developers in unit testing their usages of bedrock
-	// by validating the returned error.
-	err := bedrock.Run(
+	// Create a runner with signal handling and panic recovery
+	runner := bedrock.NotifyOnSignal(
+		bedrock.RecoverPanics(
+			bedrock.DefaultRunner[bedrock.Runtime](),
+		),
+		os.Interrupt,
+		os.Kill,
+		syscall.SIGTERM,
+	)
+
+	// Build and run the application
+	err := runner.Run(
 		context.Background(),
-		appbuilder.Recover(
-			bedrock.AppBuilderFunc[myConfig](initApp),
-		),
-		config.FromYaml(
-			config.RenderTextTemplate(
-				bytes.NewReader(configBytes),
-				config.TemplateFunc("env", os.Getenv),
-			),
-		),
+		bedrock.BuilderFunc[bedrock.Runtime](buildApp),
 	)
 	if err == nil {
 		return 0
@@ -134,33 +135,38 @@ func run() int {
 	return 1
 }
 
-// myConfig can contain anything you like. The only thing you must
-// remember is to always use the tag name, "config". If that tag
-// name is not used then the bedrock config package will not know
-// how to properly unmarshal the config source(s) into your custom
-// config struct.
-type myConfig struct {
-	Logging struct {
-		MinLevel slog.Level `config:"min_level"`
-	} `config:"logging"`
-}
-
 type myApp struct {
 	log *slog.Logger
 }
 
-// initApp is a function implementation of the bedrock.AppBuilder interface.
-func initApp(ctx context.Context, cfg myConfig) (bedrock.App, error) {
-	var base bedrock.App = &myApp{
-		log: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: cfg.Logging.MinLevel,
-		})),
+// buildApp constructs the application using functional config composition
+func buildApp(ctx context.Context) (bedrock.Runtime, error) {
+	// Read log level from environment with a default
+	logLevelReader := config.Default(
+		"INFO",
+		config.Env("MIN_LOG_LEVEL"),
+	)
+
+	logLevel, err := config.Read(ctx, logLevelReader)
+	if err != nil {
+		return nil, err
 	}
-	base = app.Recover(base)
-	return base, nil
+
+	// Parse the log level string
+	var level slog.Level
+	err = level.UnmarshalText([]byte(logLevel))
+	if err != nil {
+		return nil, err
+	}
+
+	return &myApp{
+		log: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: level,
+		})),
+	}, nil
 }
 
-// Run implements the bedrock.App interface.
+// Run implements the bedrock.Runtime interface.
 func (a *myApp) Run(ctx context.Context) error {
 	// Do something here like:
 	// - run an HTTP server
