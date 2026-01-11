@@ -85,7 +85,7 @@ go tool cover -func=coverage.out -o=coverage.out
 golangci-lint run
 ```
 
-The project maintains a very high test coverage (97.5%+), which is enforced in CI.
+The project maintains a very high test coverage, which is enforced in CI.
 
 ## Code Structure
 
@@ -130,4 +130,4 @@ The codebase underwent a major refactor (commits 858ea1f - ef59864) that:
 - Removed the old lifecycle package
 - Introduced the new functional Builder/Runtime/Runner architecture
 - Refactored config to use functional Reader pattern
-- Uses Go 1.24+ for latest generics features
+- Uses Go 1.25+ for latest generics features

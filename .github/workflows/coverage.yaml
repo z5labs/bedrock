@@ -26,7 +26,6 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Run Test
-        # re-enable new coverage flow once this issue is resolved, https://github.com/golang/go/issues/65570
         run: |
           go test -v ./... -covermode=count -coverprofile=coverage.out
           go tool cover -func=coverage.out -o=coverage.out
