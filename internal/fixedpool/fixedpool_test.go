@@ -8,7 +8,6 @@ package fixedpool
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -358,27 +357,4 @@ func TestWait_MixedSuccessAndErrors(t *testing.T) {
 	if !errors.Is(err, err2) {
 		t.Errorf("Wait() error does not contain err2: %v", err)
 	}
-}
-
-func ExampleWait() {
-	ctx := context.Background()
-
-	tasks := []Task{
-		func(ctx context.Context) error {
-			fmt.Println("Task 1")
-			return nil
-		},
-		func(ctx context.Context) error {
-			fmt.Println("Task 2")
-			return nil
-		},
-	}
-
-	err := Wait(ctx, tasks...)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	fmt.Println("All tasks completed")
 }
