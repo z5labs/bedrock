@@ -12,32 +12,37 @@
 //
 // The package provides three main building blocks:
 //
-//   - TCPListener: Configures TCP network listeners using config.Reader
-//   - Server: Configures HTTP server settings (timeouts, headers, etc.)
-//   - Runtime: Implements bedrock.Runtime to run the HTTP server
+//   - BuildTCPListener: Creates a bedrock.Builder for TCP network listeners
+//   - BuildTLSListener: Creates a bedrock.Builder that wraps a listener with TLS
+//   - Build: Creates a bedrock.Builder that constructs an HTTP server Runtime
 //
 // # Basic Usage
 //
-// Create an HTTP server by composing a listener, server configuration, and handler:
+// Create an HTTP server by composing a listener builder, handler builder, and server options:
 //
-//	// Configure listener
-//	listener := http.NewTCPListener(
-//	    http.Addr(config.String(":8080")),
-//	)
+//	// Build TCP listener
+//	addrReader := config.ReaderFunc(func(ctx context.Context) (config.Value[*net.TCPAddr], error) {
+//	    addr, err := net.ResolveTCPAddr("tcp", ":8080")
+//	    return config.ValueOf(addr), err
+//	})
+//	listenerBuilder := http.BuildTCPListener(addrReader)
 //
-//	// Configure server with timeouts
-//	server := http.NewServer(
-//	    listener,
-//	    http.ReadTimeout(config.Duration(5 * time.Second)),
-//	    http.WriteTimeout(config.Duration(10 * time.Second)),
-//	)
-//
-//	// Build runtime with handler
+//	// Build handler
 //	handlerBuilder := bedrock.BuilderFunc(func(ctx context.Context) (http.Handler, error) {
 //	    return myHandler, nil
 //	})
 //
-//	runtimeBuilder := http.Build(server, handlerBuilder)
+//	// Build runtime with server options
+//	runtimeBuilder := http.Build(
+//	    listenerBuilder,
+//	    handlerBuilder,
+//	    http.ReadTimeout(config.ReaderFunc(func(ctx context.Context) (config.Value[time.Duration], error) {
+//	        return config.ValueOf(5 * time.Second), nil
+//	    })),
+//	    http.WriteTimeout(config.ReaderFunc(func(ctx context.Context) (config.Value[time.Duration], error) {
+//	        return config.ValueOf(10 * time.Second), nil
+//	    })),
+//	)
 //
 //	// Run the server
 //	runner := bedrock.DefaultRunner()
@@ -45,29 +50,35 @@
 //
 // # TLS Support
 //
-// Add TLS encryption by wrapping a listener:
+// Add TLS encryption by wrapping a listener builder with BuildTLSListener:
 //
-//	baseLn := http.NewTCPListener(http.Addr(config.String(":8443")))
-//	tlsConfig := config.ReaderFunc(func(ctx context.Context) (config.Value[*tls.Config], error) {
+//	baseLnBuilder := http.BuildTCPListener(addrReader)
+//	tlsConfigReader := config.ReaderFunc(func(ctx context.Context) (config.Value[*tls.Config], error) {
 //	    // Load certificates and create tls.Config
 //	    return config.ValueOf(cfg), nil
 //	})
-//	tlsLn := http.TLSListener(baseLn, tlsConfig)
+//	tlsLnBuilder := http.BuildTLSListener(baseLnBuilder, tlsConfigReader)
 //
-//	server := http.NewServer(tlsLn)
+//	runtimeBuilder := http.Build(tlsLnBuilder, handlerBuilder)
 //
 // # Configuration
 //
 // All configuration uses bedrock's config.Reader pattern, allowing values to be
 // sourced from environment variables, files, or composed from multiple sources:
 //
-//	// Read address from environment with fallback
-//	addr := config.Or(
-//	    config.Env("HTTP_ADDR"),
-//	    config.String(":8080"),
+//	// Read timeout from environment with fallback
+//	timeout := config.Or(
+//	    config.Map(config.Env("READ_TIMEOUT"), time.ParseDuration),
+//	    config.ReaderFunc(func(ctx context.Context) (config.Value[time.Duration], error) {
+//	        return config.ValueOf(5 * time.Second), nil
+//	    }),
 //	)
 //
-//	listener := http.NewTCPListener(http.Addr(addr))
+//	runtimeBuilder := http.Build(
+//	    listenerBuilder,
+//	    handlerBuilder,
+//	    http.ReadTimeout(timeout),
+//	)
 //
 // # Graceful Shutdown
 //
@@ -87,15 +98,26 @@
 // to compose builders:
 //
 //	// Transform a handler builder
-//	enhancedHandler := bedrock.Map(basicHandler, func(h http.Handler) (http.Handler, error) {
+//	enhancedHandler := bedrock.Map(basicHandler, func(ctx context.Context, h http.Handler) (http.Handler, error) {
 //	    return middleware.Wrap(h), nil
 //	})
 //
-//	runtime := http.Build(server, enhancedHandler)
+//	runtimeBuilder := http.Build(listenerBuilder, enhancedHandler)
+//
+// # Server Options
+//
+// The Build function accepts ServerOption functions to configure the HTTP server:
+//
+//   - DisableGeneralOptionsHandler(config.Reader[bool]): Controls automatic OPTIONS handling
+//   - ReadTimeout(config.Reader[time.Duration]): Maximum duration for reading entire request
+//   - ReadHeaderTimeout(config.Reader[time.Duration]): Maximum duration for reading headers
+//   - WriteTimeout(config.Reader[time.Duration]): Maximum duration before timing out writes
+//   - IdleTimeout(config.Reader[time.Duration]): Maximum duration to wait for next request with keep-alives
+//   - MaxHeaderBytes(config.Reader[int]): Maximum bytes for request header parsing
 //
 // # Default Values
 //
-// Server provides sensible defaults when options are not specified:
+// When server options are not specified, the following defaults are applied:
 //
 //   - DisableGeneralOptionsHandler: false
 //   - ReadTimeout: 5 seconds
@@ -103,5 +125,4 @@
 //   - WriteTimeout: 10 seconds
 //   - IdleTimeout: 120 seconds
 //   - MaxHeaderBytes: 1048576 bytes (1 MB)
-//   - Listener address (TCPListener): ":8080"
 package http
