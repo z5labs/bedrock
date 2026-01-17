@@ -25,27 +25,43 @@ func (f BuilderFunc[T]) Build(ctx context.Context) (T, error) {
 	return f(ctx)
 }
 
+// BuilderOf creates a Builder that always returns the provided value.
+func BuilderOf[T any](value T) Builder[T] {
+	return BuilderFunc[T](func(ctx context.Context) (T, error) {
+		return value, nil
+	})
+}
+
+// MustBuild builds the application component using the provided Builder.
+func MustBuild[T any](ctx context.Context, builder Builder[T]) T {
+	value, err := builder.Build(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return value
+}
+
 // Map transforms the output of a Builder using the provided mapper function.
-func Map[A, B any](builder Builder[A], mapper func(A) (B, error)) Builder[B] {
+func Map[A, B any](builder Builder[A], mapper func(context.Context, A) (B, error)) Builder[B] {
 	return BuilderFunc[B](func(ctx context.Context) (B, error) {
 		appA, err := builder.Build(ctx)
 		if err != nil {
 			var zero B
 			return zero, err
 		}
-		return mapper(appA)
+		return mapper(ctx, appA)
 	})
 }
 
 // Bind chains two Builders together, where the output of the first is used to create the second.
-func Bind[A, B any](builder Builder[A], binder func(A) Builder[B]) Builder[B] {
+func Bind[A, B any](builder Builder[A], binder func(context.Context, A) Builder[B]) Builder[B] {
 	return BuilderFunc[B](func(ctx context.Context) (B, error) {
 		appA, err := builder.Build(ctx)
 		if err != nil {
 			var zero B
 			return zero, err
 		}
-		return binder(appA).Build(ctx)
+		return binder(ctx, appA).Build(ctx)
 	})
 }
 
