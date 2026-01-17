@@ -18,74 +18,37 @@ import (
 	"github.com/z5labs/bedrock/internal/fixedpool"
 )
 
-// TCPListener is a configuration type for creating TCP network listeners.
-// It provides a way to specify the network address through a config.Reader.
-type TCPListener struct {
-	Addr config.Reader[string]
+// BuildTCPListener creates a bedrock.Builder that constructs a TCP listener.
+func BuildTCPListener(addr config.Reader[*net.TCPAddr]) bedrock.Builder[*net.TCPListener] {
+	return bedrock.BuilderFunc[*net.TCPListener](func(ctx context.Context) (*net.TCPListener, error) {
+		tcpAddr := config.Must(ctx, addr)
+		ln, err := net.ListenTCP("tcp", tcpAddr)
+		if err != nil {
+			return nil, err
+		}
+		return ln, nil
+	})
 }
 
-// TCPListenerOption is a functional option for configuring a TCPListener.
-type TCPListenerOption func(*TCPListener)
-
-// Addr is a TCPListenerOption that sets the network address for the listener.
-// The address should be in the form "host:port" or ":port".
-func Addr(addr config.Reader[string]) TCPListenerOption {
-	return func(tcpLn *TCPListener) {
-		tcpLn.Addr = addr
-	}
-}
-
-// NewTCPListener creates a new TCPListener with the given options.
-// If no address is specified via options, the listener will default to ":8080".
-func NewTCPListener(options ...TCPListenerOption) TCPListener {
-	tcpLn := TCPListener{
-		Addr: config.EmptyReader[string](),
-	}
-
-	for _, option := range options {
-		option(&tcpLn)
-	}
-
-	return tcpLn
-}
-
-// Read creates a TCP listener on the configured address.
-// If no address was configured, it defaults to ":8080".
-// Returns a config.Value containing the net.Listener, or an error if the listener cannot be created.
-func (tcpLn TCPListener) Read(ctx context.Context) (config.Value[net.Listener], error) {
-	addr := config.MustOr(ctx, ":8080", tcpLn.Addr)
-
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return config.Value[net.Listener]{}, err
-	}
-
-	return config.ValueOf(ln), nil
-}
-
-// TLSListener wraps a base listener with TLS encryption.
-// It returns a config.Reader that creates a TLS listener using the provided base listener
-// and TLS configuration when read.
-func TLSListener(ln config.Reader[net.Listener], tlsConfig config.Reader[*tls.Config]) config.Reader[net.Listener] {
-	return config.ReaderFunc[net.Listener](func(ctx context.Context) (config.Value[net.Listener], error) {
-		baseLn := config.Must(ctx, ln)
-		cfg := config.Must(ctx, tlsConfig)
-
-		tlsLn := tls.NewListener(baseLn, cfg)
-		return config.ValueOf(tlsLn), nil
+// BuildTLSListener creates a bedrock.Builder that wraps a base listener with TLS.
+func BuildTLSListener[T net.Listener](
+	base bedrock.Builder[T],
+	tlsConfig config.Reader[*tls.Config],
+) bedrock.Builder[net.Listener] {
+	return bedrock.Map(base, func(ctx context.Context, baseListener T) (net.Listener, error) {
+		return tls.NewListener(baseListener, config.Must(ctx, tlsConfig)), nil
 	})
 }
 
 // Server holds the configuration for an HTTP server.
 // It provides options to configure timeouts, header limits, and other server behaviors.
 type Server struct {
-	Listener                     config.Reader[net.Listener]
-	DisableGeneralOptionsHandler config.Reader[bool]
-	ReadTimeout                  config.Reader[time.Duration]
-	ReadHeaderTimeout            config.Reader[time.Duration]
-	WriteTimeout                 config.Reader[time.Duration]
-	IdleTimeout                  config.Reader[time.Duration]
-	MaxHeaderBytes               config.Reader[int]
+	disableGeneralOptionsHandler config.Reader[bool]
+	readTimeout                  config.Reader[time.Duration]
+	readHeaderTimeout            config.Reader[time.Duration]
+	writeTimeout                 config.Reader[time.Duration]
+	idleTimeout                  config.Reader[time.Duration]
+	maxHeaderBytes               config.Reader[int]
 }
 
 // ServerOption is a functional option for configuring a Server.
@@ -96,7 +59,7 @@ type ServerOption func(*Server)
 // requests explicitly in your handler.
 func DisableGeneralOptionsHandler(disable config.Reader[bool]) ServerOption {
 	return func(srv *Server) {
-		srv.DisableGeneralOptionsHandler = disable
+		srv.disableGeneralOptionsHandler = disable
 	}
 }
 
@@ -104,7 +67,7 @@ func DisableGeneralOptionsHandler(disable config.Reader[bool]) ServerOption {
 // entire request, including the body. The default is 5 seconds.
 func ReadTimeout(d config.Reader[time.Duration]) ServerOption {
 	return func(srv *Server) {
-		srv.ReadTimeout = d
+		srv.readTimeout = d
 	}
 }
 
@@ -112,7 +75,7 @@ func ReadTimeout(d config.Reader[time.Duration]) ServerOption {
 // request headers. The default is 2 seconds.
 func ReadHeaderTimeout(d config.Reader[time.Duration]) ServerOption {
 	return func(srv *Server) {
-		srv.ReadHeaderTimeout = d
+		srv.readHeaderTimeout = d
 	}
 }
 
@@ -120,7 +83,7 @@ func ReadHeaderTimeout(d config.Reader[time.Duration]) ServerOption {
 // writes of the response. The default is 10 seconds.
 func WriteTimeout(d config.Reader[time.Duration]) ServerOption {
 	return func(srv *Server) {
-		srv.WriteTimeout = d
+		srv.writeTimeout = d
 	}
 }
 
@@ -128,7 +91,7 @@ func WriteTimeout(d config.Reader[time.Duration]) ServerOption {
 // next request when keep-alives are enabled. The default is 120 seconds.
 func IdleTimeout(d config.Reader[time.Duration]) ServerOption {
 	return func(srv *Server) {
-		srv.IdleTimeout = d
+		srv.idleTimeout = d
 	}
 }
 
@@ -137,36 +100,8 @@ func IdleTimeout(d config.Reader[time.Duration]) ServerOption {
 // request line. The default is 1048576 bytes (1 MB).
 func MaxHeaderBytes(n config.Reader[int]) ServerOption {
 	return func(srv *Server) {
-		srv.MaxHeaderBytes = n
+		srv.maxHeaderBytes = n
 	}
-}
-
-// NewServer creates a new Server with the given listener and options.
-// The listener is required; all other settings have default values.
-//
-// Default values:
-//   - DisableGeneralOptionsHandler: false
-//   - ReadTimeout: 5 seconds
-//   - ReadHeaderTimeout: 2 seconds
-//   - WriteTimeout: 10 seconds
-//   - IdleTimeout: 120 seconds
-//   - MaxHeaderBytes: 1048576 bytes (1 MB)
-func NewServer(listener config.Reader[net.Listener], options ...ServerOption) Server {
-	srv := Server{
-		Listener:                     listener,
-		DisableGeneralOptionsHandler: config.EmptyReader[bool](),
-		ReadTimeout:                  config.EmptyReader[time.Duration](),
-		ReadHeaderTimeout:            config.EmptyReader[time.Duration](),
-		WriteTimeout:                 config.EmptyReader[time.Duration](),
-		IdleTimeout:                  config.EmptyReader[time.Duration](),
-		MaxHeaderBytes:               config.EmptyReader[int](),
-	}
-
-	for _, option := range options {
-		option(&srv)
-	}
-
-	return srv
 }
 
 // Runtime represents a running HTTP server application.
@@ -205,27 +140,31 @@ func (r Runtime) Run(ctx context.Context) error {
 // The builder applies the Server configuration to create an http.Server with the
 // provided handler. If configuration values are not set, defaults are applied as
 // documented in NewServer.
-func Build(srv Server, b bedrock.Builder[http.Handler]) bedrock.Builder[Runtime] {
-	return bedrock.Bind(b, func(h http.Handler) bedrock.Builder[Runtime] {
-		return bedrock.BuilderFunc[Runtime](func(ctx context.Context) (Runtime, error) {
-			ln := config.Must(ctx, srv.Listener)
+func Build(listener bedrock.Builder[net.Listener], b bedrock.Builder[http.Handler], opts ...ServerOption) bedrock.Builder[Runtime] {
+	return bedrock.BuilderFunc[Runtime](func(ctx context.Context) (Runtime, error) {
+		ln := bedrock.MustBuild(ctx, listener)
+		h := bedrock.MustBuild(ctx, b)
 
-			httpServer := &http.Server{
-				Handler:                      h,
-				DisableGeneralOptionsHandler: config.MustOr(ctx, false, srv.DisableGeneralOptionsHandler),
-				ReadTimeout:                  config.MustOr(ctx, 5*time.Second, srv.ReadTimeout),
-				ReadHeaderTimeout:            config.MustOr(ctx, 2*time.Second, srv.ReadHeaderTimeout),
-				WriteTimeout:                 config.MustOr(ctx, 10*time.Second, srv.WriteTimeout),
-				IdleTimeout:                  config.MustOr(ctx, 120*time.Second, srv.IdleTimeout),
-				MaxHeaderBytes:               config.MustOr(ctx, 1048576, srv.MaxHeaderBytes),
-			}
+		srv := Server{}
+		for _, opt := range opts {
+			opt(&srv)
+		}
 
-			rt := Runtime{
-				ls:  ln,
-				srv: httpServer,
-			}
+		httpServer := &http.Server{
+			Handler:                      h,
+			DisableGeneralOptionsHandler: config.MustOr(ctx, false, srv.disableGeneralOptionsHandler),
+			ReadTimeout:                  config.MustOr(ctx, 5*time.Second, srv.readTimeout),
+			ReadHeaderTimeout:            config.MustOr(ctx, 2*time.Second, srv.readHeaderTimeout),
+			WriteTimeout:                 config.MustOr(ctx, 10*time.Second, srv.writeTimeout),
+			IdleTimeout:                  config.MustOr(ctx, 120*time.Second, srv.idleTimeout),
+			MaxHeaderBytes:               config.MustOr(ctx, 1048576, srv.maxHeaderBytes),
+		}
 
-			return rt, nil
-		})
+		rt := Runtime{
+			ls:  ln,
+			srv: httpServer,
+		}
+
+		return rt, nil
 	})
 }

@@ -184,7 +184,7 @@ func TestMap(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mapperCalled := false
-			wrappedMapper := func(i int) (string, error) {
+			wrappedMapper := func(ctx context.Context, i int) (string, error) {
 				mapperCalled = true
 				return tc.mapper(i)
 			}
@@ -307,7 +307,7 @@ func TestBind(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			binderCalled := false
-			wrappedBinder := func(s string) Builder[int] {
+			wrappedBinder := func(ctx context.Context, s string) Builder[int] {
 				binderCalled = true
 				return tc.binder(s)
 			}

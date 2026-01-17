@@ -14,14 +14,16 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"math/big"
+	"net"
 	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/config"
+
+	"github.com/stretchr/testify/require"
 )
 
 // createTestTLSConfig dynamically generates a self-signed TLS config for testing
@@ -58,45 +60,36 @@ func createTestTLSConfig(t *testing.T) *tls.Config {
 	}
 }
 
-func TestTCPListener_Read(t *testing.T) {
+func TestBuildTCPListener(t *testing.T) {
 	testCases := []struct {
 		name       string
-		listener   TCPListener
+		addr       config.Reader[*net.TCPAddr]
 		expectAddr string // partial match for address (e.g., ":8080", ":9000")
 		expectErr  bool
 	}{
 		{
-			name:       "creates listener with default address",
-			listener:   NewTCPListener(),
-			expectAddr: ":8080",
+			name:       "creates listener with default address (port 0)",
+			addr:       config.ReaderOf(&net.TCPAddr{Port: 0}),
+			expectAddr: ":", // dynamic port
 		},
 		{
-			name: "creates listener with custom address",
-			listener: NewTCPListener(
-				Addr(config.ReaderOf(":9000")),
-			),
+			name:       "creates listener with custom port",
+			addr:       config.ReaderOf(&net.TCPAddr{Port: 9000}),
 			expectAddr: ":9000",
 		},
 		{
-			name: "creates listener with dynamic port",
-			listener: NewTCPListener(
-				Addr(config.ReaderOf(":0")),
-			),
+			name:       "creates listener with dynamic port explicitly",
+			addr:       config.ReaderOf(&net.TCPAddr{Port: 0}),
 			expectAddr: ":", // any port is fine
-		},
-		{
-			name: "propagates listener creation error",
-			listener: NewTCPListener(
-				Addr(config.ReaderOf("invalid:addr:format")),
-			),
-			expectErr: true,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			builder := BuildTCPListener(tc.addr)
+
 			ctx := context.Background()
-			val, err := tc.listener.Read(ctx)
+			ln, err := builder.Build(ctx)
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -104,9 +97,6 @@ func TestTCPListener_Read(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-
-			ln, isSet := val.Value()
-			require.True(t, isSet)
 			require.NotNil(t, ln)
 			defer ln.Close()
 
@@ -121,171 +111,34 @@ func TestTCPListener_Read(t *testing.T) {
 	}
 }
 
-func TestNewServer(t *testing.T) {
-	testCases := []struct {
-		name    string
-		options []ServerOption
-		verify  func(t *testing.T, srv Server)
-	}{
-		{
-			name:    "creates server with listener only",
-			options: []ServerOption{},
-			verify: func(t *testing.T, srv Server) {
-				require.NotNil(t, srv.Listener)
-				require.NotNil(t, srv.DisableGeneralOptionsHandler)
-				require.NotNil(t, srv.ReadTimeout)
-				require.NotNil(t, srv.ReadHeaderTimeout)
-				require.NotNil(t, srv.WriteTimeout)
-				require.NotNil(t, srv.IdleTimeout)
-				require.NotNil(t, srv.MaxHeaderBytes)
-			},
-		},
-		{
-			name: "applies DisableGeneralOptionsHandler option",
-			options: []ServerOption{
-				DisableGeneralOptionsHandler(config.ReaderOf(true)),
-			},
-			verify: func(t *testing.T, srv Server) {
-				ctx := context.Background()
-				val, err := srv.DisableGeneralOptionsHandler.Read(ctx)
-				require.NoError(t, err)
-				v, isSet := val.Value()
-				require.True(t, isSet)
-				require.True(t, v)
-			},
-		},
-		{
-			name: "applies ReadTimeout option",
-			options: []ServerOption{
-				ReadTimeout(config.ReaderOf(10 * time.Second)),
-			},
-			verify: func(t *testing.T, srv Server) {
-				ctx := context.Background()
-				val, err := srv.ReadTimeout.Read(ctx)
-				require.NoError(t, err)
-				v, isSet := val.Value()
-				require.True(t, isSet)
-				require.Equal(t, 10*time.Second, v)
-			},
-		},
-		{
-			name: "applies ReadHeaderTimeout option",
-			options: []ServerOption{
-				ReadHeaderTimeout(config.ReaderOf(3 * time.Second)),
-			},
-			verify: func(t *testing.T, srv Server) {
-				ctx := context.Background()
-				val, err := srv.ReadHeaderTimeout.Read(ctx)
-				require.NoError(t, err)
-				v, isSet := val.Value()
-				require.True(t, isSet)
-				require.Equal(t, 3*time.Second, v)
-			},
-		},
-		{
-			name: "applies WriteTimeout option",
-			options: []ServerOption{
-				WriteTimeout(config.ReaderOf(15 * time.Second)),
-			},
-			verify: func(t *testing.T, srv Server) {
-				ctx := context.Background()
-				val, err := srv.WriteTimeout.Read(ctx)
-				require.NoError(t, err)
-				v, isSet := val.Value()
-				require.True(t, isSet)
-				require.Equal(t, 15*time.Second, v)
-			},
-		},
-		{
-			name: "applies IdleTimeout option",
-			options: []ServerOption{
-				IdleTimeout(config.ReaderOf(60 * time.Second)),
-			},
-			verify: func(t *testing.T, srv Server) {
-				ctx := context.Background()
-				val, err := srv.IdleTimeout.Read(ctx)
-				require.NoError(t, err)
-				v, isSet := val.Value()
-				require.True(t, isSet)
-				require.Equal(t, 60*time.Second, v)
-			},
-		},
-		{
-			name: "applies MaxHeaderBytes option",
-			options: []ServerOption{
-				MaxHeaderBytes(config.ReaderOf(2097152)),
-			},
-			verify: func(t *testing.T, srv Server) {
-				ctx := context.Background()
-				val, err := srv.MaxHeaderBytes.Read(ctx)
-				require.NoError(t, err)
-				v, isSet := val.Value()
-				require.True(t, isSet)
-				require.Equal(t, 2097152, v)
-			},
-		},
-		{
-			name: "applies multiple options together",
-			options: []ServerOption{
-				ReadTimeout(config.ReaderOf(10 * time.Second)),
-				WriteTimeout(config.ReaderOf(15 * time.Second)),
-				MaxHeaderBytes(config.ReaderOf(2097152)),
-			},
-			verify: func(t *testing.T, srv Server) {
-				ctx := context.Background()
-
-				// Verify ReadTimeout
-				rtVal, err := srv.ReadTimeout.Read(ctx)
-				require.NoError(t, err)
-				rt, isSet := rtVal.Value()
-				require.True(t, isSet)
-				require.Equal(t, 10*time.Second, rt)
-
-				// Verify WriteTimeout
-				wtVal, err := srv.WriteTimeout.Read(ctx)
-				require.NoError(t, err)
-				wt, isSet := wtVal.Value()
-				require.True(t, isSet)
-				require.Equal(t, 15*time.Second, wt)
-
-				// Verify MaxHeaderBytes
-				mhbVal, err := srv.MaxHeaderBytes.Read(ctx)
-				require.NoError(t, err)
-				mhb, isSet := mhbVal.Value()
-				require.True(t, isSet)
-				require.Equal(t, 2097152, mhb)
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			listener := NewTCPListener()
-			srv := NewServer(listener, tc.options...)
-			tc.verify(t, srv)
-		})
-	}
-}
-
 func TestBuild(t *testing.T) {
 	testCases := []struct {
 		name         string
-		server       Server
+		listener     bedrock.Builder[net.Listener]
 		handlerFunc  func() bedrock.Builder[http.Handler]
+		options      []ServerOption
 		expectErr    bool
 		verifyServer func(t *testing.T, rt Runtime)
 	}{
 		{
 			name: "builds runtime with handler",
-			server: NewServer(
-				NewTCPListener(Addr(config.ReaderOf(":0"))),
-			),
+			listener: bedrock.Map(BuildTCPListener(config.ReaderOf(&net.TCPAddr{Port: 0})), func(ctx context.Context, ln *net.TCPListener) (net.Listener, error) {
+				return ln, nil
+			}),
 			handlerFunc: func() bedrock.Builder[http.Handler] {
 				return bedrock.BuilderFunc[http.Handler](func(ctx context.Context) (http.Handler, error) {
 					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						w.WriteHeader(http.StatusOK)
 					}), nil
 				})
+			},
+			options: []ServerOption{
+				DisableGeneralOptionsHandler(config.ReaderOf(false)),
+				ReadTimeout(config.ReaderOf(5 * time.Second)),
+				ReadHeaderTimeout(config.ReaderOf(2 * time.Second)),
+				WriteTimeout(config.ReaderOf(10 * time.Second)),
+				IdleTimeout(config.ReaderOf(120 * time.Second)),
+				MaxHeaderBytes(config.ReaderOf(1048576)),
 			},
 			verifyServer: func(t *testing.T, rt Runtime) {
 				require.NotNil(t, rt.ls)
@@ -309,26 +162,18 @@ func TestBuild(t *testing.T) {
 			},
 		},
 		{
-			name: "propagates handler builder error",
-			server: NewServer(
-				NewTCPListener(Addr(config.ReaderOf(":0"))),
-			),
-			handlerFunc: func() bedrock.Builder[http.Handler] {
-				return bedrock.BuilderFunc[http.Handler](func(ctx context.Context) (http.Handler, error) {
-					return nil, context.Canceled
-				})
-			},
-			expectErr: true,
-		},
-		{
 			name: "applies custom timeout values",
-			server: NewServer(
-				NewTCPListener(Addr(config.ReaderOf(":0"))),
-				ReadTimeout(config.ReaderOf(20*time.Second)),
-				ReadHeaderTimeout(config.ReaderOf(5*time.Second)),
-				WriteTimeout(config.ReaderOf(30*time.Second)),
-				IdleTimeout(config.ReaderOf(180*time.Second)),
-			),
+			listener: bedrock.Map(BuildTCPListener(config.ReaderOf(&net.TCPAddr{Port: 0})), func(ctx context.Context, ln *net.TCPListener) (net.Listener, error) {
+				return ln, nil
+			}),
+			options: []ServerOption{
+				DisableGeneralOptionsHandler(config.ReaderOf(false)),
+				ReadTimeout(config.ReaderOf(20 * time.Second)),
+				ReadHeaderTimeout(config.ReaderOf(5 * time.Second)),
+				WriteTimeout(config.ReaderOf(30 * time.Second)),
+				IdleTimeout(config.ReaderOf(180 * time.Second)),
+				MaxHeaderBytes(config.ReaderOf(1048576)),
+			},
 			handlerFunc: func() bedrock.Builder[http.Handler] {
 				return bedrock.BuilderFunc[http.Handler](func(ctx context.Context) (http.Handler, error) {
 					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
@@ -344,10 +189,17 @@ func TestBuild(t *testing.T) {
 		},
 		{
 			name: "applies custom MaxHeaderBytes",
-			server: NewServer(
-				NewTCPListener(Addr(config.ReaderOf(":0"))),
+			listener: bedrock.Map(BuildTCPListener(config.ReaderOf(&net.TCPAddr{Port: 0})), func(ctx context.Context, ln *net.TCPListener) (net.Listener, error) {
+				return ln, nil
+			}),
+			options: []ServerOption{
+				DisableGeneralOptionsHandler(config.ReaderOf(false)),
+				ReadTimeout(config.ReaderOf(5 * time.Second)),
+				ReadHeaderTimeout(config.ReaderOf(2 * time.Second)),
+				WriteTimeout(config.ReaderOf(10 * time.Second)),
+				IdleTimeout(config.ReaderOf(120 * time.Second)),
 				MaxHeaderBytes(config.ReaderOf(2097152)),
-			),
+			},
 			handlerFunc: func() bedrock.Builder[http.Handler] {
 				return bedrock.BuilderFunc[http.Handler](func(ctx context.Context) (http.Handler, error) {
 					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
@@ -360,10 +212,17 @@ func TestBuild(t *testing.T) {
 		},
 		{
 			name: "applies custom DisableGeneralOptionsHandler",
-			server: NewServer(
-				NewTCPListener(Addr(config.ReaderOf(":0"))),
+			listener: bedrock.Map(BuildTCPListener(config.ReaderOf(&net.TCPAddr{Port: 0})), func(ctx context.Context, ln *net.TCPListener) (net.Listener, error) {
+				return ln, nil
+			}),
+			options: []ServerOption{
 				DisableGeneralOptionsHandler(config.ReaderOf(true)),
-			),
+				ReadTimeout(config.ReaderOf(5 * time.Second)),
+				ReadHeaderTimeout(config.ReaderOf(2 * time.Second)),
+				WriteTimeout(config.ReaderOf(10 * time.Second)),
+				IdleTimeout(config.ReaderOf(120 * time.Second)),
+				MaxHeaderBytes(config.ReaderOf(1048576)),
+			},
 			handlerFunc: func() bedrock.Builder[http.Handler] {
 				return bedrock.BuilderFunc[http.Handler](func(ctx context.Context) (http.Handler, error) {
 					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
@@ -378,7 +237,7 @@ func TestBuild(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			runtimeBuilder := Build(tc.server, tc.handlerFunc())
+			runtimeBuilder := Build(tc.listener, tc.handlerFunc(), tc.options...)
 
 			ctx := context.Background()
 			rt, err := runtimeBuilder.Build(ctx)
@@ -397,19 +256,17 @@ func TestBuild(t *testing.T) {
 	}
 }
 
-func TestTLSListener(t *testing.T) {
+func TestBuildTLSListener(t *testing.T) {
 	t.Run("wraps listener with TLS config", func(t *testing.T) {
-		baseListener := NewTCPListener(Addr(config.ReaderOf(":0")))
+		baseListener := BuildTCPListener(config.ReaderOf(&net.TCPAddr{Port: 0}))
 		tlsConfig := config.ReaderOf(createTestTLSConfig(t))
 
-		tlsListener := TLSListener(baseListener, tlsConfig)
+		tlsListenerBuilder := BuildTLSListener(baseListener, tlsConfig)
 
 		ctx := context.Background()
-		val, err := tlsListener.Read(ctx)
+		ln, err := tlsListenerBuilder.Build(ctx)
 		require.NoError(t, err)
 
-		ln, isSet := val.Value()
-		require.True(t, isSet)
 		require.NotNil(t, ln)
 		require.NotNil(t, ln.Addr())
 
@@ -419,13 +276,10 @@ func TestTLSListener(t *testing.T) {
 
 func TestRuntime_Run(t *testing.T) {
 	t.Run("serves HTTP requests", func(t *testing.T) {
-		// Create listener config
-		listener := NewTCPListener(
-			Addr(config.ReaderOf(":0")),
-		)
-
-		// Create server
-		server := NewServer(listener)
+		// Create listener builder
+		listenerBuilder := bedrock.Map(BuildTCPListener(config.ReaderOf(&net.TCPAddr{Port: 0})), func(ctx context.Context, ln *net.TCPListener) (net.Listener, error) {
+			return ln, nil
+		})
 
 		// Create handler builder
 		handlerBuilder := bedrock.BuilderFunc[http.Handler](func(ctx context.Context) (http.Handler, error) {
@@ -435,7 +289,14 @@ func TestRuntime_Run(t *testing.T) {
 		})
 
 		// Build runtime using Build() function
-		runtimeBuilder := Build(server, handlerBuilder)
+		runtimeBuilder := Build(listenerBuilder, handlerBuilder,
+			DisableGeneralOptionsHandler(config.ReaderOf(false)),
+			ReadTimeout(config.ReaderOf(5*time.Second)),
+			ReadHeaderTimeout(config.ReaderOf(2*time.Second)),
+			WriteTimeout(config.ReaderOf(10*time.Second)),
+			IdleTimeout(config.ReaderOf(120*time.Second)),
+			MaxHeaderBytes(config.ReaderOf(1048576)),
+		)
 
 		// Build the runtime
 		ctx := context.Background()
@@ -476,8 +337,9 @@ func TestRuntime_Run(t *testing.T) {
 	})
 
 	t.Run("handles multiple concurrent requests", func(t *testing.T) {
-		listener := NewTCPListener(Addr(config.ReaderOf(":0")))
-		server := NewServer(listener)
+		listenerBuilder := bedrock.Map(BuildTCPListener(config.ReaderOf(&net.TCPAddr{Port: 0})), func(ctx context.Context, ln *net.TCPListener) (net.Listener, error) {
+			return ln, nil
+		})
 
 		var requestCount atomic.Int32
 		handlerBuilder := bedrock.BuilderFunc[http.Handler](func(ctx context.Context) (http.Handler, error) {
@@ -487,7 +349,14 @@ func TestRuntime_Run(t *testing.T) {
 			}), nil
 		})
 
-		runtimeBuilder := Build(server, handlerBuilder)
+		runtimeBuilder := Build(listenerBuilder, handlerBuilder,
+			DisableGeneralOptionsHandler(config.ReaderOf(false)),
+			ReadTimeout(config.ReaderOf(5*time.Second)),
+			ReadHeaderTimeout(config.ReaderOf(2*time.Second)),
+			WriteTimeout(config.ReaderOf(10*time.Second)),
+			IdleTimeout(config.ReaderOf(120*time.Second)),
+			MaxHeaderBytes(config.ReaderOf(1048576)),
+		)
 		ctx := context.Background()
 		runtime, err := runtimeBuilder.Build(ctx)
 		require.NoError(t, err)
@@ -539,8 +408,9 @@ func TestRuntime_Run(t *testing.T) {
 	})
 
 	t.Run("graceful shutdown on context cancel", func(t *testing.T) {
-		listener := NewTCPListener(Addr(config.ReaderOf(":0")))
-		server := NewServer(listener)
+		listenerBuilder := bedrock.Map(BuildTCPListener(config.ReaderOf(&net.TCPAddr{Port: 0})), func(ctx context.Context, ln *net.TCPListener) (net.Listener, error) {
+			return ln, nil
+		})
 
 		shutdownCalled := make(chan struct{})
 		handlerBuilder := bedrock.BuilderFunc[http.Handler](func(ctx context.Context) (http.Handler, error) {
@@ -550,7 +420,14 @@ func TestRuntime_Run(t *testing.T) {
 			}), nil
 		})
 
-		runtimeBuilder := Build(server, handlerBuilder)
+		runtimeBuilder := Build(listenerBuilder, handlerBuilder,
+			DisableGeneralOptionsHandler(config.ReaderOf(false)),
+			ReadTimeout(config.ReaderOf(5*time.Second)),
+			ReadHeaderTimeout(config.ReaderOf(2*time.Second)),
+			WriteTimeout(config.ReaderOf(10*time.Second)),
+			IdleTimeout(config.ReaderOf(120*time.Second)),
+			MaxHeaderBytes(config.ReaderOf(1048576)),
+		)
 		ctx := context.Background()
 		runtime, err := runtimeBuilder.Build(ctx)
 		require.NoError(t, err)
@@ -601,14 +478,22 @@ func TestRuntime_Run(t *testing.T) {
 	})
 
 	t.Run("suppresses context.Canceled error", func(t *testing.T) {
-		listener := NewTCPListener(Addr(config.ReaderOf(":0")))
-		server := NewServer(listener)
+		listenerBuilder := bedrock.Map(BuildTCPListener(config.ReaderOf(&net.TCPAddr{Port: 0})), func(ctx context.Context, ln *net.TCPListener) (net.Listener, error) {
+			return ln, nil
+		})
 
 		handlerBuilder := bedrock.BuilderFunc[http.Handler](func(ctx context.Context) (http.Handler, error) {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), nil
 		})
 
-		runtimeBuilder := Build(server, handlerBuilder)
+		runtimeBuilder := Build(listenerBuilder, handlerBuilder,
+			DisableGeneralOptionsHandler(config.ReaderOf(false)),
+			ReadTimeout(config.ReaderOf(5*time.Second)),
+			ReadHeaderTimeout(config.ReaderOf(2*time.Second)),
+			WriteTimeout(config.ReaderOf(10*time.Second)),
+			IdleTimeout(config.ReaderOf(120*time.Second)),
+			MaxHeaderBytes(config.ReaderOf(1048576)),
+		)
 		ctx := context.Background()
 		runtime, err := runtimeBuilder.Build(ctx)
 		require.NoError(t, err)
