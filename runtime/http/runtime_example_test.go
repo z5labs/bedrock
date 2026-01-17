@@ -64,7 +64,7 @@ func Example() {
 		errCh <- err
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+ls.Addr().String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+ls.Addr().String(), nil)
 	if err != nil {
 		fmt.Println(err)
 		return
