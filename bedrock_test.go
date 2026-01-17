@@ -102,11 +102,11 @@ func TestBuilderFunc_Build(t *testing.T) {
 
 func TestMap(t *testing.T) {
 	testCases := []struct {
-		name        string
-		builder     Builder[int]
-		mapper      func(int) (string, error)
-		expectedVal string
-		expectErr   bool
+		name               string
+		builder            Builder[int]
+		mapper             func(int) (string, error)
+		expectedVal        string
+		expectErr          bool
 		expectMapperCalled bool
 	}{
 		{
@@ -117,7 +117,7 @@ func TestMap(t *testing.T) {
 			mapper: func(i int) (string, error) {
 				return fmt.Sprintf("%d", i), nil
 			},
-			expectedVal: "42",
+			expectedVal:        "42",
 			expectMapperCalled: true,
 		},
 		{
@@ -128,7 +128,7 @@ func TestMap(t *testing.T) {
 			mapper: func(i int) (string, error) {
 				return "should not be called", nil
 			},
-			expectErr: true,
+			expectErr:          true,
 			expectMapperCalled: false,
 		},
 		{
@@ -139,7 +139,7 @@ func TestMap(t *testing.T) {
 			mapper: func(i int) (string, error) {
 				return "", errors.New("mapper failed")
 			},
-			expectErr: true,
+			expectErr:          true,
 			expectMapperCalled: true,
 		},
 		{
@@ -150,7 +150,7 @@ func TestMap(t *testing.T) {
 			mapper: func(i int) (string, error) {
 				return fmt.Sprintf("value:%d", i), nil
 			},
-			expectedVal: "value:100",
+			expectedVal:        "value:100",
 			expectMapperCalled: true,
 		},
 		{
@@ -161,8 +161,8 @@ func TestMap(t *testing.T) {
 			mapper: func(i int) (string, error) {
 				return "not called", nil
 			},
-			expectedVal: "",
-			expectErr: true,
+			expectedVal:        "",
+			expectErr:          true,
 			expectMapperCalled: false,
 		},
 		{
@@ -176,7 +176,7 @@ func TestMap(t *testing.T) {
 			mapper: func(i int) (string, error) {
 				return fmt.Sprintf("%d", i), nil
 			},
-			expectedVal: "7",
+			expectedVal:        "7",
 			expectMapperCalled: true,
 		},
 	}
@@ -184,7 +184,7 @@ func TestMap(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mapperCalled := false
-			wrappedMapper := func(i int) (string, error) {
+			wrappedMapper := func(ctx context.Context, i int) (string, error) {
 				mapperCalled = true
 				return tc.mapper(i)
 			}
@@ -207,11 +207,11 @@ func TestMap(t *testing.T) {
 
 func TestBind(t *testing.T) {
 	testCases := []struct {
-		name        string
-		builder     Builder[string]
-		binder      func(string) Builder[int]
-		expectedVal int
-		expectErr   bool
+		name               string
+		builder            Builder[string]
+		binder             func(string) Builder[int]
+		expectedVal        int
+		expectErr          bool
 		expectBinderCalled bool
 	}{
 		{
@@ -227,7 +227,7 @@ func TestBind(t *testing.T) {
 					return 0, errors.New("unexpected key")
 				})
 			},
-			expectedVal: 42,
+			expectedVal:        42,
 			expectBinderCalled: true,
 		},
 		{
@@ -240,7 +240,7 @@ func TestBind(t *testing.T) {
 					return 99, errors.New("should not be called")
 				})
 			},
-			expectErr: true,
+			expectErr:          true,
 			expectBinderCalled: false,
 		},
 		{
@@ -253,7 +253,7 @@ func TestBind(t *testing.T) {
 					return 0, errors.New("second builder failed")
 				})
 			},
-			expectErr: true,
+			expectErr:          true,
 			expectBinderCalled: true,
 		},
 		{
@@ -269,7 +269,7 @@ func TestBind(t *testing.T) {
 					return 0, errors.New("binder received wrong value")
 				})
 			},
-			expectedVal: 123,
+			expectedVal:        123,
 			expectBinderCalled: true,
 		},
 		{
@@ -285,7 +285,7 @@ func TestBind(t *testing.T) {
 					return 77, nil
 				})
 			},
-			expectedVal: 77,
+			expectedVal:        77,
 			expectBinderCalled: true,
 		},
 		{
@@ -298,8 +298,8 @@ func TestBind(t *testing.T) {
 					return 999, nil
 				})
 			},
-			expectedVal: 0,
-			expectErr: true,
+			expectedVal:        0,
+			expectErr:          true,
 			expectBinderCalled: false,
 		},
 	}
@@ -307,7 +307,7 @@ func TestBind(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			binderCalled := false
-			wrappedBinder := func(s string) Builder[int] {
+			wrappedBinder := func(ctx context.Context, s string) Builder[int] {
 				binderCalled = true
 				return tc.binder(s)
 			}
@@ -512,10 +512,10 @@ func TestDefaultRunner(t *testing.T) {
 
 func TestNotifyOnSignal(t *testing.T) {
 	testCases := []struct {
-		name      string
-		builder   Builder[Runtime]
-		signals   []os.Signal
-		expectErr bool
+		name           string
+		builder        Builder[Runtime]
+		signals        []os.Signal
+		expectErr      bool
 		skipSignalTest bool
 	}{
 		{
@@ -534,7 +534,7 @@ func TestNotifyOnSignal(t *testing.T) {
 					return errors.New("runtime failed")
 				}), nil
 			}),
-			signals: []os.Signal{os.Interrupt},
+			signals:   []os.Signal{os.Interrupt},
 			expectErr: true,
 		},
 		{
@@ -560,7 +560,7 @@ func TestNotifyOnSignal(t *testing.T) {
 					return ctx.Err()
 				}), nil
 			}),
-			signals: []os.Signal{os.Interrupt},
+			signals:   []os.Signal{os.Interrupt},
 			expectErr: true,
 		},
 		{
@@ -732,7 +732,7 @@ func TestRecoverPanics(t *testing.T) {
 					panic("test panic")
 				}), nil
 			}),
-			expectErr: true,
+			expectErr:   true,
 			errorSubstr: "recovered from panic: test panic",
 		},
 		{
@@ -742,7 +742,7 @@ func TestRecoverPanics(t *testing.T) {
 					panic(errors.New("panic error"))
 				}), nil
 			}),
-			expectErr: true,
+			expectErr:   true,
 			errorSubstr: "recovered from panic:",
 		},
 		{
@@ -752,17 +752,18 @@ func TestRecoverPanics(t *testing.T) {
 					panic(42)
 				}), nil
 			}),
-			expectErr: true,
+			expectErr:   true,
 			errorSubstr: "recovered from panic: 42",
 		},
 		{
 			name: "recovers from panic with nil",
 			builder: BuilderFunc[Runtime](func(ctx context.Context) (Runtime, error) {
 				return RuntimeFunc(func(ctx context.Context) error {
+					//nolint:nilness // Intentionally testing panic(nil) behavior
 					panic(nil)
 				}), nil
 			}),
-			expectErr: true,
+			expectErr:   true,
 			errorSubstr: "recovered from panic:",
 		},
 		{
@@ -786,7 +787,7 @@ func TestRecoverPanics(t *testing.T) {
 					panic("should be caught")
 				}), nil
 			}),
-			expectErr: true,
+			expectErr:   true,
 			errorSubstr: "recovered from panic: should be caught",
 		},
 	}
