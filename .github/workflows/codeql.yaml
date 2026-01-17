@@ -12,11 +12,9 @@ on:
   pull_request:
     branches:
       - "main"
-    paths:
-      - '**.go'
 
   schedule:
-    - cron: '34 11 * * 3'
+    - cron: '00 00 * * *'
 
 jobs:
   analyze:
