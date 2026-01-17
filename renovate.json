@@ -14,6 +14,11 @@
     ],
     "packageRules": [
         {
+            "description": "Automerge non-major updates",
+            "matchUpdateTypes": ["minor", "patch"],
+            "automerge": true
+        },
+        {
             "matchManagers": [
                 "gomod"
             ],
@@ -21,6 +26,49 @@
                 "indirect"
             ],
             "enabled": true
+        },
+        {
+            "groupName": "opentelemetry-go and opentelemetry-go-contrib monorepos",
+            "matchSourceUrls": [
+                "https://github.com/open-telemetry/opentelemetry-go",
+                "https://github.com/open-telemetry/opentelemetry-go-contrib"
+            ],
+            "matchUpdateTypes": [
+                "digest",
+                "patch",
+                "minor",
+                "major"
+            ]
+        },
+        {
+            "groupName": "google.golang.org/genproto/googleapis monorepo",
+            "matchDatasources": [
+                "go"
+            ],
+            "matchPackageNames": [
+                "google.golang.org/genproto/googleapis/**"
+            ],
+            "matchUpdateTypes": [
+                "digest",
+                "patch",
+                "minor",
+                "major"
+            ]
+        },
+        {
+            "groupName": "golang.org/x monorepo",
+            "matchDatasources": [
+                "go"
+            ],
+            "matchPackageNames": [
+                "golang.org/x/**"
+            ],
+            "matchUpdateTypes": [
+                "digest",
+                "patch",
+                "minor",
+                "major"
+            ]
         }
     ],
     "postUpdateOptions": [
