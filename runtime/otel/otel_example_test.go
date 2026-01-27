@@ -33,7 +33,7 @@ func Example() {
 		return res, nil
 	}))
 
-	// STDOUT is only be used for example purposes. In production, use OTLP or other exporters.
+	// STDOUT should only be used for example purposes. In production, use OTLP or other exporters.
 	stdoutB := bedrock.MemoizeBuilder(bedrock.BuilderOf(os.Stdout))
 
 	tracerProviderB := BuildTracerProvider(

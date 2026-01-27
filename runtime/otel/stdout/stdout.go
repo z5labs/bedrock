@@ -17,6 +17,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 )
 
+// BuildSpanExporter returns a Builder that creates a span exporter which writes
+// trace data to the provided io.Writer in a human-readable format.
 func BuildSpanExporter[W io.Writer](writerB bedrock.Builder[W]) bedrock.BuilderFunc[*stdouttrace.Exporter] {
 	return func(ctx context.Context) (*stdouttrace.Exporter, error) {
 		return stdouttrace.New(
@@ -25,6 +27,8 @@ func BuildSpanExporter[W io.Writer](writerB bedrock.Builder[W]) bedrock.BuilderF
 	}
 }
 
+// BuildMetricExporter returns a Builder that creates a metric exporter which writes
+// metric data to the provided io.Writer in a human-readable format.
 func BuildMetricExporter[W io.Writer](writerB bedrock.Builder[W]) bedrock.BuilderFunc[metric.Exporter] {
 	return func(ctx context.Context) (metric.Exporter, error) {
 		return stdoutmetric.New(
@@ -33,6 +37,8 @@ func BuildMetricExporter[W io.Writer](writerB bedrock.Builder[W]) bedrock.Builde
 	}
 }
 
+// BuildLogExporter returns a Builder that creates a log exporter which writes
+// log records to the provided io.Writer in a human-readable format.
 func BuildLogExporter[W io.Writer](writerB bedrock.Builder[W]) bedrock.BuilderFunc[*stdoutlog.Exporter] {
 	return func(ctx context.Context) (*stdoutlog.Exporter, error) {
 		return stdoutlog.New(

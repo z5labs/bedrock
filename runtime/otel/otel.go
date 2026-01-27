@@ -24,6 +24,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// BuildTraceIDRatioBasedSampler returns a Builder that creates a trace sampler based on
+// the trace ID. The ratio parameter determines the fraction of traces to sample, where
+// 0.0 samples no traces and 1.0 samples all traces.
 func BuildTraceIDRatioBasedSampler(ratio config.Reader[float64]) bedrock.Builder[sdktrace.Sampler] {
 	return bedrock.BuilderFunc[sdktrace.Sampler](func(ctx context.Context) (sdktrace.Sampler, error) {
 		sampler := sdktrace.TraceIDRatioBased(config.Must(ctx, ratio))
@@ -32,6 +35,9 @@ func BuildTraceIDRatioBasedSampler(ratio config.Reader[float64]) bedrock.Builder
 	})
 }
 
+// BuildBatchSpanProcessor returns a Builder that creates a span processor which batches
+// spans before exporting them using the provided exporter. Batching improves efficiency
+// by reducing the number of export calls.
 func BuildBatchSpanProcessor[E sdktrace.SpanExporter](
 	exporterBuilder bedrock.Builder[E],
 	// TODO: add options
@@ -45,6 +51,9 @@ func BuildBatchSpanProcessor[E sdktrace.SpanExporter](
 	})
 }
 
+// BuildTracerProvider returns a Builder that creates a TracerProvider configured with
+// the provided resource, sampler, and span processor. The TracerProvider is the entry
+// point for the tracing API and manages Tracer instances.
 func BuildTracerProvider[S sdktrace.Sampler, P sdktrace.SpanProcessor](
 	resourceBuilder bedrock.Builder[*resource.Resource],
 	samplerBuilder bedrock.Builder[S],
@@ -61,6 +70,9 @@ func BuildTracerProvider[S sdktrace.Sampler, P sdktrace.SpanProcessor](
 	})
 }
 
+// BuildPeriodicReader returns a Builder that creates a metric reader which periodically
+// exports metrics using the provided exporter. The reader collects and exports metrics
+// at regular intervals.
 func BuildPeriodicReader[E sdkmetric.Exporter](
 	exporterBuilder bedrock.Builder[E],
 	// TODO: add options
@@ -74,6 +86,9 @@ func BuildPeriodicReader[E sdkmetric.Exporter](
 	})
 }
 
+// BuildMeterProvider returns a Builder that creates a MeterProvider configured with
+// the provided resource and reader. The MeterProvider is the entry point for the
+// metrics API and manages Meter instances.
 func BuildMeterProvider[R sdkmetric.Reader](
 	resourceBuilder bedrock.Builder[*resource.Resource],
 	readerBuilder bedrock.Builder[R],
@@ -88,6 +103,9 @@ func BuildMeterProvider[R sdkmetric.Reader](
 	})
 }
 
+// BuildBatchLogProcessor returns a Builder that creates a log processor which batches
+// log records before exporting them using the provided exporter. Batching improves
+// efficiency by reducing the number of export calls.
 func BuildBatchLogProcessor[E sdklog.Exporter](
 	exporterBuilder bedrock.Builder[E],
 	// TODO: add options
@@ -101,6 +119,9 @@ func BuildBatchLogProcessor[E sdklog.Exporter](
 	})
 }
 
+// BuildLoggerProvider returns a Builder that creates a LoggerProvider configured with
+// the provided resource and processor. The LoggerProvider is the entry point for the
+// logging API and manages Logger instances.
 func BuildLoggerProvider[P sdklog.Processor](
 	resourceBuilder bedrock.Builder[*resource.Resource],
 	processorBuilder bedrock.Builder[P],
@@ -115,6 +136,9 @@ func BuildLoggerProvider[P sdklog.Processor](
 	})
 }
 
+// Runtime wraps a bedrock.Runtime with OpenTelemetry providers for tracing, metrics,
+// and logging. When Run is called, it registers the providers globally and ensures
+// they are properly shut down when the wrapped runtime completes.
 type Runtime[
 	T trace.TracerProvider,
 	M metric.MeterProvider,
@@ -128,6 +152,9 @@ type Runtime[
 	runtime           R
 }
 
+// BuildRuntime returns a Builder that creates a Runtime wrapping the provided runtime
+// with OpenTelemetry providers. The text map propagator is used for context propagation
+// across service boundaries.
 func BuildRuntime[
 	T trace.TracerProvider,
 	M metric.MeterProvider,
@@ -161,6 +188,9 @@ type shutdownInterface interface {
 	Shutdown(ctx context.Context) error
 }
 
+// Run registers the OpenTelemetry providers globally, executes the wrapped runtime,
+// and shuts down all providers when complete. Provider shutdown errors are joined
+// with any error from the wrapped runtime.
 func (r Runtime[T, M, L, R]) Run(ctx context.Context) (err error) {
 	shutdownFuncs := make([]func(context.Context) error, 3)
 

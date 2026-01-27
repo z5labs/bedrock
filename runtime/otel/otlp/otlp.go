@@ -22,6 +22,9 @@ import (
 	"google.golang.org/grpc"
 )
 
+// BuildGrpcSpanExporter returns a Builder that creates an OTLP span exporter using
+// gRPC transport. The exporter sends trace data to an OTLP-compatible collector
+// over the provided gRPC connection.
 func BuildGrpcSpanExporter(grpcConnB bedrock.Builder[*grpc.ClientConn]) bedrock.BuilderFunc[*otlptrace.Exporter] {
 	return func(ctx context.Context) (*otlptrace.Exporter, error) {
 		return otlptracegrpc.New(
@@ -31,6 +34,9 @@ func BuildGrpcSpanExporter(grpcConnB bedrock.Builder[*grpc.ClientConn]) bedrock.
 	}
 }
 
+// BuildHttpSpanExporter returns a Builder that creates an OTLP span exporter using
+// HTTP transport. The exporter sends trace data to the specified endpoint using
+// the provided HTTP client.
 func BuildHttpSpanExporter(
 	endpoint config.Reader[string],
 	httpClientB bedrock.Builder[*http.Client],
@@ -44,6 +50,9 @@ func BuildHttpSpanExporter(
 	}
 }
 
+// BuildGrpcMetricExporter returns a Builder that creates an OTLP metric exporter using
+// gRPC transport. The exporter sends metric data to an OTLP-compatible collector
+// over the provided gRPC connection.
 func BuildGrpcMetricExporter(grpcConnB bedrock.Builder[*grpc.ClientConn]) bedrock.BuilderFunc[*otlpmetricgrpc.Exporter] {
 	return func(ctx context.Context) (*otlpmetricgrpc.Exporter, error) {
 		return otlpmetricgrpc.New(
@@ -53,6 +62,9 @@ func BuildGrpcMetricExporter(grpcConnB bedrock.Builder[*grpc.ClientConn]) bedroc
 	}
 }
 
+// BuildHttpMetricExporter returns a Builder that creates an OTLP metric exporter using
+// HTTP transport. The exporter sends metric data to the specified endpoint using
+// the provided HTTP client.
 func BuildHttpMetricExporter(
 	endpoint config.Reader[string],
 	httpClientB bedrock.Builder[*http.Client],
@@ -66,6 +78,9 @@ func BuildHttpMetricExporter(
 	}
 }
 
+// BuildGrpcLogExporter returns a Builder that creates an OTLP log exporter using
+// gRPC transport. The exporter sends log records to an OTLP-compatible collector
+// over the provided gRPC connection.
 func BuildGrpcLogExporter(grpcConnB bedrock.Builder[*grpc.ClientConn]) bedrock.BuilderFunc[*otlploggrpc.Exporter] {
 	return func(ctx context.Context) (*otlploggrpc.Exporter, error) {
 		return otlploggrpc.New(
@@ -75,6 +90,9 @@ func BuildGrpcLogExporter(grpcConnB bedrock.Builder[*grpc.ClientConn]) bedrock.B
 	}
 }
 
+// BuildHttpLogExporter returns a Builder that creates an OTLP log exporter using
+// HTTP transport. The exporter sends log records to the specified endpoint using
+// the provided HTTP client.
 func BuildHttpLogExporter(
 	endpoint config.Reader[string],
 	httpClientB bedrock.Builder[*http.Client],
