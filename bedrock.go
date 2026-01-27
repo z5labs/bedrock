@@ -41,6 +41,24 @@ func MustBuild[T any](ctx context.Context, builder Builder[T]) T {
 	return value
 }
 
+// MemoizeBuilder wraps a Builder to cache its result after the first build.
+func MemoizeBuilder[T any](builder Builder[T]) Builder[T] {
+	var (
+		cachedValue T
+		cachedErr   error
+		cached      bool
+	)
+	return BuilderFunc[T](func(ctx context.Context) (T, error) {
+		if cached {
+			return cachedValue, cachedErr
+		}
+
+		cachedValue, cachedErr = builder.Build(ctx)
+		cached = true
+		return cachedValue, cachedErr
+	})
+}
+
 // Map transforms the output of a Builder using the provided mapper function.
 func Map[A, B any](builder Builder[A], mapper func(context.Context, A) (B, error)) Builder[B] {
 	return BuilderFunc[B](func(ctx context.Context) (B, error) {

@@ -45,6 +45,73 @@ func quiesce() {
 	}
 }
 
+func TestMemoizeBuilder(t *testing.T) {
+	t.Run("invokes inner builder only once", func(t *testing.T) {
+		callCount := 0
+		inner := BuilderFunc[int](func(ctx context.Context) (int, error) {
+			callCount++
+			return 42, nil
+		})
+
+		memoized := MemoizeBuilder(inner)
+
+		// Call Build multiple times
+		val1, err1 := memoized.Build(context.Background())
+		require.NoError(t, err1)
+		require.Equal(t, 42, val1)
+
+		val2, err2 := memoized.Build(context.Background())
+		require.NoError(t, err2)
+		require.Equal(t, 42, val2)
+
+		val3, err3 := memoized.Build(context.Background())
+		require.NoError(t, err3)
+		require.Equal(t, 42, val3)
+
+		require.Equal(t, 1, callCount, "inner builder should only be called once")
+	})
+
+	t.Run("caches error from inner builder", func(t *testing.T) {
+		callCount := 0
+		expectedErr := errors.New("build failed")
+		inner := BuilderFunc[int](func(ctx context.Context) (int, error) {
+			callCount++
+			return 0, expectedErr
+		})
+
+		memoized := MemoizeBuilder(inner)
+
+		_, err1 := memoized.Build(context.Background())
+		require.ErrorIs(t, err1, expectedErr)
+
+		_, err2 := memoized.Build(context.Background())
+		require.ErrorIs(t, err2, expectedErr)
+
+		require.Equal(t, 1, callCount, "inner builder should only be called once even on error")
+	})
+
+	t.Run("caches value and error together", func(t *testing.T) {
+		callCount := 0
+		expectedErr := errors.New("partial error")
+		inner := BuilderFunc[int](func(ctx context.Context) (int, error) {
+			callCount++
+			return 99, expectedErr
+		})
+
+		memoized := MemoizeBuilder(inner)
+
+		val1, err1 := memoized.Build(context.Background())
+		require.ErrorIs(t, err1, expectedErr)
+		require.Equal(t, 99, val1)
+
+		val2, err2 := memoized.Build(context.Background())
+		require.ErrorIs(t, err2, expectedErr)
+		require.Equal(t, 99, val2)
+
+		require.Equal(t, 1, callCount, "inner builder should only be called once")
+	})
+}
+
 func TestBuilderFunc_Build(t *testing.T) {
 	testCases := []struct {
 		name        string
