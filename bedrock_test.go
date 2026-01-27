@@ -12,6 +12,8 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -109,6 +111,45 @@ func TestMemoizeBuilder(t *testing.T) {
 		require.Equal(t, 99, val2)
 
 		require.Equal(t, 1, callCount, "inner builder should only be called once")
+	})
+
+	t.Run("is safe for concurrent use", func(t *testing.T) {
+		var callCount atomic.Int32
+		inner := BuilderFunc[int](func(ctx context.Context) (int, error) {
+			callCount.Add(1)
+			return 42, nil
+		})
+
+		memoized := MemoizeBuilder(inner)
+
+		const numGoroutines = 100
+		var wg sync.WaitGroup
+		wg.Add(numGoroutines)
+
+		results := make([]int, numGoroutines)
+		errs := make([]error, numGoroutines)
+
+		// Start all goroutines at roughly the same time
+		start := make(chan struct{})
+		for i := range numGoroutines {
+			go func(idx int) {
+				defer wg.Done()
+				<-start // Wait for signal to start
+				results[idx], errs[idx] = memoized.Build(context.Background())
+			}(i)
+		}
+
+		close(start) // Signal all goroutines to start
+		wg.Wait()
+
+		// Verify inner builder was only called once
+		require.Equal(t, int32(1), callCount.Load(), "inner builder should only be called once")
+
+		// Verify all goroutines got the same result
+		for i := range numGoroutines {
+			require.NoError(t, errs[i], "goroutine %d should not have error", i)
+			require.Equal(t, 42, results[i], "goroutine %d should get cached value", i)
+		}
 	})
 }
 
