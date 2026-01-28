@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 )
 
 // Builder is a generic interface for building application components.
@@ -39,6 +40,22 @@ func MustBuild[T any](ctx context.Context, builder Builder[T]) T {
 		panic(err)
 	}
 	return value
+}
+
+// MemoizeBuilder wraps a Builder to cache its result after the first build.
+// It is safe for concurrent use.
+func MemoizeBuilder[T any](builder Builder[T]) Builder[T] {
+	var (
+		cachedValue T
+		cachedErr   error
+		once        sync.Once
+	)
+	return BuilderFunc[T](func(ctx context.Context) (T, error) {
+		once.Do(func() {
+			cachedValue, cachedErr = builder.Build(ctx)
+		})
+		return cachedValue, cachedErr
+	})
 }
 
 // Map transforms the output of a Builder using the provided mapper function.
