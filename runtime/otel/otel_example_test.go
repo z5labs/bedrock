@@ -8,11 +8,10 @@ package otel
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/config"
-	"github.com/z5labs/bedrock/runtime/otel/stdout"
+	"github.com/z5labs/bedrock/runtime/otel/noop"
 
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -33,30 +32,27 @@ func Example() {
 		return res, nil
 	}))
 
-	// STDOUT should only be used for example purposes. In production, use OTLP or other exporters.
-	stdoutB := bedrock.MemoizeBuilder(bedrock.BuilderOf(os.Stdout))
-
 	tracerProviderB := BuildTracerProvider(
 		resourceB,
 		BuildTraceIDRatioBasedSampler(
 			config.ReaderOf(1.0),
 		),
 		BuildBatchSpanProcessor(
-			stdout.BuildSpanExporter(stdoutB),
+			noop.BuildSpanExporter(),
 		),
 	)
 
 	meterProviderB := BuildMeterProvider(
 		resourceB,
 		BuildPeriodicReader(
-			stdout.BuildMetricExporter(stdoutB),
+			noop.BuildMetricExporter(),
 		),
 	)
 
 	loggerProviderB := BuildLoggerProvider(
 		resourceB,
 		BuildBatchLogProcessor(
-			stdout.BuildLogExporter(stdoutB),
+			noop.BuildLogExporter(),
 		),
 	)
 

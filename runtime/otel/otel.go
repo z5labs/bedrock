@@ -217,7 +217,7 @@ func (r Runtime[T, M, L, R]) Run(ctx context.Context) (err error) {
 			if shutdown == nil {
 				continue
 			}
-			shutdownErrs[i] = shutdown(ctx)
+			shutdownErrs[i] = shutdown(context.Background())
 		}
 		err = errors.Join(err, errors.Join(shutdownErrs...))
 	}()
