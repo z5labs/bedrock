@@ -8,6 +8,7 @@ package otel
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/config"
@@ -136,6 +137,23 @@ func BuildLoggerProvider[P sdklog.Processor](
 	})
 }
 
+// RuntimeOptions holds configuration options for the OpenTelemetry runtime wrapper
+type RuntimeOptions struct {
+	shutdownGracePeriod time.Duration
+}
+
+// RuntimeOption defines a function type for configuring RuntimeOptions
+type RuntimeOption func(*RuntimeOptions)
+
+// ShutdownGracePeriod sets the duration to wait for OpenTelemetry providers to shut down.
+//
+// Default is 30 seconds.
+func ShutdownGracePeriod(d time.Duration) RuntimeOption {
+	return func(o *RuntimeOptions) {
+		o.shutdownGracePeriod = d
+	}
+}
+
 // Runtime wraps a bedrock.Runtime with OpenTelemetry providers for tracing, metrics,
 // and logging. When Run is called, it registers the providers globally and ensures
 // they are properly shut down when the wrapped runtime completes.
@@ -150,6 +168,8 @@ type Runtime[
 	meterProvider     M
 	loggerProvider    L
 	runtime           R
+
+	shutdownGracePeriod time.Duration
 }
 
 // BuildRuntime returns a Builder that creates a Runtime wrapping the provided runtime
@@ -166,8 +186,17 @@ func BuildRuntime[
 	meterProviderBuilder bedrock.Builder[M],
 	loggerProviderBuilder bedrock.Builder[L],
 	runtimeBuilder bedrock.Builder[R],
+	opts ...RuntimeOption,
 ) bedrock.Builder[Runtime[T, M, L, R]] {
 	return bedrock.BuilderFunc[Runtime[T, M, L, R]](func(ctx context.Context) (Runtime[T, M, L, R], error) {
+		ro := &RuntimeOptions{
+			// 30 seconds aligns with the K8s default terminationGracePeriodSeconds
+			shutdownGracePeriod: 30 * time.Second,
+		}
+		for _, opt := range opts {
+			opt(ro)
+		}
+
 		textMapPropagator := bedrock.MustBuild(ctx, textMapPropagatorBuilder)
 		tracerProvider := bedrock.MustBuild(ctx, tracerProviderBuilder)
 		meterProvider := bedrock.MustBuild(ctx, meterProviderBuilder)
@@ -175,11 +204,12 @@ func BuildRuntime[
 		runtime := bedrock.MustBuild(ctx, runtimeBuilder)
 
 		return Runtime[T, M, L, R]{
-			textMapPropagator: textMapPropagator,
-			tracerProvider:    tracerProvider,
-			meterProvider:     meterProvider,
-			loggerProvider:    loggerProvider,
-			runtime:           runtime,
+			textMapPropagator:   textMapPropagator,
+			tracerProvider:      tracerProvider,
+			meterProvider:       meterProvider,
+			loggerProvider:      loggerProvider,
+			runtime:             runtime,
+			shutdownGracePeriod: ro.shutdownGracePeriod,
 		}, nil
 	})
 }
@@ -212,12 +242,15 @@ func (r Runtime[T, M, L, R]) Run(ctx context.Context) (err error) {
 	}
 
 	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), r.shutdownGracePeriod)
+		defer cancel()
+
 		shutdownErrs := make([]error, 3)
 		for i, shutdown := range shutdownFuncs {
 			if shutdown == nil {
 				continue
 			}
-			shutdownErrs[i] = shutdown(context.Background())
+			shutdownErrs[i] = shutdown(ctx)
 		}
 		err = errors.Join(err, errors.Join(shutdownErrs...))
 	}()

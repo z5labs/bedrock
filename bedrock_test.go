@@ -124,7 +124,6 @@ func TestMemoizeBuilder(t *testing.T) {
 
 		const numGoroutines = 100
 		var wg sync.WaitGroup
-		wg.Add(numGoroutines)
 
 		results := make([]int, numGoroutines)
 		errs := make([]error, numGoroutines)
@@ -132,11 +131,10 @@ func TestMemoizeBuilder(t *testing.T) {
 		// Start all goroutines at roughly the same time
 		start := make(chan struct{})
 		for i := range numGoroutines {
-			go func(idx int) {
-				defer wg.Done()
+			wg.Go(func() {
 				<-start // Wait for signal to start
-				results[idx], errs[idx] = memoized.Build(context.Background())
-			}(i)
+				results[i], errs[i] = memoized.Build(context.Background())
+			})
 		}
 
 		close(start) // Signal all goroutines to start
