@@ -158,11 +158,13 @@ func ShutdownGracePeriod(d time.Duration) RuntimeOption {
 // and logging. When Run is called, it registers the providers globally and ensures
 // they are properly shut down when the wrapped runtime completes.
 type Runtime[
+	E otel.ErrorHandler,
 	T trace.TracerProvider,
 	M metric.MeterProvider,
 	L log.LoggerProvider,
 	R bedrock.Runtime,
 ] struct {
+	errorHandler      E
 	textMapPropagator propagation.TextMapPropagator
 	tracerProvider    T
 	meterProvider     M
@@ -176,19 +178,21 @@ type Runtime[
 // with OpenTelemetry providers. The text map propagator is used for context propagation
 // across service boundaries.
 func BuildRuntime[
+	E otel.ErrorHandler,
 	T trace.TracerProvider,
 	M metric.MeterProvider,
 	L log.LoggerProvider,
 	R bedrock.Runtime,
 ](
+	errorHandler bedrock.Builder[E],
 	textMapPropagatorBuilder bedrock.Builder[propagation.TextMapPropagator],
 	tracerProviderBuilder bedrock.Builder[T],
 	meterProviderBuilder bedrock.Builder[M],
 	loggerProviderBuilder bedrock.Builder[L],
 	runtimeBuilder bedrock.Builder[R],
 	opts ...RuntimeOption,
-) bedrock.Builder[Runtime[T, M, L, R]] {
-	return bedrock.BuilderFunc[Runtime[T, M, L, R]](func(ctx context.Context) (Runtime[T, M, L, R], error) {
+) bedrock.Builder[Runtime[E, T, M, L, R]] {
+	return bedrock.BuilderFunc[Runtime[E, T, M, L, R]](func(ctx context.Context) (Runtime[E, T, M, L, R], error) {
 		ro := &RuntimeOptions{
 			// 30 seconds aligns with the K8s default terminationGracePeriodSeconds
 			shutdownGracePeriod: 30 * time.Second,
@@ -197,13 +201,15 @@ func BuildRuntime[
 			opt(ro)
 		}
 
+		errorHandler := bedrock.MustBuild(ctx, errorHandler)
 		textMapPropagator := bedrock.MustBuild(ctx, textMapPropagatorBuilder)
 		tracerProvider := bedrock.MustBuild(ctx, tracerProviderBuilder)
 		meterProvider := bedrock.MustBuild(ctx, meterProviderBuilder)
 		loggerProvider := bedrock.MustBuild(ctx, loggerProviderBuilder)
 		runtime := bedrock.MustBuild(ctx, runtimeBuilder)
 
-		return Runtime[T, M, L, R]{
+		return Runtime[E, T, M, L, R]{
+			errorHandler:        errorHandler,
 			textMapPropagator:   textMapPropagator,
 			tracerProvider:      tracerProvider,
 			meterProvider:       meterProvider,
@@ -221,8 +227,10 @@ type shutdownInterface interface {
 // Run registers the OpenTelemetry providers globally, executes the wrapped runtime,
 // and shuts down all providers when complete. Provider shutdown errors are joined
 // with any error from the wrapped runtime.
-func (r Runtime[T, M, L, R]) Run(ctx context.Context) (err error) {
+func (r Runtime[E, T, M, L, R]) Run(ctx context.Context) (err error) {
 	shutdownFuncs := make([]func(context.Context) error, 3)
+
+	otel.SetErrorHandler(r.errorHandler)
 
 	otel.SetTextMapPropagator(r.textMapPropagator)
 

@@ -16,6 +16,7 @@ import (
 	"github.com/z5labs/bedrock/runtime/otel/noop"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
@@ -25,6 +26,11 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// mockErrorHandler implements otel.ErrorHandler for testing
+type mockErrorHandler struct{}
+
+func (m mockErrorHandler) Handle(err error) {}
 
 // mockTracerProvider tracks shutdown calls for testing
 type mockTracerProvider struct {
@@ -77,6 +83,11 @@ type noShutdownLoggerProvider struct {
 	log.LoggerProvider
 }
 
+// buildTestErrorHandler creates an ErrorHandler builder for testing
+func buildTestErrorHandler() bedrock.Builder[otel.ErrorHandler] {
+	return bedrock.BuilderOf[otel.ErrorHandler](mockErrorHandler{})
+}
+
 // buildTestResource creates a resource builder for testing
 func buildTestResource() bedrock.Builder[*resource.Resource] {
 	return bedrock.MemoizeBuilder(bedrock.BuilderFunc[*resource.Resource](func(ctx context.Context) (*resource.Resource, error) {
@@ -114,6 +125,7 @@ func TestRuntime_Run(t *testing.T) {
 		resourceB := buildTestResource()
 
 		runtimeB := BuildRuntime(
+			buildTestErrorHandler(),
 			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator(
 				propagation.Baggage{},
 				propagation.TraceContext{},
@@ -138,6 +150,7 @@ func TestRuntime_Run(t *testing.T) {
 		runtimeCalled := false
 
 		runtimeB := BuildRuntime(
+			buildTestErrorHandler(),
 			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator()),
 			buildTestTracerProvider(resourceB),
 			buildTestMeterProvider(resourceB),
@@ -161,6 +174,7 @@ func TestRuntime_Run(t *testing.T) {
 		expectedErr := errors.New("runtime failed")
 
 		runtimeB := BuildRuntime(
+			buildTestErrorHandler(),
 			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator()),
 			buildTestTracerProvider(resourceB),
 			buildTestMeterProvider(resourceB),
@@ -182,6 +196,7 @@ func TestRuntime_Run(t *testing.T) {
 		contextCancelled := false
 
 		runtimeB := BuildRuntime(
+			buildTestErrorHandler(),
 			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator()),
 			buildTestTracerProvider(resourceB),
 			buildTestMeterProvider(resourceB),
@@ -211,7 +226,8 @@ func TestRuntime_Run_Shutdown(t *testing.T) {
 		mockMeter := &mockMeterProvider{}
 		mockLogger := &mockLoggerProvider{}
 
-		rt := Runtime[*mockTracerProvider, *mockMeterProvider, *mockLoggerProvider, bedrock.Runtime]{
+		rt := Runtime[mockErrorHandler, *mockTracerProvider, *mockMeterProvider, *mockLoggerProvider, bedrock.Runtime]{
+			errorHandler:      mockErrorHandler{},
 			textMapPropagator: propagation.NewCompositeTextMapPropagator(),
 			tracerProvider:    mockTracer,
 			meterProvider:     mockMeter,
@@ -234,7 +250,8 @@ func TestRuntime_Run_Shutdown(t *testing.T) {
 		mockLogger := &mockLoggerProvider{}
 		runtimeErr := errors.New("runtime failed")
 
-		rt := Runtime[*mockTracerProvider, *mockMeterProvider, *mockLoggerProvider, bedrock.Runtime]{
+		rt := Runtime[mockErrorHandler, *mockTracerProvider, *mockMeterProvider, *mockLoggerProvider, bedrock.Runtime]{
+			errorHandler:      mockErrorHandler{},
 			textMapPropagator: propagation.NewCompositeTextMapPropagator(),
 			tracerProvider:    mockTracer,
 			meterProvider:     mockMeter,
@@ -260,7 +277,8 @@ func TestRuntime_Run_Shutdown(t *testing.T) {
 		mockMeter := &mockMeterProvider{shutdownErr: meterShutdownErr}
 		mockLogger := &mockLoggerProvider{shutdownErr: loggerShutdownErr}
 
-		rt := Runtime[*mockTracerProvider, *mockMeterProvider, *mockLoggerProvider, bedrock.Runtime]{
+		rt := Runtime[mockErrorHandler, *mockTracerProvider, *mockMeterProvider, *mockLoggerProvider, bedrock.Runtime]{
+			errorHandler:      mockErrorHandler{},
 			textMapPropagator: propagation.NewCompositeTextMapPropagator(),
 			tracerProvider:    mockTracer,
 			meterProvider:     mockMeter,
@@ -285,7 +303,8 @@ func TestRuntime_Run_Shutdown(t *testing.T) {
 		mockMeter := &mockMeterProvider{}
 		mockLogger := &mockLoggerProvider{}
 
-		rt := Runtime[*mockTracerProvider, *mockMeterProvider, *mockLoggerProvider, bedrock.Runtime]{
+		rt := Runtime[mockErrorHandler, *mockTracerProvider, *mockMeterProvider, *mockLoggerProvider, bedrock.Runtime]{
+			errorHandler:      mockErrorHandler{},
 			textMapPropagator: propagation.NewCompositeTextMapPropagator(),
 			tracerProvider:    mockTracer,
 			meterProvider:     mockMeter,
@@ -306,7 +325,8 @@ func TestRuntime_Run_Shutdown(t *testing.T) {
 		noShutdownMeter := &noShutdownMeterProvider{}
 		noShutdownLogger := &noShutdownLoggerProvider{}
 
-		rt := Runtime[*noShutdownTracerProvider, *noShutdownMeterProvider, *noShutdownLoggerProvider, bedrock.Runtime]{
+		rt := Runtime[mockErrorHandler, *noShutdownTracerProvider, *noShutdownMeterProvider, *noShutdownLoggerProvider, bedrock.Runtime]{
+			errorHandler:      mockErrorHandler{},
 			textMapPropagator: propagation.NewCompositeTextMapPropagator(),
 			tracerProvider:    noShutdownTracer,
 			meterProvider:     noShutdownMeter,
@@ -571,6 +591,7 @@ func TestBuildRuntime(t *testing.T) {
 		resourceB := buildTestResource()
 
 		builder := BuildRuntime(
+			buildTestErrorHandler(),
 			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator()),
 			buildTestTracerProvider(resourceB),
 			buildTestMeterProvider(resourceB),
@@ -588,6 +609,28 @@ func TestBuildRuntime(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("error handler error panics", func(t *testing.T) {
+		resourceB := buildTestResource()
+		failingErrorHandlerB := bedrock.BuilderFunc[otel.ErrorHandler](func(ctx context.Context) (otel.ErrorHandler, error) {
+			return nil, errors.New("error handler build failed")
+		})
+
+		builder := BuildRuntime(
+			failingErrorHandlerB,
+			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator()),
+			buildTestTracerProvider(resourceB),
+			buildTestMeterProvider(resourceB),
+			buildTestLoggerProvider(resourceB),
+			bedrock.BuilderOf(bedrock.RuntimeFunc(func(ctx context.Context) error {
+				return nil
+			})),
+		)
+
+		require.Panics(t, func() {
+			_, _ = builder.Build(context.Background())
+		})
+	})
+
 	t.Run("propagator error panics", func(t *testing.T) {
 		resourceB := buildTestResource()
 		failingPropagatorB := bedrock.BuilderFunc[propagation.TextMapPropagator](func(ctx context.Context) (propagation.TextMapPropagator, error) {
@@ -595,6 +638,7 @@ func TestBuildRuntime(t *testing.T) {
 		})
 
 		builder := BuildRuntime(
+			buildTestErrorHandler(),
 			failingPropagatorB,
 			buildTestTracerProvider(resourceB),
 			buildTestMeterProvider(resourceB),
@@ -616,6 +660,7 @@ func TestBuildRuntime(t *testing.T) {
 		})
 
 		builder := BuildRuntime(
+			buildTestErrorHandler(),
 			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator()),
 			failingTracerB,
 			buildTestMeterProvider(resourceB),
@@ -637,6 +682,7 @@ func TestBuildRuntime(t *testing.T) {
 		})
 
 		builder := BuildRuntime(
+			buildTestErrorHandler(),
 			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator()),
 			buildTestTracerProvider(resourceB),
 			failingMeterB,
@@ -658,6 +704,7 @@ func TestBuildRuntime(t *testing.T) {
 		})
 
 		builder := BuildRuntime(
+			buildTestErrorHandler(),
 			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator()),
 			buildTestTracerProvider(resourceB),
 			buildTestMeterProvider(resourceB),
@@ -679,6 +726,7 @@ func TestBuildRuntime(t *testing.T) {
 		})
 
 		builder := BuildRuntime(
+			buildTestErrorHandler(),
 			bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator()),
 			buildTestTracerProvider(resourceB),
 			buildTestMeterProvider(resourceB),

@@ -13,6 +13,7 @@ import (
 	"github.com/z5labs/bedrock/config"
 	"github.com/z5labs/bedrock/runtime/otel/noop"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 )
@@ -57,6 +58,9 @@ func Example() {
 	)
 
 	runtimeB := BuildRuntime(
+		bedrock.BuilderOf(otel.ErrorHandlerFunc(func(err error) {
+			fmt.Println("OTel Error:", err)
+		})),
 		bedrock.BuilderOf(propagation.NewCompositeTextMapPropagator(
 			propagation.Baggage{},
 			propagation.TraceContext{},
