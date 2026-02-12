@@ -38,7 +38,7 @@ jobs:
     # Custom Go version because of: https://github.com/github/codeql/issues/13992#issuecomment-1711721716
     - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
       with:
-        go-version: '1.25.7'
+        go-version: '1.26.0'
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v4
