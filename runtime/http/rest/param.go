@@ -16,7 +16,9 @@ import (
 )
 
 // paramKey is a unique identity for a parameter in the paramStore.
-type paramKey[T any] struct{}
+// The unexported field ensures each &paramKey[T]{} allocation gets a distinct address,
+// since Go may reuse addresses for zero-size types.
+type paramKey[T any] struct{ _ int }
 
 // Param represents a declared API parameter (path, query, or header).
 // It serves dual purpose: composing into the endpoint chain via Read,
