@@ -50,6 +50,10 @@ type GenericError struct {
 
 func (e GenericError) Error() string { return e.Message }
 
+func wrapGenericError(err error) GenericError {
+	return GenericError{Message: err.Error()}
+}
+
 // Tests
 
 func TestBuild_ServesOpenAPISpec(t *testing.T) {
@@ -60,7 +64,7 @@ func TestBuild_ServesOpenAPISpec(t *testing.T) {
 	})
 	ep = userID.Read(ep)
 	ep = WriteJSON[User](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	handler := Build(
 		Title("Test API"),
@@ -98,7 +102,7 @@ func TestBuild_CustomSpecPath(t *testing.T) {
 		return map[string]string{"status": "ok"}, nil
 	})
 	ep = WriteJSON[map[string]string](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	handler := Build(
 		SpecPath("/api/spec.json"),
@@ -130,7 +134,7 @@ func TestGET_WithPathParam(t *testing.T) {
 	})
 	ep = userID.Read(ep)
 	ep = WriteJSON[User](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -165,7 +169,7 @@ func TestGET_WithQueryParam(t *testing.T) {
 	ep = search.Read(ep)
 	ep = page.Read(ep)
 	ep = WriteJSON[SearchResult](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -194,7 +198,7 @@ func TestGET_QueryParamDefault(t *testing.T) {
 	})
 	ep = page.Read(ep)
 	ep = WriteJSON[Result](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -217,7 +221,7 @@ func TestPOST_WithJSONBody(t *testing.T) {
 	})
 	ep = ReadJSON[CreateUserReq](ep)
 	ep = WriteJSON[User](201, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -243,7 +247,7 @@ func TestPOST_InvalidJSONBody(t *testing.T) {
 	})
 	ep = ReadJSON[CreateUserReq](ep)
 	ep = WriteJSON[User](201, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -268,7 +272,7 @@ func TestErrorJSON_MatchesSpecificError(t *testing.T) {
 	ep = userID.Read(ep)
 	ep = WriteJSON[User](200, ep)
 	ep = ErrorJSON[NotFoundError](404, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -304,7 +308,7 @@ func TestErrorJSON_MultipleErrorTypes(t *testing.T) {
 	ep = WriteJSON[User](200, ep)
 	ep = ErrorJSON[ValidationErr](422, ep)
 	ep = ErrorJSON[NotFoundError](404, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -332,7 +336,7 @@ func TestCatchAll_HandlesUnmatchedErrors(t *testing.T) {
 		return User{}, io.ErrUnexpectedEOF // not a declared error type
 	})
 	ep = WriteJSON[User](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -351,7 +355,7 @@ func TestPathParam_RequiredValidation(t *testing.T) {
 	})
 	ep = userID.Read(ep)
 	ep = WriteJSON[User](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -380,7 +384,7 @@ func TestQueryParam_PatternValidation(t *testing.T) {
 	})
 	ep = code.Read(ep)
 	ep = WriteJSON[Result](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -409,7 +413,7 @@ func TestQueryParam_NumericConstraints(t *testing.T) {
 	})
 	ep = page.Read(ep)
 	ep = WriteJSON[Result](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -445,7 +449,7 @@ func TestDELETE_Endpoint(t *testing.T) {
 	})
 	ep = userID.Read(ep)
 	ep = WriteJSON[DeleteResp](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -472,7 +476,7 @@ func TestPUT_WithBodyAndPathParam(t *testing.T) {
 	ep = userID.Read(ep)
 	ep = ReadJSON[CreateUserReq](ep)
 	ep = WriteJSON[User](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -500,7 +504,7 @@ func TestEndpointMetadata_InSpec(t *testing.T) {
 	ep = EndpointDescription("Returns the health status of the service", ep)
 	ep = Tags([]string{"monitoring"}, ep)
 	ep = OperationID("healthCheck", ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	handler := Build(
 		Title("Test API"),
@@ -538,7 +542,7 @@ func TestOpenAPISpec_ContainsParams(t *testing.T) {
 	})
 	ep = userID.Read(ep)
 	ep = WriteJSON[User](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	handler := Build(Title("Test"), Version("1.0.0"), route.Route())
 	h, err := handler.Build(context.Background())
@@ -571,7 +575,7 @@ func TestOpenAPISpec_ContainsResponses(t *testing.T) {
 	})
 	ep = WriteJSON[[]User](200, ep)
 	ep = ErrorJSON[NotFoundError](404, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	handler := Build(Title("Test"), Version("1.0.0"), route.Route())
 	h, err := handler.Build(context.Background())
@@ -600,7 +604,7 @@ func TestWriteBinary(t *testing.T) {
 		return strings.NewReader("binary content"), nil
 	})
 	ep = WriteBinary(200, "application/octet-stream", ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -621,7 +625,7 @@ func TestMultipleRoutes(t *testing.T) {
 	})
 	ep1 = userID.Read(ep1)
 	ep1 = WriteJSON[User](200, ep1)
-	route1 := CatchAll[GenericError](500, ep1)
+	route1 := CatchAll[GenericError](500, wrapGenericError, ep1)
 
 	ep2 := POST("/users", func(ctx context.Context, req Request[CreateUserReq]) (User, error) {
 		body := req.Body()
@@ -629,7 +633,7 @@ func TestMultipleRoutes(t *testing.T) {
 	})
 	ep2 = ReadJSON[CreateUserReq](ep2)
 	ep2 = WriteJSON[User](201, ep2)
-	route2 := CatchAll[GenericError](500, ep2)
+	route2 := CatchAll[GenericError](500, wrapGenericError, ep2)
 
 	handler := Build(
 		Title("Multi Route API"),
@@ -680,7 +684,7 @@ func TestQueryParam_RequiredMissing(t *testing.T) {
 	})
 	ep = q.Read(ep)
 	ep = WriteJSON[Result](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -703,7 +707,7 @@ func TestQueryParam_InvalidType(t *testing.T) {
 	})
 	ep = page.Read(ep)
 	ep = WriteJSON[Result](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -726,7 +730,7 @@ func TestHeaderParam(t *testing.T) {
 	})
 	ep = apiKey.Read(ep)
 	ep = WriteJSON[Result](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -762,7 +766,7 @@ func TestPATCH_Endpoint(t *testing.T) {
 	ep = id.Read(ep)
 	ep = ReadJSON[PatchBody](ep)
 	ep = WriteJSON[User](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 
@@ -792,7 +796,7 @@ func TestEnumValidation(t *testing.T) {
 	})
 	ep = status.Read(ep)
 	ep = WriteJSON[Result](200, ep)
-	route := CatchAll[GenericError](500, ep)
+	route := CatchAll[GenericError](500, wrapGenericError, ep)
 
 	h := buildAndServe(t, route)
 

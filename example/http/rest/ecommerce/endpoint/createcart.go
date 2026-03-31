@@ -21,5 +21,5 @@ func CreateCart(cartSvc *cart.Service) rest.Route {
 	ep = rest.Summary("Create a new cart", ep)
 	ep = rest.Tags([]string{"carts"}, ep)
 	ep = rest.WriteJSON[cart.Cart](201, ep)
-	return rest.CatchAll[InternalError](500, ep)
+	return rest.CatchAll[InternalError](500, wrapInternalError, ep)
 }

@@ -31,16 +31,17 @@ type Param[T any] struct {
 }
 
 type paramOptions struct {
-	required    *bool
-	description string
-	example     any
-	pattern     string
-	minimum     *float64
-	maximum     *float64
-	minLength   *int
-	maxLength   *int
-	enumValues  []any
-	defaultVal  any
+	required      *bool
+	description   string
+	example       any
+	pattern       string
+	patternRegexp *regexp.Regexp
+	minimum       *float64
+	maximum       *float64
+	minLength     *int
+	maxLength     *int
+	enumValues    []any
+	defaultVal    any
 }
 
 // ParamOption configures a parameter's metadata and validation constraints.
@@ -77,9 +78,16 @@ func ParamExample(ex any) ParamOption {
 }
 
 // Pattern sets a regex pattern constraint on the parameter value.
+// The pattern is precompiled at declaration time for efficiency.
 func Pattern(regex string) ParamOption {
 	return func(o *paramOptions) {
 		o.pattern = regex
+		// Precompile the regex at declaration time.
+		// If invalid, it will be caught during param creation.
+		re, err := regexp.Compile(regex)
+		if err == nil {
+			o.patternRegexp = re
+		}
 	}
 }
 
@@ -243,11 +251,12 @@ func (p Param[T]) extractRaw(r *http.Request) (string, bool) {
 
 func (p Param[T]) validate(raw string, val any) error {
 	if p.opts.pattern != "" {
-		re, err := regexp.Compile(p.opts.pattern)
-		if err != nil {
+		re := p.opts.patternRegexp
+		if re == nil {
+			// Pattern was invalid at declaration time.
 			return &ValidationError{
 				Param:   p.name,
-				Message: fmt.Sprintf("invalid pattern for parameter %q: %v", p.name, err),
+				Message: fmt.Sprintf("invalid pattern for parameter %q: pattern failed to compile", p.name),
 			}
 		}
 		if !re.MatchString(raw) {

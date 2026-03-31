@@ -40,5 +40,5 @@ func AddItem(cartSvc *cart.Service) rest.Route {
 	ep = rest.Tags([]string{"items"}, ep)
 	ep = rest.WriteJSON[cart.Cart](200, ep)
 	ep = rest.ErrorJSON[NotFoundError](404, ep)
-	return rest.CatchAll[InternalError](500, ep)
+	return rest.CatchAll[InternalError](500, wrapInternalError, ep)
 }

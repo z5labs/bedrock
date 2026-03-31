@@ -7,6 +7,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -75,7 +76,7 @@ func Build(opts ...Option) bedrock.Builder[http.Handler] {
 		}
 
 		// Separate route options from config options.
-		// Routes passed directly as Options use Register().
+		// Routes passed directly as Options use Route().
 		for _, opt := range opts {
 			opt(a)
 		}
@@ -233,6 +234,14 @@ func buildRouteHandler(route Route) http.Handler {
 func writeValidationError(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
-	// Write a simple JSON error response for validation failures.
-	w.Write([]byte(`{"error":"` + err.Error() + `"}`)) //nolint:errcheck
+	// Write a JSON error response for validation failures.
+	// Use json.Marshal to properly escape the error message.
+	if ve, ok := err.(*ValidationError); ok {
+		json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+			"param": ve.Param,
+			"error": ve.Message,
+		})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}) //nolint:errcheck
 }

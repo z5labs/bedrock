@@ -95,8 +95,9 @@ type Route struct {
 
 // CatchAll completes the endpoint by adding a catch-all error handler.
 // This is required — an Endpoint cannot be registered without it.
-// Any error that doesn't match a specific ErrorJSON handler is caught here.
-func CatchAll[E error](status int, ep Endpoint) Route {
+// Any error that doesn't match a specific ErrorJSON handler is caught here
+// and wrapped as type E for consistent response formatting.
+func CatchAll[E error](status int, wrapError func(error) E, ep Endpoint) Route {
 	return Route{
 		endpoint: ep,
 		catchAll: errorEncoder{
@@ -106,8 +107,8 @@ func CatchAll[E error](status int, ep Endpoint) Route {
 				if errors.As(err, &target) {
 					return target, true
 				}
-				// Catch-all always matches.
-				return any(err), true
+				// Wrap the error to ensure consistent response type.
+				return wrapError(err), true
 			},
 			encode: func(w http.ResponseWriter, v any) {
 				w.Header().Set("Content-Type", "application/json")

@@ -7,6 +7,7 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/swaggest/openapi-go/openapi3"
@@ -79,7 +80,11 @@ func POST[B any, Resp any](pattern string, handler func(context.Context, Request
 		method:  http.MethodPost,
 		pattern: pattern,
 		handler: func(ctx context.Context, params paramStore, body any) (any, error) {
-			req := Request[B]{params: params, body: body.(B)}
+			b, ok := body.(B)
+			if !ok {
+				return nil, fmt.Errorf("internal error: expected body type %T, got %T", *new(B), body)
+			}
+			req := Request[B]{params: params, body: b}
 			return handler(ctx, req)
 		},
 	}
@@ -92,7 +97,11 @@ func PUT[B any, Resp any](pattern string, handler func(context.Context, Request[
 		method:  http.MethodPut,
 		pattern: pattern,
 		handler: func(ctx context.Context, params paramStore, body any) (any, error) {
-			req := Request[B]{params: params, body: body.(B)}
+			b, ok := body.(B)
+			if !ok {
+				return nil, fmt.Errorf("internal error: expected body type %T, got %T", *new(B), body)
+			}
+			req := Request[B]{params: params, body: b}
 			return handler(ctx, req)
 		},
 	}
@@ -105,7 +114,11 @@ func PATCH[B any, Resp any](pattern string, handler func(context.Context, Reques
 		method:  http.MethodPatch,
 		pattern: pattern,
 		handler: func(ctx context.Context, params paramStore, body any) (any, error) {
-			req := Request[B]{params: params, body: body.(B)}
+			b, ok := body.(B)
+			if !ok {
+				return nil, fmt.Errorf("internal error: expected body type %T, got %T", *new(B), body)
+			}
+			req := Request[B]{params: params, body: b}
 			return handler(ctx, req)
 		},
 	}

@@ -30,8 +30,12 @@ func ReadJSON[T any](ep Endpoint) Endpoint {
 		}
 		return body, nil
 	}
+	method := ep.method
+	if method == "" {
+		method = http.MethodPost
+	}
 	ep.specReqBody = func(refl *openapi3.Reflector, op *openapi3.Operation) error {
-		return refl.SetRequest(op, new(T), http.MethodPost) //nolint:staticcheck
+		return refl.SetRequest(op, new(T), method) //nolint:staticcheck
 	}
 	return ep
 }
@@ -61,7 +65,8 @@ func ReadBinary(contentType string, ep Endpoint) Endpoint {
 }
 
 // ReadFormFile composes multipart file field decoding onto the endpoint.
-// The decoded io.Reader is stored in the endpoint's body for access via req.Body().
+// The decoded io.ReadCloser is stored in the endpoint's body for access via req.Body().
+// The caller is responsible for closing the returned io.ReadCloser.
 func ReadFormFile(fieldName string, ep Endpoint) Endpoint {
 	ep.bodyDecoder = func(r *http.Request) (any, error) {
 		ct := r.Header.Get("Content-Type")
@@ -79,7 +84,7 @@ func ReadFormFile(fieldName string, ep Endpoint) Endpoint {
 				Message: fmt.Sprintf("missing form file %q: %v", fieldName, err),
 			}
 		}
-		return io.Reader(file), nil
+		return io.ReadCloser(file), nil
 	}
 	ep.specReqBody = func(refl *openapi3.Reflector, op *openapi3.Operation) error {
 		reqBody := openapi3.RequestBody{}
@@ -132,6 +137,7 @@ func ReadFormField[T any](fieldName string, ep Endpoint) Endpoint {
 			}
 			if part.FormName() == fieldName {
 				data, err := io.ReadAll(part)
+				part.Close() //nolint:errcheck
 				if err != nil {
 					return nil, err
 				}
@@ -144,6 +150,7 @@ func ReadFormField[T any](fieldName string, ep Endpoint) Endpoint {
 				}
 				return val, nil
 			}
+			part.Close() //nolint:errcheck
 		}
 		return nil, &ValidationError{
 			Param:   fieldName,

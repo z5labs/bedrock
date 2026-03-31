@@ -13,11 +13,6 @@ import (
 	"github.com/z5labs/bedrock/runtime/http/rest"
 )
 
-// RemoveItemResponse is returned after successfully removing an item.
-type RemoveItemResponse struct {
-	Cart cart.Cart `json:"cart"`
-}
-
 // RemoveItem returns a Route for DELETE /carts/{cart_id}/items/{item_id}.
 func RemoveItem(cartSvc *cart.Service) rest.Route {
 	ep := rest.DELETE("/carts/{cart_id}/items/{item_id}", func(_ context.Context, req rest.Request[rest.EmptyBody]) (cart.Cart, error) {
@@ -38,5 +33,5 @@ func RemoveItem(cartSvc *cart.Service) rest.Route {
 	ep = rest.Tags([]string{"items"}, ep)
 	ep = rest.WriteJSON[cart.Cart](200, ep)
 	ep = rest.ErrorJSON[NotFoundError](404, ep)
-	return rest.CatchAll[InternalError](500, ep)
+	return rest.CatchAll[InternalError](500, wrapInternalError, ep)
 }

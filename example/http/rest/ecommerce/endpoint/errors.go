@@ -18,3 +18,8 @@ type InternalError struct {
 }
 
 func (e InternalError) Error() string { return e.Message }
+
+// wrapInternalError converts any error to InternalError.
+func wrapInternalError(err error) InternalError {
+	return InternalError{Message: err.Error()}
+}

@@ -25,6 +25,10 @@ type ExampleError struct {
 
 func (e ExampleError) Error() string { return e.Message }
 
+func wrapExampleError(err error) ExampleError {
+	return ExampleError{Message: err.Error()}
+}
+
 func Example() {
 	// Declare parameters.
 	var userID = PathParam[string]("id")
@@ -40,7 +44,7 @@ func Example() {
 	ep = userID.Read(ep)
 	ep = WriteJSON[ExampleUser](200, ep)
 	ep = ErrorJSON[ExampleError](404, ep)
-	route := CatchAll[ExampleError](500, ep)
+	route := CatchAll[ExampleError](500, wrapExampleError, ep)
 
 	// Build the handler.
 	handler := Build(

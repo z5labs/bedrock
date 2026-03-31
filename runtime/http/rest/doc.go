@@ -31,7 +31,7 @@
 //	ep = userID.Read(ep)
 //	ep = rest.WriteJSON[User](200, ep)
 //	ep = rest.ErrorJSON[NotFoundError](404, ep)
-//	route := rest.CatchAll[GenericError](500, ep)
+//	route := rest.CatchAll[GenericError](500, wrapGenericError, ep)
 //
 //	handler := rest.Build(
 //	    rest.Title("My API"),
