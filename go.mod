@@ -3,7 +3,7 @@ module github.com/z5labs/bedrock
 go 1.25.0
 
 require (
-	github.com/go-chi/chi/v5 v5.3.1
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggest/openapi-go v0.2.61
 	go.opentelemetry.io/otel v1.45.0
