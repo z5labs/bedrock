@@ -2,3 +2,31 @@ version: "2"
 run:
   timeout: 5m
   tests: true
+linters:
+  enable:
+    - forbidigo
+  settings:
+    forbidigo:
+      # Examples are documentation that users copy, so they are held to the
+      # same rule as everything else.
+      exclude-godoc-examples: false
+      forbid:
+        # An App reaches its OS process only through the bedrock.Process it is
+        # run with. Only the OS edge, os.go, reads the real process or exits it.
+        - pattern: ^os\.(Args|Stdin|Stdout|Stderr|Getenv|LookupEnv|Environ|Exit)$
+          msg: read the process through bedrock.Process, and exit by returning a bedrock.ExitStatus; only os.go touches the real process
+        - pattern: ^signal\.Notify
+          msg: listen for signals through Process.NotifyContext; only os.go touches the real process
+        - pattern: ^flag\.(Parse|CommandLine)$
+          msg: parse p.Args[1:] with a flag.FlagSet of your own, using flag.ContinueOnError and p.Stderr as its output
+  exclusions:
+    rules:
+      # The OS edge, and its tests, which check it against the real process.
+      - path: ^os(_test)?\.go$
+        linters:
+          - forbidigo
+      # Runs one table against the real signal.NotifyContext and the fake, so
+      # that the fake cannot drift from what it stands in for.
+      - path: ^bedrocktest/conformance_unix_test\.go$
+        linters:
+          - forbidigo
