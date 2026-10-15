@@ -7,9 +7,12 @@ package bedrock_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -25,16 +28,16 @@ const mainAppEnv = "BEDROCK_TEST_MAIN_APP"
 var errMainCause = errors.New("a cause bedrock.Main must not print")
 
 var mainApps = map[string]bedrock.App{
-	"zero": bedrock.AppFunc(func(bedrock.Context) bedrock.ExitStatus {
+	"zero": bedrock.AppFunc(func(context.Context, bedrock.Process) bedrock.ExitStatus {
 		return bedrock.ExitStatus{}
 	}),
-	"exit-7": bedrock.AppFunc(func(bedrock.Context) bedrock.ExitStatus {
+	"exit-7": bedrock.AppFunc(func(context.Context, bedrock.Process) bedrock.ExitStatus {
 		return bedrock.Exit(7)
 	}),
-	"exit-7-with-cause": bedrock.AppFunc(func(bedrock.Context) bedrock.ExitStatus {
+	"exit-7-with-cause": bedrock.AppFunc(func(context.Context, bedrock.Process) bedrock.ExitStatus {
 		return bedrock.ExitWithCause(7, errMainCause)
 	}),
-	"exit-300": bedrock.AppFunc(func(bedrock.Context) bedrock.ExitStatus {
+	"exit-300": bedrock.AppFunc(func(context.Context, bedrock.Process) bedrock.ExitStatus {
 		return bedrock.Exit(300)
 	}),
 }
@@ -47,10 +50,10 @@ func TestMainHelperProcess(t *testing.T) {
 		t.Skip("runs only as a child process of TestMainExitsWithTheAppCode")
 	}
 
-	// The App reads its name through the Context Main hands it, which
+	// The App reads its name through the Process Main hands it, which
 	// shows Main runs it on the environment of the real process.
-	bedrock.Main(bedrock.AppFunc(func(ctx bedrock.Context) bedrock.ExitStatus {
-		name, err := ctx.Environment.Value(mainAppEnv)
+	bedrock.Main(bedrock.AppFunc(func(ctx context.Context, p bedrock.Process) bedrock.ExitStatus {
+		name, err := p.Environment.Value(mainAppEnv)
 		if err != nil {
 			panic(err)
 		}
@@ -58,7 +61,7 @@ func TestMainHelperProcess(t *testing.T) {
 		if !ok {
 			panic("unknown main app: " + name)
 		}
-		return app.Run(ctx)
+		return app.Run(ctx, p)
 	}))
 }
 
@@ -111,17 +114,50 @@ func TestMainExitsWithTheAppCode(t *testing.T) {
 	}
 }
 
-func TestOsEnvironment(t *testing.T) {
+func TestOSEnvironment(t *testing.T) {
 	t.Parallel()
 
 	t.Run("returns a ValueNotFoundError naming a variable that is not set", func(t *testing.T) {
 		t.Parallel()
 
 		const name = "BEDROCK_TEST_VARIABLE_THAT_IS_NEVER_SET"
-		_, err := bedrock.OsEnvironment{}.Value(name)
+		_, err := bedrock.OSEnvironment{}.Value(name)
 
 		var notFound bedrock.ValueNotFoundError
 		require.ErrorAs(t, err, &notFound)
 		require.Equal(t, name, notFound.Name)
+	})
+}
+
+func TestOSProcess(t *testing.T) {
+	t.Parallel()
+
+	t.Run("sets every field", func(t *testing.T) {
+		t.Parallel()
+
+		// Ranging over every field, rather than naming them, is what makes
+		// a field added to Process later fail here until OSProcess wires it.
+		p := reflect.ValueOf(bedrock.OSProcess())
+		require.Positive(t, p.NumField())
+		for i := range p.NumField() {
+			name := p.Type().Field(i).Name
+			require.False(t, p.Field(i).IsZero(), "OSProcess().%s is not set", name)
+		}
+	})
+
+	t.Run("is the current OS process", func(t *testing.T) {
+		t.Parallel()
+
+		p := bedrock.OSProcess()
+		require.Equal(t, os.Args, p.Args)
+		require.Same(t, os.Stdin, p.Stdin)
+		require.Same(t, os.Stdout, p.Stdout)
+		require.Same(t, os.Stderr, p.Stderr)
+		require.Equal(t, bedrock.OSEnvironment{}, p.Environment)
+		require.Equal(t,
+			reflect.ValueOf(signal.NotifyContext).Pointer(),
+			reflect.ValueOf(p.NotifyContext).Pointer(),
+			"NotifyContext is not signal.NotifyContext",
+		)
 	})
 }
