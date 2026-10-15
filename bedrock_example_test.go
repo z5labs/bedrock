@@ -13,26 +13,24 @@ import (
 	"github.com/z5labs/bedrock"
 )
 
-func Example() {
-	app := bedrock.AppFunc(func(ctx bedrock.Context) bedrock.ExitStatus {
-		sigCtx, stop := ctx.NotifyOnInterrupt(context.Background(), os.Interrupt)
+// The main function of a program built on bedrock is one line. This example
+// has no Output comment, so it is compiled but never run: running it would
+// exit the test binary.
+func Example_main() {
+	app := bedrock.AppFunc(func(ctx context.Context, p bedrock.Process) bedrock.ExitStatus {
+		ctx, stop := p.NotifyContext(ctx, os.Interrupt)
 		defer stop()
 
-		select {
-		case <-sigCtx.Done():
-			return bedrock.ExitWithCause(1, context.Cause(sigCtx))
-		default:
-		}
-
-		if _, err := fmt.Fprintln(ctx.Stdout, "hello, world"); err != nil {
+		if _, err := fmt.Fprintln(p.Stdout, "hello, world"); err != nil {
 			return bedrock.ExitWithCause(1, err)
 		}
-		return bedrock.Exit(0)
+
+		<-ctx.Done()
+		return bedrock.ExitWithCause(0, context.Cause(ctx))
 	})
 
-	status := app.Run(bedrock.OsContext())
-	fmt.Println(status.Code())
-	// Output:
-	// hello, world
-	// 0
+	// In package main:
+	//
+	//	func main() { bedrock.Main(app) }
+	bedrock.Main(app)
 }
