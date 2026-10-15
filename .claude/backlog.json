@@ -1,0 +1,27 @@
+{
+  "select": {
+    "label": "story",
+    "milestone": null,
+    "limit": 200
+  },
+  "dependencies": {
+    "style": "native"
+  },
+  "verify": [
+    "golangci-lint run",
+    "go build ./...",
+    "go test -race -cover ./..."
+  ],
+  "merge": {
+    "label": "auto-merge",
+    "workflow": "auto-merge.yaml"
+  },
+  "review": {
+    "reviewers": ["copilot", "local"],
+    "app": {
+      "idEnv": "Z5LABS_REVIEW_APP_ID",
+      "keyEnv": "Z5LABS_REVIEW_APP_KEY"
+    }
+  },
+  "worktreeDir": ".claude/worktrees"
+}
