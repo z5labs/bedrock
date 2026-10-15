@@ -2,7 +2,16 @@
 
 ## Project Overview
 
-bedrock is a minimal, modular, and composable foundation for building use-case specific frameworks in Go. It's designed for platform engineering teams to build custom frameworks on top of it, not for building services directly.
+bedrock is a minimal foundation for building use case specific frameworks in Go. It is meant for teams, such as platform engineering teams, who build their own frameworks on top of it rather than for building services directly.
+
+bedrock is being rebuilt around one idea: an application is an OS process. The standard streams, the environment variables, the interrupt signals and the exit code that the operating system gives a process are all handed to the application as a single value, and the application returns the status it exits with. The API is in active development and names will change, so these instructions deliberately do not describe it. To see the current API, run `go doc -all github.com/z5labs/bedrock`.
+
+## Principles
+
+1. **The process is the boundary.** Everything an application learns from, or does to, its OS process goes through the one value it is run with. Nothing else reaches the process.
+2. **Explicit over implicit.** No global state, no hidden initialization and no magic. Every dependency is passed in.
+3. **Small and composable.** Prefer a few small types that combine over a large type that tries to anticipate every use.
+4. **Fail loudly.** Every error is checked. A broken invariant is a bug, so it panics, and the panic is never recovered.
 
 ## Build, Test, and Lint
 
@@ -10,89 +19,30 @@ bedrock is a minimal, modular, and composable foundation for building use-case s
 # Build
 go build ./...
 
+# Vet
+go vet ./...
+
 # Run all tests with race detection and coverage
 go test -race -cover ./...
 
-# Run tests in a specific package
-go test -race -cover ./config
+# Run a single test or example
+go test -race -run Example ./...
 
-# Run a single test
-go test -race -v -run TestName ./path/to/package
+# Per-function coverage report
+go test ./... -covermode=count -coverprofile=coverage.out
+go tool cover -func=coverage.out
 
-# Lint (uses golangci-lint, config in .golangci.yaml)
-golangci-lint run
+# Lint (config in .golangci.yaml; requires golangci-lint built with go1.27 or newer)
+golangci-lint run ./...
 ```
 
-The project maintains high test coverage, enforced in CI.
+## Conventions
 
-## Core Architecture
+- **Library code imports only the standard library.** Third-party modules are allowed in tests only.
+- **Tests assert with `github.com/stretchr/testify/require`.**
+- **The process is reached only through the value passed to `Run`.** Library and application code never read the environment, the standard streams or the signals of the current process directly, and never exit the process themselves. A single file at the OS edge builds that value from the real process and turns the returned status into the process exit code; it is the only place allowed to do so.
+- **Panics are assertions.** Panic only on a programming error, such as a broken invariant or a missing required field, and never recover a panic.
+- **Every error is checked.** Return it, wrap it with context, or handle it. Never discard one silently.
+- **Library packages have 100% statement coverage.**
 
-### Three Fundamental Abstractions
-
-1. **Builder[T]** - Generic interface for constructing components with context support
-2. **Runtime** - Interface representing a runnable application component (`Run(context.Context) error`)
-3. **Runner[T]** - Interface for executing components built from Builders
-
-### Functional Composition Pattern
-
-Builders, Runners, and config Readers all support functional combinators:
-- `Map[A, B](builder, mapper)` - Transform outputs
-- `Bind[A, B](builder, binder)` - Chain together
-
-### Config Three-State Values
-
-The `config` package distinguishes between:
-- Value is set (`Value[T]` with `set=true`)
-- Value is not set (`Value[T]` with `set=false`, no error)
-- Error occurred (returns error)
-
-This is critical for proper default value handling with `config.Default()`.
-
-## Key Conventions
-
-### Function Types as Interface Implementations
-
-The codebase extensively uses function types that implement interfaces:
-- `BuilderFunc[T]` implements `Builder[T]`
-- `RuntimeFunc` implements `Runtime`
-- `RunnerFunc[T]` implements `Runner[T]`
-- `ReaderFunc[T]` implements `Reader[T]` (in config package)
-
-Use these when a simple function suffices instead of defining structs.
-
-### Runner Wrapping Pattern
-
-Compose runners by wrapping with cross-cutting concerns:
-```go
-runner := bedrock.NotifyOnSignal(
-    bedrock.RecoverPanics(
-        bedrock.DefaultRunner[bedrock.Runtime](),
-    ),
-    os.Interrupt, syscall.SIGTERM,
-)
-```
-
-### Config Reader Composition
-
-Chain config readers for fallback/transformation:
-```go
-logLevelReader := config.Default(
-    "INFO",
-    config.Env("MIN_LOG_LEVEL"),
-)
-```
-
-## Package Structure
-
-- `/` (root) - Core types: `Builder`, `Runtime`, `Runner`, and combinators
-- `/config` - Configuration reading with functional composition
-- `/runtime/http` - HTTP runtime with REST API support
-- `/runtime/otel` - OpenTelemetry integration
-
-## Design Principles
-
-1. **Composability First** - Small components combined in various ways
-2. **Functional Programming** - Generics, higher-order functions (Map, Bind), function types
-3. **Minimal Opinions** - Abstracts "what" not "how"; users control initialization
-4. **Type Safety** - Extensive use of Go generics
-5. **Explicit Over Implicit** - No magic, no hidden global state
+See `.github/instructions/bedrock.instructions.md` for the rules that apply to Go files. They take precedence over `.github/instructions/go.instructions.md` where the two differ.

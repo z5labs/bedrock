@@ -291,7 +291,7 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 - Name tests descriptively using `Test_functionName_scenario`
 - Use subtests with `t.Run` for better organization
 - Test both success and error cases
-- Consider using `testify` or similar libraries when they add value, but don't over-complicate simple tests
+- Use `github.com/stretchr/testify/require` for test assertions
 
 ### Test Helpers
 
