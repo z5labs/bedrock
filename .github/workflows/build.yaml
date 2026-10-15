@@ -35,6 +35,9 @@ jobs:
             version: v2.14.0
             skip-cache: false
 
+        - name: Report golangci-lint version
+          run: golangci-lint version
+
         - name: Build
           run: go build ./...
 
