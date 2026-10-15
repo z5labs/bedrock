@@ -44,6 +44,29 @@
 // and renders as "config PORT: <cause>"; a missing value renders as
 // "config PORT: not found".
 //
+// # Building a struct
+//
+// [Struct] builds a configuration struct from many values, reading each one
+// through [Resolver.Get]:
+//
+//	cfg := config.Struct(func(r *config.Resolver) Settings {
+//		env := func(name string) config.Value[string] { return config.Env(p.Environment, name) }
+//		return Settings{
+//			Addr:        r.Get(env("ADDR")),
+//			ReadTimeout: r.Get(env("READ_TIMEOUT").Parse(time.ParseDuration).Default(5 * time.Second)),
+//		}
+//	})
+//
+// Every Get is attempted, and every failure is reported together in one
+// error, joined with errors.Join:
+//
+//	config ADDR: not found
+//	config READ_TIMEOUT: time: missing unit in duration "30"
+//
+// A failed Get returns the zero value, so build must not use the result of
+// one Get to decide what to read next. A read that depends on another
+// value's result belongs in [Value.FlatMap], whose Value is passed to Get.
+//
 // # Migrating from v0.21.0
 //
 // Every export of config at v0.21.0 maps onto the package as follows.
@@ -71,5 +94,5 @@
 //	Int64FromString                        .Parse(ParseInt64)
 //	Float64FromString                      .Parse(ParseFloat64)
 //	Int64FromBytes(order, r)               removed
-//	—                                      new: OneOf(...), *Error{Name, Err}
+//	—                                      new: OneOf(...), *Error{Name, Err}, Struct, Resolver
 package config

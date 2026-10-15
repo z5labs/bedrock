@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/z5labs/bedrock"
 	"github.com/z5labs/bedrock/bedrocktest"
@@ -127,4 +128,60 @@ func ExampleOneOf() {
 	fmt.Println(err)
 	// Output:
 	// config LOG_LEVEL: trace is not one of [debug info warn error]
+}
+
+// Settings is the configuration of the service in ExampleStruct.
+type Settings struct {
+	Addr        string
+	ReadTimeout time.Duration
+	Mode        string
+}
+
+// service builds its Settings from many values and reports every one that
+// is missing or malformed together, rather than one per restart.
+var service = bedrock.AppFunc(func(ctx context.Context, p bedrock.Process) bedrock.ExitStatus {
+	cfg := config.Struct(func(r *config.Resolver) Settings {
+		env := func(name string) config.Value[string] { return config.Env(p.Environment, name) }
+		return Settings{
+			Addr:        r.Get(env("ADDR")),
+			ReadTimeout: r.Get(env("READ_TIMEOUT").Parse(time.ParseDuration).Default(5 * time.Second)),
+			Mode:        r.Get(env("MODE").Parse(config.OneOf("dev", "prod")).Default("dev")),
+		}
+	})
+
+	settings, err := cfg.Read(ctx)
+	if err != nil {
+		if _, werr := fmt.Fprintln(p.Stderr, err); werr != nil {
+			return bedrock.ExitWithCause(1, werr)
+		}
+		return bedrock.ExitWithCause(2, err)
+	}
+
+	if _, err := fmt.Fprintf(p.Stdout, "%+v\n", settings); err != nil {
+		return bedrock.ExitWithCause(1, err)
+	}
+	return bedrock.Exit(0)
+})
+
+// Struct reads every value it is built from, so with ADDR missing and
+// READ_TIMEOUT malformed, both failures are reported in one error.
+func ExampleStruct() {
+	t := new(exampleTB)
+	defer t.runCleanups()
+
+	run := func(env map[string]string) {
+		fp := bedrocktest.NewProcess(t, bedrocktest.WithEnv(env))
+		status := service.Run(context.Background(), fp.Process())
+		fmt.Print(fp.Stdout(), fp.Stderr())
+		fmt.Println("exit code:", status.Code())
+	}
+
+	run(map[string]string{"READ_TIMEOUT": "30"})
+	run(map[string]string{"ADDR": ":8080", "READ_TIMEOUT": "30s"})
+	// Output:
+	// config ADDR: not found
+	// config READ_TIMEOUT: time: missing unit in duration "30"
+	// exit code: 2
+	// {Addr::8080 ReadTimeout:30s Mode:dev}
+	// exit code: 0
 }
