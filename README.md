@@ -14,6 +14,20 @@ process directly. Keeping the boundary narrow and explicit is what lets the
 frameworks built on bedrock stay small, composable and testable without a real
 process behind them.
 
+## Building on bedrock
+
+[example/httpserver](example/httpserver) is the reference for building on
+bedrock: a complete HTTP service written with the standard library alone. It
+reads its settings from the environment of its process with
+[config](https://pkg.go.dev/github.com/z5labs/bedrock/config), takes the
+network as a field it is given, logs with a logger of its own, shuts down
+gracefully within a bounded grace period on an interrupt or SIGTERM, and is
+tested whole and hermetically with
+[bedrocktest](https://pkg.go.dev/github.com/z5labs/bedrock/bedrocktest) and
+`testing/synctest`.
+
+## Status
+
 The API is in active development and is not yet stable. If you are using the
 previous Builder/Runtime/Runner API, its documentation remains available at
 [pkg.go.dev/github.com/z5labs/bedrock@v0.21.0](https://pkg.go.dev/github.com/z5labs/bedrock@v0.21.0).
