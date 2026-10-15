@@ -20,9 +20,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     permissions:
-      # Give the default GITHUB_TOKEN write permission to commit and push the
-      # added or changed files to the repository.
-      contents: write
+      contents: read
     steps:
         - name: Checkout
           uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -34,11 +32,14 @@ jobs:
         - name: Lint Go Code
           uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
           with:
-            version: latest
+            version: v2.14.0
             skip-cache: false
 
         - name: Build
           run: go build ./...
+
+        - name: Vet
+          run: go vet ./...
 
         - name: Test
           run: go test -race -cover ./...

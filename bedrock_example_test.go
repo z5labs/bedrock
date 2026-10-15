@@ -1,43 +1,38 @@
-// Copyright (c) 2026 Z5Labs and Contributors
+// Copyright (c) 2023 Z5Labs and Contributors
 //
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-package bedrock
+package bedrock_test
 
 import (
 	"context"
 	"fmt"
 	"os"
-	"syscall"
+
+	"github.com/z5labs/bedrock"
 )
 
 func Example() {
-	buildRuntime := BuilderFunc[RuntimeFunc](func(ctx context.Context) (RuntimeFunc, error) {
-		rt := func(ctx context.Context) error {
-			fmt.Println("hello from runtime")
-			return nil
+	app := bedrock.AppFunc(func(ctx bedrock.Context) bedrock.ExitStatus {
+		sigCtx, stop := ctx.NotifyOnInterrupt(context.Background(), os.Interrupt)
+		defer stop()
+
+		select {
+		case <-sigCtx.Done():
+			return bedrock.ExitWithCause(1, context.Cause(sigCtx))
+		default:
 		}
 
-		return rt, nil
+		if _, err := fmt.Fprintln(ctx.Stdout, "hello, world"); err != nil {
+			return bedrock.ExitWithCause(1, err)
+		}
+		return bedrock.Exit(0)
 	})
 
-	err := NotifyOnSignal(
-		RecoverPanics(
-			DefaultRunner[RuntimeFunc](),
-		),
-		os.Interrupt,
-		os.Kill,
-		syscall.SIGTERM,
-	).Run(
-		context.Background(),
-		buildRuntime,
-	)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
+	status := app.Run(bedrock.OsContext())
+	fmt.Println(status.Code())
 	// Output:
-	// hello from runtime
+	// hello, world
+	// 0
 }

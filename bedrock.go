@@ -3,140 +3,126 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+// Package bedrock models an application as an OS process.
 package bedrock
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
-	"sync"
 )
 
-// Builder is a generic interface for building application components.
-type Builder[T any] interface {
-	Build(context.Context) (T, error)
+// App is an application that runs as an OS process.
+type App interface {
+	Run(Context) ExitStatus
 }
 
-// BuilderFunc is a function type that implements the Builder interface.
-type BuilderFunc[T any] func(context.Context) (T, error)
+// AppFunc is a function that implements App.
+type AppFunc func(Context) ExitStatus
 
-// Build implements the [Builder] interface for BuilderFunc.
-func (f BuilderFunc[T]) Build(ctx context.Context) (T, error) {
+// Run implements the App interface.
+func (f AppFunc) Run(ctx Context) ExitStatus {
 	return f(ctx)
 }
 
-// BuilderOf creates a Builder that always returns the provided value.
-func BuilderOf[T any](value T) Builder[T] {
-	return BuilderFunc[T](func(ctx context.Context) (T, error) {
-		return value, nil
-	})
+// ExitStatus is the status an App exits with.
+type ExitStatus struct {
+	code  int
+	cause error
 }
 
-// MustBuild builds the application component using the provided Builder.
-func MustBuild[T any](ctx context.Context, builder Builder[T]) T {
-	value, err := builder.Build(ctx)
-	if err != nil {
-		panic(err)
+// Exit returns an ExitStatus with the given code.
+func Exit(code int) ExitStatus {
+	return ExitStatus{code: code}
+}
+
+// ExitWithCause returns an ExitStatus with the given code and the error
+// that caused the App to exit.
+func ExitWithCause(code int, cause error) ExitStatus {
+	return ExitStatus{code: code, cause: cause}
+}
+
+// Code returns the exit code.
+func (s ExitStatus) Code() int {
+	return s.code
+}
+
+// Cause returns the error that caused the App to exit, if any.
+func (s ExitStatus) Cause() error {
+	return s.cause
+}
+
+// Main runs the App with the Context of the current OS process and exits with its code.
+func Main(app App) {
+	os.Exit(app.Run(OsContext()).Code())
+}
+
+// Context is everything an App is given by the OS process it runs in.
+type Context struct {
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+
+	Environment Environment
+
+	NotifyOnInterrupt func(parent context.Context, signals ...os.Signal) (context.Context, context.CancelFunc)
+}
+
+// Environment provides the environment variables of a process.
+type Environment interface {
+	Value(name string) (string, error)
+}
+
+// ValueNotFoundError is returned by an Environment when a variable is not set.
+type ValueNotFoundError struct {
+	Name string
+}
+
+// Error implements the error interface.
+func (e ValueNotFoundError) Error() string {
+	return fmt.Sprintf("environment variable not found: %s", e.Name)
+}
+
+// StaticEnvironment is an Environment backed by a fixed set of values.
+type StaticEnvironment struct {
+	values map[string]string
+}
+
+// NewStaticEnvironment returns a StaticEnvironment backed by the given values.
+func NewStaticEnvironment(values map[string]string) StaticEnvironment {
+	return StaticEnvironment{values: values}
+}
+
+// Value implements the Environment interface.
+func (e StaticEnvironment) Value(name string) (string, error) {
+	v, ok := e.values[name]
+	if !ok {
+		return "", ValueNotFoundError{Name: name}
 	}
-	return value
+	return v, nil
 }
 
-// MemoizeBuilder wraps a Builder to cache its result after the first build.
-// It is safe for concurrent use.
-func MemoizeBuilder[T any](builder Builder[T]) Builder[T] {
-	var (
-		cachedValue T
-		cachedErr   error
-		once        sync.Once
-	)
-	return BuilderFunc[T](func(ctx context.Context) (T, error) {
-		once.Do(func() {
-			cachedValue, cachedErr = builder.Build(ctx)
-		})
-		return cachedValue, cachedErr
-	})
+// OsEnvironment is an Environment backed by the environment of the current process.
+type OsEnvironment struct{}
+
+// Value implements the Environment interface.
+func (OsEnvironment) Value(name string) (string, error) {
+	v, ok := os.LookupEnv(name)
+	if !ok {
+		return "", ValueNotFoundError{Name: name}
+	}
+	return v, nil
 }
 
-// Map transforms the output of a Builder using the provided mapper function.
-func Map[A, B any](builder Builder[A], mapper func(context.Context, A) (B, error)) Builder[B] {
-	return BuilderFunc[B](func(ctx context.Context) (B, error) {
-		appA, err := builder.Build(ctx)
-		if err != nil {
-			var zero B
-			return zero, err
-		}
-		return mapper(ctx, appA)
-	})
-}
-
-// Bind chains two Builders together, where the output of the first is used to create the second.
-func Bind[A, B any](builder Builder[A], binder func(context.Context, A) Builder[B]) Builder[B] {
-	return BuilderFunc[B](func(ctx context.Context) (B, error) {
-		appA, err := builder.Build(ctx)
-		if err != nil {
-			var zero B
-			return zero, err
-		}
-		return binder(ctx, appA).Build(ctx)
-	})
-}
-
-// Runtime is an interface representing a runnable application component.
-type Runtime interface {
-	Run(context.Context) error
-}
-
-// RuntimeFunc is a function type that implements the Runtime interface.
-type RuntimeFunc func(context.Context) error
-
-// Run implements the [Runtime] interface for RuntimeFunc.
-func (f RuntimeFunc) Run(ctx context.Context) error {
-	return f(ctx)
-}
-
-// Runner is a generic interface for running application components.
-type Runner[T Runtime] interface {
-	Run(context.Context, Builder[T]) error
-}
-
-// RunnerFunc is a function type that implements the Runner interface.
-type RunnerFunc[T Runtime] func(context.Context, Builder[T]) error
-
-// Run implements the [Runner] interface for RunnerFunc.
-func (f RunnerFunc[T]) Run(ctx context.Context, builder Builder[T]) error {
-	return f(ctx, builder)
-}
-
-// DefaultRunner returns a Runner that builds and runs the application component.
-func DefaultRunner[T Runtime]() Runner[T] {
-	return RunnerFunc[T](func(ctx context.Context, builder Builder[T]) error {
-		app, err := builder.Build(ctx)
-		if err != nil {
-			return err
-		}
-		return app.Run(ctx)
-	})
-}
-
-// NotifyOnSignal wraps a Runner to listen for specified OS signals and cancel the context when received.
-func NotifyOnSignal[T Runtime](runner Runner[T], signals ...os.Signal) Runner[T] {
-	return RunnerFunc[T](func(ctx context.Context, builder Builder[T]) error {
-		ctx, cancel := signal.NotifyContext(ctx, signals...)
-		defer cancel()
-
-		return runner.Run(ctx, builder)
-	})
-}
-
-// RecoverPanics wraps a Runner to recover from panics during execution and return them as errors.
-func RecoverPanics[T Runtime](runner Runner[T]) Runner[T] {
-	return RunnerFunc[T](func(ctx context.Context, builder Builder[T]) (err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("recovered from panic: %v", r)
-			}
-		}()
-		return runner.Run(ctx, builder)
-	})
+// OsContext returns the Context of the current OS process.
+func OsContext() Context {
+	return Context{
+		Stdin:             os.Stdin,
+		Stdout:            os.Stdout,
+		Stderr:            os.Stderr,
+		Environment:       OsEnvironment{},
+		NotifyOnInterrupt: signal.NotifyContext,
+	}
 }
