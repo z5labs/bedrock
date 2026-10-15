@@ -44,3 +44,45 @@ jobs:
             go tool cover -func=coverage.out
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Library packages keep 100% statement coverage, so anything less fails
+      # the pull request. Every non-main package is gated, including ones added
+      # later, and a package without tests counts as uncovered rather than
+      # being skipped. Statements are compared exactly, so 99.96% does not
+      # pass by rounding to 100.0%.
+      - name: Require 100.0% statement coverage of every non-main package
+        run: |
+          go list -f '{{if ne .Name "main"}}{{.ImportPath}}{{end}}' ./... > packages.txt
+          awk '
+            NR == FNR { if ($0 != "") gated[$0] = 1; next }
+            FNR == 1 { next }
+            {
+              # A block can be listed more than once; count it once, as
+              # covered if any listing covered it.
+              stmts[$1] = $2
+              if ($3 > 0) hit[$1] = 1
+            }
+            END {
+              for (block in stmts) {
+                pkg = block
+                sub(/\/[^\/]*:.*$/, "", pkg)
+                total[pkg] += stmts[block]
+                if (block in hit) covered[pkg] += stmts[block]
+              }
+              failed = 0
+              for (pkg in gated) {
+                if (total[pkg] == 0) {
+                  printf "%s: no statements\n", pkg
+                  continue
+                }
+                pct = 100 * covered[pkg] / total[pkg]
+                if (covered[pkg] < total[pkg]) {
+                  printf "::error title=Coverage below 100.0%%::%s: %.1f%% of statements (%d of %d)\n", pkg, pct, covered[pkg], total[pkg]
+                  failed = 1
+                } else {
+                  printf "%s: 100.0%% of statements\n", pkg
+                }
+              }
+              exit failed
+            }
+          ' packages.txt coverage.out
