@@ -7,15 +7,19 @@
 package bedrock
 
 import (
-	"context"
 	"fmt"
-	"io"
-	"os"
-	"os/signal"
 )
 
 // App is an application that runs as an OS process.
 type App interface {
+	// Run runs the App with the Context of the process it runs in and
+	// returns the status the process exits with.
+	//
+	// The code of the returned ExitStatus is the exit status of the
+	// process, with 0..125 recommended, and the zero ExitStatus means
+	// success. Its cause is for tests and other callers of Run: [Main]
+	// ignores it, so an App reports anything a user should see on its own
+	// stderr.
 	Run(Context) ExitStatus
 }
 
@@ -25,49 +29,6 @@ type AppFunc func(Context) ExitStatus
 // Run implements the App interface.
 func (f AppFunc) Run(ctx Context) ExitStatus {
 	return f(ctx)
-}
-
-// ExitStatus is the status an App exits with.
-type ExitStatus struct {
-	code  int
-	cause error
-}
-
-// Exit returns an ExitStatus with the given code.
-func Exit(code int) ExitStatus {
-	return ExitStatus{code: code}
-}
-
-// ExitWithCause returns an ExitStatus with the given code and the error
-// that caused the App to exit.
-func ExitWithCause(code int, cause error) ExitStatus {
-	return ExitStatus{code: code, cause: cause}
-}
-
-// Code returns the exit code.
-func (s ExitStatus) Code() int {
-	return s.code
-}
-
-// Cause returns the error that caused the App to exit, if any.
-func (s ExitStatus) Cause() error {
-	return s.cause
-}
-
-// Main runs the App with the Context of the current OS process and exits with its code.
-func Main(app App) {
-	os.Exit(app.Run(OsContext()).Code())
-}
-
-// Context is everything an App is given by the OS process it runs in.
-type Context struct {
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
-
-	Environment Environment
-
-	NotifyOnInterrupt func(parent context.Context, signals ...os.Signal) (context.Context, context.CancelFunc)
 }
 
 // Environment provides the environment variables of a process.
@@ -102,27 +63,4 @@ func (e StaticEnvironment) Value(name string) (string, error) {
 		return "", ValueNotFoundError{Name: name}
 	}
 	return v, nil
-}
-
-// OsEnvironment is an Environment backed by the environment of the current process.
-type OsEnvironment struct{}
-
-// Value implements the Environment interface.
-func (OsEnvironment) Value(name string) (string, error) {
-	v, ok := os.LookupEnv(name)
-	if !ok {
-		return "", ValueNotFoundError{Name: name}
-	}
-	return v, nil
-}
-
-// OsContext returns the Context of the current OS process.
-func OsContext() Context {
-	return Context{
-		Stdin:             os.Stdin,
-		Stdout:            os.Stdout,
-		Stderr:            os.Stderr,
-		Environment:       OsEnvironment{},
-		NotifyOnInterrupt: signal.NotifyContext,
-	}
 }
