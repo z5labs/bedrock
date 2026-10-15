@@ -69,30 +69,7 @@
 //
 // # Migrating from v0.21.0
 //
-// Every export of config at v0.21.0 maps onto the package as follows.
-//
-//	v0.21.0                                process model
-//	-------------------------------------  -----------------------------------------------------------
-//	Reader[T]                              Source[T] (interface), Value[T] (concrete)
-//	Value[T], ValueOf, Value.Value         removed: "not set" is ErrNotFound
-//	ErrValueNotSet                         ErrNotFound
-//	ReaderFunc[T], ReaderFunc.Read         Func(name, fn); From(name, src) wraps any Source[T]
-//	ReaderOf(v)                            Static(v)
-//	EmptyReader[T]()                       zero Value[T]{}, which reads as ErrNotFound
-//	Map(r, func(ctx, A) (B, error))        v.Map(func(A) B) / v.Parse(func(A) (B, error))
-//	Bind(r, func(ctx, A) Reader[B])        v.FlatMap(func(A) Value[B])
-//	Or(r1, r2, ...)                        v1.Or(v2).Or(v3)
-//	Default(d, r)                          v.Default(d)
-//	Read(ctx, r)                           v.Read(ctx)
-//	Must(ctx, r)                           removed: a config failure is an input error to return
-//	MustOr(ctx, d, r)                      removed: v.Default(d), which recovers only from ErrNotFound
-//	Env(name)                              Env(p.Environment, name)
-//	ReadFile(path)                         removed until a consumer exists; a future File would take an fs.FS
-//	BoolFromString                         .Parse(strconv.ParseBool)
-//	IntFromString                          .Parse(strconv.Atoi)
-//	DurationFromString                     .Parse(time.ParseDuration)
-//	Int64FromString                        .Parse(ParseInt64)
-//	Float64FromString                      .Parse(ParseFloat64)
-//	Int64FromBytes(order, r)               removed
-//	—                                      new: OneOf(...), *Error{Name, Err}, Struct, Resolver
+// MIGRATING.md, at the root of the bedrock repository, maps every export of
+// config at v0.21.0 onto this package, with a worked example of moving an
+// option from a Reader to a Value.
 package config

@@ -6,28 +6,104 @@
 
 **bedrock is a minimal foundation for building use case specific frameworks in Go.**
 
-bedrock starts from one idea: an application is an OS process. Everything a
-process is handed by the operating system (its standard streams, its
-environment, its signals and its exit code) crosses a single, explicit boundary
-into the application, and nothing reaches around that boundary to touch the
-process directly. Keeping the boundary narrow and explicit is what lets the
-frameworks built on bedrock stay small, composable and testable without a real
-process behind them.
+It is meant for teams, such as platform engineering teams, who build their own
+frameworks on top of it. If you want a framework to build services with, see
+[z5labs/humus](https://github.com/z5labs/humus), which is built on bedrock.
 
-## Building on bedrock
+## An application is an OS process
 
-[example/httpserver](example/httpserver) is the reference for building on
-bedrock: a complete HTTP service written with the standard library alone. It
-reads its settings from the environment of its process with
-[config](https://pkg.go.dev/github.com/z5labs/bedrock/config), takes the
-network as a field it is given, logs with a logger of its own, shuts down
-gracefully within a bounded grace period on an interrupt or SIGTERM, and is
-tested whole and hermetically with
-[bedrocktest](https://pkg.go.dev/github.com/z5labs/bedrock/bedrocktest) and
-`testing/synctest`.
+The operating system hands a process its arguments, its environment, its
+standard streams and the delivery of its signals, and takes back an exit
+status. bedrock hands an application exactly those things, as one
+`bedrock.Process` value, and takes back a `bedrock.ExitStatus`:
+
+```go
+type App interface {
+	Run(ctx context.Context, p bedrock.Process) bedrock.ExitStatus
+}
+```
+
+That call is the boundary. An `App` never reads `os.Args`, `os.Getenv` or
+`os.Stdout`, never calls `signal.Notify` and never calls `os.Exit`. Everything
+it learns from its process comes through `p`, and the only thing it does to its
+process is return a status:
+
+```go
+var greeter = bedrock.AppFunc(func(ctx context.Context, p bedrock.Process) bedrock.ExitStatus {
+	greeting, err := config.Env(p.Environment, "GREETING").Default("hello").Read(ctx)
+	if err != nil {
+		return fail(p, err)
+	}
+
+	ctx, stop := p.NotifyContext(ctx, syscall.SIGTERM)
+	defer stop()
+
+	if _, err := fmt.Fprintln(p.Stdout, greeting); err != nil {
+		return fail(p, err)
+	}
+	<-ctx.Done()
+	return bedrock.ExitWithCause(0, context.Cause(ctx))
+})
+
+// fail reports err on the App's standard error, because bedrock.Main prints
+// nothing, and returns it as the cause of the status so a test can assert on it.
+func fail(p bedrock.Process, err error) bedrock.ExitStatus {
+	if _, werr := fmt.Fprintln(p.Stderr, err); werr != nil {
+		return bedrock.ExitWithCause(1, errors.Join(err, werr))
+	}
+	return bedrock.ExitWithCause(1, err)
+}
+```
+
+`main` is one line. `bedrock.Main` runs the `App` on the real process and exits
+with the code of the status it returns:
+
+```go
+func main() { bedrock.Main(greeter) }
+```
+
+Because nothing reaches around the boundary, a test runs the whole `App` on a
+fake process. It never touches the environment, the streams or the signals of
+the test binary, so it runs in parallel and inside a `testing/synctest` bubble:
+
+```go
+func TestGreeter(t *testing.T) {
+	t.Parallel()
+
+	fp := bedrocktest.NewProcess(t, bedrocktest.WithEnv(map[string]string{"GREETING": "hi"}))
+
+	statusCh := make(chan bedrock.ExitStatus, 1)
+	go func() { statusCh <- greeter.Run(t.Context(), fp.Process()) }()
+
+	<-fp.Notified(syscall.SIGTERM)
+	fp.Signal(syscall.SIGTERM)
+	status := <-statusCh
+
+	require.Equal(t, 0, status.Code())
+	require.Equal(t, "hi\n", fp.Stdout())
+}
+```
+
+## Packages
+
+| package | what it is |
+| --- | --- |
+| [bedrock](https://pkg.go.dev/github.com/z5labs/bedrock) | `App`, `Process`, `ExitStatus`, `Environment` and `Main`, the one place bedrock touches the real process. |
+| [bedrocktest](https://pkg.go.dev/github.com/z5labs/bedrock/bedrocktest) | A hermetic fake `Process` for tests that run a whole `App`, in the way `net/http/httptest` serves handlers. |
+| [config](https://pkg.go.dev/github.com/z5labs/bedrock/config) | Configuration values composed by chaining, read from the environment of the process, and `config.Struct` to read many at once. |
+| [example/httpserver](example/httpserver) | The reference for building on bedrock: a complete HTTP service with the standard library alone, with configuration, graceful shutdown and whole-service tests. |
+
+Library code imports only the standard library.
+
+## Migrating from v0.21.0
+
+bedrock v0.21.0 was built around `Builder`, `Runtime` and `Runner`, with HTTP,
+REST and OpenTelemetry runtimes. [MIGRATING.md](MIGRATING.md) says where every
+one of its exports went, either to the process model, to humus or to the
+standard library, with before and after examples. Its documentation remains
+available at
+[pkg.go.dev/github.com/z5labs/bedrock@v0.21.0](https://pkg.go.dev/github.com/z5labs/bedrock@v0.21.0).
 
 ## Status
 
-The API is in active development and is not yet stable. If you are using the
-previous Builder/Runtime/Runner API, its documentation remains available at
-[pkg.go.dev/github.com/z5labs/bedrock@v0.21.0](https://pkg.go.dev/github.com/z5labs/bedrock@v0.21.0).
+The API is in active development and is not yet stable.
