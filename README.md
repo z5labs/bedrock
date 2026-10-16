@@ -114,6 +114,16 @@ limit, signature scheme or expiry; organisations supply their own codecs, a
 is discussed in
 [discussion #578](https://github.com/z5labs/bedrock/discussions/578).
 
+## Releases
+
+Every module in this repository is released with the same version, after
+OpenTelemetry Go: publishing a GitHub release tagged `v0.22.0` releases
+`github.com/z5labs/bedrock` at `v0.22.0`, and the
+[Release workflow](.github/workflows/release.yaml) tags every nested module
+with that version too, so `fit/v0.22.0` is `github.com/z5labs/bedrock/fit` at
+`v0.22.0`. Modules are tagged whether or not they changed, so one version
+number names a set of modules that were built and tested together.
+
 ## Migrating from v0.21.0
 
 bedrock v0.21.0 was built around `Builder`, `Runtime` and `Runner`, with HTTP,

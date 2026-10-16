@@ -77,3 +77,7 @@ jobs:
         - name: Test (fit)
           if: ${{ !cancelled() }}
           run: go -C fit test -race -cover ./...
+
+        - name: Test release tagging script
+          if: ${{ !cancelled() }}
+          run: .github/scripts/tag-modules_test.sh
