@@ -45,20 +45,26 @@ Run `go doc -all` on a package for the full API. `MIGRATING.md` maps every expor
 bedrocktest/         a hermetic fake Process for tests that run a whole App
 config/              chainable configuration values and config.Struct
 example/httpserver/  the reference service: net/http alone, configuration, graceful shutdown, synctest tests
+fit/                 a nested module, github.com/z5labs/bedrock/fit: the failure-injection scenario model
 MIGRATING.md         where every v0.21.0 export went
 ```
 
 ## Development Commands
 
+The repository holds two modules: `github.com/z5labs/bedrock` at the root and `github.com/z5labs/bedrock/fit` in `fit/`. `./...` does not descend into a nested module, even with a `go.work` file, so every command runs once per module; `go -C fit` runs a go command in `fit`. Do not commit a `go.work` file.
+
 ```bash
 # Build
 go build ./...
+go -C fit build ./...
 
 # Vet
 go vet ./...
+go -C fit vet ./...
 
 # Run all tests with race detection and coverage
 go test -race -cover ./...
+go -C fit test -race -cover ./...
 
 # Run a single test or example
 go test -race -run Example ./...
@@ -67,13 +73,16 @@ go test -race -run Example ./...
 go test ./... -covermode=count -coverprofile=coverage.out
 go tool cover -func=coverage.out
 
-# Lint (config in .golangci.yaml; requires golangci-lint built with go1.27 or newer)
+# Lint (config in .golangci.yaml, shared by both modules; requires golangci-lint built with go1.27 or newer)
 golangci-lint run ./...
+(cd fit && golangci-lint run ./...)
 ```
+
+CI runs all of these for both modules in one check named `Build`, which the default branch requires.
 
 ## Conventions
 
-- **Library code imports only the standard library.** Third-party modules are allowed in tests only.
+- **Library code imports only what its module allows.** The bedrock module's library code imports only the standard library. `fit`'s library code imports only the standard library and `go.opentelemetry.io/otel/baggage`, and never the bedrock module. Tests in either module may use third-party modules. golangci-lint's depguard enforces this.
 - **Tests assert with `github.com/stretchr/testify/require`.**
 - **The process is reached only through the value passed to `Run`.** Library and application code never read the environment, the standard streams or the signals of the current process directly, and never exit the process themselves. A single file at the OS edge builds that value from the real process and turns the returned status into the process exit code; it is the only place allowed to do so.
 - **Panics are assertions.** Panic only on a programming error, such as a broken invariant or a missing required field, and never recover a panic.

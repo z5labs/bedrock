@@ -113,9 +113,9 @@
 // The boundary itself is applied. golangci-lint's forbidigo fails any use
 // of os.Args, os.Stdin, os.Stdout, os.Stderr, os.Getenv, os.LookupEnv,
 // os.Environ, os.Exit, signal.Notify, signal.NotifyContext, flag.Parse or
-// flag.CommandLine across the whole module, tests and examples included,
-// except in the OS edge, its tests, and the test that checks the fake
-// signal delivery of bedrocktest against the real one.
+// flag.CommandLine across every module of the repository, tests and
+// examples included, except in the OS edge, its tests, and the test that
+// checks the fake signal delivery of bedrocktest against the real one.
 //
 // From the Power of 10:
 //
@@ -155,11 +155,14 @@
 //   - Putting a limit on everything is adapted: an exit code is limited to
 //     0..255 and [Exit] checks it, and waits are bounded by contexts.
 //   - Static memory allocation is adapted, as for rule 3.
-//   - Zero dependencies is adapted: library code imports only the
-//     standard library, and tests alone may use third-party modules.
+//   - Zero dependencies is adapted: the library code of this module
+//     imports only the standard library, the library code of the nested
+//     fit module imports only the standard library and OpenTelemetry's
+//     baggage package, and tests alone may use third-party modules.
+//     golangci-lint's depguard enforces both.
 //   - Exhaustive testing is applied as statement coverage: every non-main
-//     package is at 100.0%, and CI fails a pull request that leaves any of
-//     them below it.
+//     package of every module is at 100.0%, and CI fails a pull request
+//     that leaves any of them below it.
 //   - Deterministic simulation testing is not claimed; see Testing claims
 //     below.
 //
