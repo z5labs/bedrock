@@ -114,6 +114,37 @@ limit, signature scheme or expiry; organisations supply their own codecs, a
 is discussed in
 [discussion #578](https://github.com/z5labs/bedrock/discussions/578).
 
+## circuit
+
+[circuit](https://pkg.go.dev/github.com/z5labs/bedrock/circuit) is a circuit
+breaker for one dependency: the closed, open and half-open state machine, with
+no I/O, no background goroutine and no defaults. A call goes through it inline,
+in the caller's own code:
+
+```go
+t, err := b.Allow(ctx)
+if err != nil {
+	return err // a *circuit.RejectedError
+}
+defer t.Release()
+
+err = call(ctx)
+t.Done(err)
+```
+
+It is a nested module with its own `go.mod`, and its library code imports only
+the standard library:
+
+```bash
+go get github.com/z5labs/bedrock/circuit
+```
+
+circuit ships no policy, classifier or observer. When to open, what counts as a
+failure and how changes of state are reported are the caller's decisions, and
+transports, interceptors and metrics belong to the framework built on it. The
+design is discussed in
+[discussion #595](https://github.com/z5labs/bedrock/discussions/595).
+
 ## Releases
 
 Every module in this repository is released with the same version, after
