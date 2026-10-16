@@ -50,6 +50,14 @@ jobs:
             skip-cache: false
             working-directory: fit
 
+        - name: Lint Go Code (circuit)
+          if: ${{ !cancelled() }}
+          uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+          with:
+            version: v2.14.0
+            skip-cache: false
+            working-directory: circuit
+
         - name: Report golangci-lint version
           if: ${{ !cancelled() }}
           run: golangci-lint version
@@ -62,6 +70,10 @@ jobs:
           if: ${{ !cancelled() }}
           run: go -C fit build ./...
 
+        - name: Build (circuit)
+          if: ${{ !cancelled() }}
+          run: go -C circuit build ./...
+
         - name: Vet (bedrock)
           if: ${{ !cancelled() }}
           run: go vet ./...
@@ -70,6 +82,10 @@ jobs:
           if: ${{ !cancelled() }}
           run: go -C fit vet ./...
 
+        - name: Vet (circuit)
+          if: ${{ !cancelled() }}
+          run: go -C circuit vet ./...
+
         - name: Test (bedrock)
           if: ${{ !cancelled() }}
           run: go test -race -cover ./...
@@ -77,6 +93,10 @@ jobs:
         - name: Test (fit)
           if: ${{ !cancelled() }}
           run: go -C fit test -race -cover ./...
+
+        - name: Test (circuit)
+          if: ${{ !cancelled() }}
+          run: go -C circuit test -race -cover ./...
 
         - name: Test release tagging script
           if: ${{ !cancelled() }}

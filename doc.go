@@ -158,8 +158,9 @@
 //   - Zero dependencies is adapted: the library code of this module
 //     imports only the standard library, the library code of the nested
 //     fit module imports only the standard library and OpenTelemetry's
-//     baggage package, and tests alone may use third-party modules.
-//     golangci-lint's depguard enforces both.
+//     baggage package, the library code of the nested circuit module
+//     imports only the standard library, and tests alone may use
+//     third-party modules. golangci-lint's depguard enforces all three.
 //   - Exhaustive testing is applied as statement coverage: every non-main
 //     package of every module is at 100.0%, and CI fails a pull request
 //     that leaves any of them below it.

@@ -1,6 +1,6 @@
 version: "2"
 # This file configures every module in the repository. golangci-lint run from
-# a nested module, such as fit, finds it by searching the parent directories,
+# a nested module, such as fit or circuit, finds it by searching the parent directories,
 # and every path below is relative to this file rather than to the module.
 run:
   timeout: 5m
@@ -21,12 +21,15 @@ linters:
             - $all
             - "!$test"
             - "!${base-path}/fit/**"
+            - "!${base-path}/circuit/**"
           allow:
             - $gostd
             - github.com/z5labs/bedrock
           deny:
             - pkg: github.com/z5labs/bedrock/fit
               desc: the bedrock module does not depend on the fit module
+            - pkg: github.com/z5labs/bedrock/circuit
+              desc: the bedrock module does not depend on the circuit module
         # Library code of the fit module imports only the standard library
         # and OpenTelemetry's baggage. It does not import the bedrock module.
         # Tests may use any module.
@@ -38,6 +41,16 @@ linters:
           allow:
             - $gostd
             - go.opentelemetry.io/otel/baggage
+        # Library code of the circuit module imports only the standard
+        # library. It does not import the bedrock module or the fit module.
+        # Tests may use any module.
+        circuit:
+          list-mode: strict
+          files:
+            - "${base-path}/circuit/**"
+            - "!$test"
+          allow:
+            - $gostd
     forbidigo:
       # Examples are documentation that users copy, so they are held to the
       # same rule as everything else.

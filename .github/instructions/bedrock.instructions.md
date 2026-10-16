@@ -50,6 +50,6 @@ case err != nil:
 ## Errors and tests
 
 - Check every error. Return it, wrap it with context, or handle it.
-- Library code imports only what its module allows. The bedrock module's library code imports only the standard library. The library code of the nested `fit` module (`github.com/z5labs/bedrock/fit`) imports only the standard library and `go.opentelemetry.io/otel/baggage`, and never the bedrock module. Tests in either module may use third-party modules. golangci-lint's depguard enforces this.
+- Library code imports only what its module allows. The bedrock module's library code imports only the standard library. The library code of the nested `fit` module (`github.com/z5labs/bedrock/fit`) imports only the standard library and `go.opentelemetry.io/otel/baggage`, and never the bedrock module. The library code of the nested `circuit` module (`github.com/z5labs/bedrock/circuit`) imports only the standard library, and never the bedrock module or `fit`. Tests in any module may use third-party modules. golangci-lint's depguard enforces this.
 - Tests assert with `github.com/stretchr/testify/require`.
 - Library packages keep 100% statement coverage. CI fails a pull request that leaves any non-main package below 100.0%.
