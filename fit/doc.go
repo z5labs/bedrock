@@ -37,13 +37,51 @@
 //
 // # No wire convention
 //
-// fit owns no wire convention. The scenario travels as baggage, and the
-// codec the caller supplies decides the baggage keys, the grammar of the
-// encoded scenario, how large it may be, when it expires and whether it is
+// fit owns no wire convention. The scenario travels as OpenTelemetry
+// baggage, and the codec the caller supplies decides the baggage keys, the
+// grammar of the encoded scenario, its version, how large it may be, when
+// it expires, which injection point names it accepts and whether it is
 // trusted. The edge that decides which requests are under test, such as
 // Envoy, Zuul or Kong, is usually owned by a different team, so fit forces
-// none of those choices on it. Likewise fit puts no limit on the
-// characters of an injection point's name.
+// none of those choices on it. fit declares no baggage key, value grammar,
+// size limit, signature scheme or expiry of its own, and likewise puts no
+// limit on the characters of an injection point's name.
+//
+// # Codecs
+//
+// A codec is split in two, because most services only read and strip
+// scenarios and only the edge writes them:
+//
+//   - a [Decoder] reads a Scenario from baggage and strips it. Decode
+//     reports ok == false when the baggage carries no Scenario, and a
+//     non-nil error when it carries one that cannot be honoured. Strip
+//     removes exactly the members Decode reads and leaves every other
+//     member alone;
+//   - an [Encoder] writes a Scenario into baggage, replacing any Scenario
+//     the baggage already carries.
+//
+// Implementations of both must be safe for concurrent use.
+//
+// [ContextWithScenario], [ScenarioFromContext] and [ContextWithoutScenario]
+// apply a codec to the baggage of a context. Moving that baggage between
+// services stays the caller's job, typically with an OpenTelemetry
+// propagator.
+//
+// # Trust
+//
+// OpenTelemetry baggage has no integrity check. Services commonly accept
+// baggage from any caller, and OpenTelemetry auto-instrumentation forwards
+// baggage to third parties. A scenario is an instruction to fail, so a
+// deployment must decide whom it takes that instruction from:
+//
+//   - a deployment establishes trust in its codec, for example with a
+//     signature or a registry of known scenario IDs, or by stripping
+//     scenarios at its edge;
+//   - [ContextWithoutScenario] belongs at both trust boundaries: on
+//     requests from untrusted callers, and on calls out to third parties.
+//
+// Envoy's fault filter gives the same warning about its x-envoy-fault-*
+// headers.
 //
 // # Out of scope
 //
