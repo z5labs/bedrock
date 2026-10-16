@@ -43,10 +43,21 @@ var greeter = bedrock.AppFunc(func(ctx context.Context, p bedrock.Process) bedro
 })
 
 // exampleTB stands in for the *testing.T an Example does not have. In a
-// test, pass t to NewProcess instead.
+// test, pass t to NewProcess or Start instead.
 type exampleTB struct {
 	testing.TB
+	ctx      context.Context
+	cancel   context.CancelFunc
 	cleanups []func()
+}
+
+// Context returns a context that runCleanups cancels before it runs the
+// cleanups, as testing does with t.Context.
+func (tb *exampleTB) Context() context.Context {
+	if tb.ctx == nil {
+		tb.ctx, tb.cancel = context.WithCancel(context.Background())
+	}
+	return tb.ctx
 }
 
 func (*exampleTB) Helper() {}
@@ -60,6 +71,9 @@ func (tb *exampleTB) Cleanup(f func()) {
 }
 
 func (tb *exampleTB) runCleanups() {
+	if tb.cancel != nil {
+		tb.cancel()
+	}
 	for i := len(tb.cleanups) - 1; i >= 0; i-- {
 		tb.cleanups[i]()
 	}
@@ -77,6 +91,9 @@ func ExampleNewProcess() {
 		bedrocktest.WithEnv(map[string]string{"GREETING": "hi"}),
 	)
 
+	// This example shows NewProcess on its own, so it runs the App itself.
+	// A test that has nothing to do between building the Process and
+	// running the App uses Start, as in the Start example.
 	statusCh := make(chan bedrock.ExitStatus, 1)
 	go func() {
 		statusCh <- greeter.Run(context.Background(), fp.Process())
@@ -89,6 +106,31 @@ func ExampleNewProcess() {
 	fmt.Print(fp.Stdout())
 	fmt.Println("exit code:", status.Code())
 	fmt.Println("cause:", status.Cause())
+	// Output:
+	// hi, gopher
+	// exit code: 0
+	// cause: terminated signal received
+}
+
+// Start runs a whole App on a new Process and hands back its status, so a
+// test needs no goroutine of its own. The App runs on the test's context,
+// and the test's cleanup waits for it to return.
+func ExampleStart() {
+	t := new(exampleTB)
+	defer t.runCleanups()
+
+	fp, status := bedrocktest.Start(t, greeter,
+		bedrocktest.WithArgs("-name", "gopher"),
+		bedrocktest.WithEnv(map[string]string{"GREETING": "hi"}),
+	)
+
+	<-fp.Notified(syscall.SIGTERM)
+	fp.Signal(syscall.SIGTERM)
+	st := <-status
+
+	fmt.Print(fp.Stdout())
+	fmt.Println("exit code:", st.Code())
+	fmt.Println("cause:", st.Cause())
 	// Output:
 	// hi, gopher
 	// exit code: 0

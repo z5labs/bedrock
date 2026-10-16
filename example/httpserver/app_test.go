@@ -315,10 +315,7 @@ func TestApp_Run_servesUntilSIGTERM(t *testing.T) {
 		ln := newPipeListener()
 		var calls []listenCall
 		app := App{Listen: listenOn(ln, &calls), Handler: NewHandler}
-		fp := bedrocktest.NewProcess(t)
-
-		statusCh := make(chan bedrock.ExitStatus, 1)
-		go func() { statusCh <- app.Run(t.Context(), fp.Process()) }()
+		fp, statusCh := bedrocktest.Start(t, app)
 
 		resp := <-get(t.Context(), ln.client(), "http://example/hello")
 		require.NoError(t, resp.err)
@@ -350,10 +347,7 @@ func TestApp_Run_inFlightRequestCompletesOnSIGTERM(t *testing.T) {
 		release := make(chan struct{})
 		written := make(chan error, 1)
 		app := App{Listen: listenOn(ln, &calls), Handler: blockingHandler(started, release, written)}
-		fp := bedrocktest.NewProcess(t)
-
-		statusCh := make(chan bedrock.ExitStatus, 1)
-		go func() { statusCh <- app.Run(t.Context(), fp.Process()) }()
+		fp, statusCh := bedrocktest.Start(t, app)
 
 		respCh := get(t.Context(), ln.client(), "http://example/")
 		<-started
@@ -397,12 +391,9 @@ func TestApp_Run_shutdownGracePeriodExceeded(t *testing.T) {
 		release := make(chan struct{})
 		written := make(chan error, 1)
 		app := App{Listen: listenOn(ln, &calls), Handler: blockingHandler(started, release, written)}
-		fp := bedrocktest.NewProcess(t, bedrocktest.WithEnv(map[string]string{
+		fp, statusCh := bedrocktest.Start(t, app, bedrocktest.WithEnv(map[string]string{
 			"SHUTDOWN_GRACE_PERIOD": grace.String(),
 		}))
-
-		statusCh := make(chan bedrock.ExitStatus, 1)
-		go func() { statusCh <- app.Run(t.Context(), fp.Process()) }()
 
 		respCh := get(t.Context(), ln.client(), "http://example/")
 		<-started

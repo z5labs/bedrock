@@ -42,10 +42,21 @@ func Example_main() {
 }
 
 // exampleTB stands in for the *testing.T an Example does not have. In a
-// test, pass t to bedrocktest.NewProcess instead.
+// test, pass t to bedrocktest.NewProcess or bedrocktest.Start instead.
 type exampleTB struct {
 	testing.TB
+	ctx      context.Context
+	cancel   context.CancelFunc
 	cleanups []func()
+}
+
+// Context returns a context that runCleanups cancels before it runs the
+// cleanups, as testing does with t.Context.
+func (tb *exampleTB) Context() context.Context {
+	if tb.ctx == nil {
+		tb.ctx, tb.cancel = context.WithCancel(context.Background())
+	}
+	return tb.ctx
 }
 
 func (*exampleTB) Helper() {}
@@ -59,6 +70,9 @@ func (tb *exampleTB) Cleanup(f func()) {
 }
 
 func (tb *exampleTB) runCleanups() {
+	if tb.cancel != nil {
+		tb.cancel()
+	}
 	for i := len(tb.cleanups) - 1; i >= 0; i-- {
 		tb.cleanups[i]()
 	}
@@ -119,11 +133,7 @@ func ExampleApp_gracefulShutdown() {
 	t := new(exampleTB)
 	defer t.runCleanups()
 
-	fp := bedrocktest.NewProcess(t)
-	statusCh := make(chan bedrock.ExitStatus, 1)
-	go func() {
-		statusCh <- app.Run(context.Background(), fp.Process())
-	}()
+	fp, statusCh := bedrocktest.Start(t, app)
 
 	// Wait until the App listens for SIGTERM, then send a fake one.
 	<-fp.Notified(syscall.SIGTERM)

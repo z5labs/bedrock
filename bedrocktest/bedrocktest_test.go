@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"testing/synctest"
@@ -26,10 +27,14 @@ import (
 
 // recordingTB is a testing.TB that records the failures and cleanups the
 // fake registers with it instead of acting on them, so a test can assert
-// that the fake fails a test that misuses it. Every other method goes to
-// the real testing.TB it embeds.
+// that the fake fails a test that misuses it. Its Context is cancelled by
+// runCleanups, just before the cleanups run, as the testing package does.
+// Every other method goes to the real testing.TB it embeds.
 type recordingTB struct {
 	testing.TB
+
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	mu       sync.Mutex
 	errors   []string
@@ -37,7 +42,12 @@ type recordingTB struct {
 }
 
 func newRecordingTB(t *testing.T) *recordingTB {
-	return &recordingTB{TB: t}
+	ctx, cancel := context.WithCancel(t.Context())
+	return &recordingTB{TB: t, ctx: ctx, cancel: cancel}
+}
+
+func (r *recordingTB) Context() context.Context {
+	return r.ctx
 }
 
 func (r *recordingTB) Errorf(format string, args ...any) {
@@ -52,9 +62,11 @@ func (r *recordingTB) Cleanup(f func()) {
 	r.cleanups = append(r.cleanups, f)
 }
 
-// runCleanups runs the recorded cleanups last-registered first, as the
-// testing package does.
+// runCleanups cancels the Context, then runs the recorded cleanups
+// last-registered first, as the testing package does.
 func (r *recordingTB) runCleanups() {
+	r.cancel()
+
 	r.mu.Lock()
 	cleanups := r.cleanups
 	r.cleanups = nil
@@ -69,6 +81,12 @@ func (r *recordingTB) recorded() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.errors...)
+}
+
+func (r *recordingTB) registered() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.cleanups)
 }
 
 func requireClosed(t *testing.T, ch <-chan struct{}) {
@@ -526,8 +544,6 @@ func TestProcess_Synctest(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-		fp := bedrocktest.NewProcess(t)
-
 		// The App shuts down gracefully, taking 30s of fake time after
 		// SIGTERM before it exits.
 		app := bedrock.AppFunc(func(ctx context.Context, p bedrock.Process) bedrock.ExitStatus {
@@ -545,10 +561,7 @@ func TestProcess_Synctest(t *testing.T) {
 			return bedrock.ExitWithCause(0, context.Cause(ctx))
 		})
 
-		statusCh := make(chan bedrock.ExitStatus, 1)
-		go func() {
-			statusCh <- app.Run(t.Context(), fp.Process())
-		}()
+		fp, statusCh := bedrocktest.Start(t, app)
 
 		<-fp.Notified(syscall.SIGTERM)
 		start := time.Now()
@@ -564,5 +577,128 @@ func TestProcess_Synctest(t *testing.T) {
 		// still running when this function returns; Wait makes the point
 		// here, before the assertions above are taken as the whole story.
 		synctest.Wait()
+	})
+}
+
+func TestStart(t *testing.T) {
+	t.Parallel()
+
+	t.Run("panics on a nil App before registering a cleanup", func(t *testing.T) {
+		t.Parallel()
+
+		rec := newRecordingTB(t)
+		require.PanicsWithValue(t, "bedrocktest: Start requires a non-nil bedrock.App", func() {
+			bedrocktest.Start(rec, nil)
+		})
+		require.Zero(t, rec.registered())
+	})
+
+	t.Run("delivers the code and cause the App returns", func(t *testing.T) {
+		t.Parallel()
+
+		errBoom := errors.New("boom")
+		_, status := bedrocktest.Start(t, bedrock.AppFunc(func(context.Context, bedrock.Process) bedrock.ExitStatus {
+			return bedrock.ExitWithCause(3, errBoom)
+		}))
+
+		st := <-status
+		require.Equal(t, 3, st.Code())
+		require.ErrorIs(t, st.Cause(), errBoom)
+	})
+
+	t.Run("runs the App on a Process built from its options", func(t *testing.T) {
+		t.Parallel()
+
+		app := bedrock.AppFunc(func(_ context.Context, p bedrock.Process) bedrock.ExitStatus {
+			greeting, err := p.Environment.Value("GREETING")
+			if err != nil {
+				return bedrock.ExitWithCause(1, err)
+			}
+			name, err := io.ReadAll(p.Stdin)
+			if err != nil {
+				return bedrock.ExitWithCause(1, err)
+			}
+			if _, err := fmt.Fprintf(p.Stdout, "%s %s, %s\n", strings.Join(p.Args, " "), greeting, name); err != nil {
+				return bedrock.ExitWithCause(1, err)
+			}
+			return bedrock.Exit(0)
+		})
+
+		fp, status := bedrocktest.Start(t, app,
+			bedrocktest.WithArgs("-v", "x"),
+			bedrocktest.WithEnv(map[string]string{"GREETING": "hi"}),
+			bedrocktest.WithStdin(strings.NewReader("gopher")),
+		)
+
+		st := <-status
+		require.Zero(t, st.Code())
+		require.NoError(t, st.Cause())
+		require.Equal(t, bedrocktest.ProgramName+" -v x hi, gopher\n", fp.Stdout())
+	})
+
+	t.Run("runs the App on the test's context and waits for it when the test ends", func(t *testing.T) {
+		t.Parallel()
+
+		returned := make(chan error, 1)
+		t.Run("subtest", func(t *testing.T) {
+			bedrocktest.Start(t, bedrock.AppFunc(func(ctx context.Context, _ bedrock.Process) bedrock.ExitStatus {
+				<-ctx.Done()
+				returned <- ctx.Err()
+				return bedrock.Exit(0)
+			}))
+		})
+
+		select {
+		case err := <-returned:
+			require.ErrorIs(t, err, context.Canceled)
+		default:
+			require.FailNow(t, "the App was still running when t.Run returned")
+		}
+	})
+
+	t.Run("waits for the App before checking for unstopped NotifyContexts", func(t *testing.T) {
+		t.Parallel()
+
+		rec := newRecordingTB(t)
+		app := bedrock.AppFunc(func(ctx context.Context, p bedrock.Process) bedrock.ExitStatus {
+			ctx, stop := p.NotifyContext(ctx, syscall.SIGTERM)
+			defer stop()
+
+			<-ctx.Done()
+			return bedrock.ExitWithCause(0, context.Cause(ctx))
+		})
+		fp, status := bedrocktest.Start(rec, app)
+		<-fp.Notified(syscall.SIGTERM)
+
+		rec.runCleanups()
+
+		require.Empty(t, rec.recorded())
+		select {
+		case st := <-status:
+			require.Zero(t, st.Code())
+			require.ErrorIs(t, st.Cause(), context.Canceled)
+		default:
+			require.FailNow(t, "the App was still running after the cleanups ran")
+		}
+	})
+
+	t.Run("a test that never receives the status neither blocks nor leaks the App", func(t *testing.T) {
+		t.Parallel()
+
+		var returned atomic.Int32
+		// synctest.Test fails if a goroutine of the bubble outlives the
+		// function, so the Apps' goroutines must have returned by then.
+		synctest.Test(t, func(t *testing.T) {
+			bedrocktest.Start(t, bedrock.AppFunc(func(context.Context, bedrock.Process) bedrock.ExitStatus {
+				defer returned.Add(1)
+				return bedrock.Exit(1)
+			}))
+			bedrocktest.Start(t, bedrock.AppFunc(func(ctx context.Context, _ bedrock.Process) bedrock.ExitStatus {
+				defer returned.Add(1)
+				<-ctx.Done()
+				return bedrock.Exit(2)
+			}))
+		})
+		require.Equal(t, int32(2), returned.Load())
 	})
 }

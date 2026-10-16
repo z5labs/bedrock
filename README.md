@@ -70,10 +70,7 @@ the test binary, so it runs in parallel and inside a `testing/synctest` bubble:
 func TestGreeter(t *testing.T) {
 	t.Parallel()
 
-	fp := bedrocktest.NewProcess(t, bedrocktest.WithEnv(map[string]string{"GREETING": "hi"}))
-
-	statusCh := make(chan bedrock.ExitStatus, 1)
-	go func() { statusCh <- greeter.Run(t.Context(), fp.Process()) }()
+	fp, statusCh := bedrocktest.Start(t, greeter, bedrocktest.WithEnv(map[string]string{"GREETING": "hi"}))
 
 	<-fp.Notified(syscall.SIGTERM)
 	fp.Signal(syscall.SIGTERM)
