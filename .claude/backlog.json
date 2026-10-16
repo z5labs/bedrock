@@ -11,12 +11,15 @@
     "golangci-lint run",
     "cd fit && golangci-lint run",
     "cd circuit && golangci-lint run",
+    "cd retry && golangci-lint run",
     "go build ./...",
     "go -C fit build ./...",
     "go -C circuit build ./...",
+    "go -C retry build ./...",
     "go test -race -cover ./...",
     "go -C fit test -race -cover ./...",
-    "go -C circuit test -race -cover ./..."
+    "go -C circuit test -race -cover ./...",
+    "go -C retry test -race -cover ./..."
   ],
   "merge": {
     "label": "auto-merge",

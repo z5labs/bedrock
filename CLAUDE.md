@@ -47,28 +47,32 @@ config/              chainable configuration values and config.Struct
 example/httpserver/  the reference service: net/http alone, configuration, graceful shutdown, synctest tests
 fit/                 a nested module, github.com/z5labs/bedrock/fit: the failure-injection scenario model
 circuit/             a nested module, github.com/z5labs/bedrock/circuit: the circuit breaker's state machine
+retry/               a nested module, github.com/z5labs/bedrock/retry: retries with a backoff schedule and a retry budget
 MIGRATING.md         where every v0.21.0 export went
 ```
 
 ## Development Commands
 
-The repository holds three modules: `github.com/z5labs/bedrock` at the root, `github.com/z5labs/bedrock/fit` in `fit/` and `github.com/z5labs/bedrock/circuit` in `circuit/`. `./...` does not descend into a nested module, even with a `go.work` file, so every command runs once per module; `go -C fit` runs a go command in `fit`, and `go -C circuit` one in `circuit`. Do not commit a `go.work` file.
+The repository holds four modules: `github.com/z5labs/bedrock` at the root, `github.com/z5labs/bedrock/fit` in `fit/`, `github.com/z5labs/bedrock/circuit` in `circuit/` and `github.com/z5labs/bedrock/retry` in `retry/`. `./...` does not descend into a nested module, even with a `go.work` file, so every command runs once per module; `go -C fit` runs a go command in `fit`, `go -C circuit` one in `circuit`, and `go -C retry` one in `retry`. Do not commit a `go.work` file.
 
 ```bash
 # Build
 go build ./...
 go -C fit build ./...
 go -C circuit build ./...
+go -C retry build ./...
 
 # Vet
 go vet ./...
 go -C fit vet ./...
 go -C circuit vet ./...
+go -C retry vet ./...
 
 # Run all tests with race detection and coverage
 go test -race -cover ./...
 go -C fit test -race -cover ./...
 go -C circuit test -race -cover ./...
+go -C retry test -race -cover ./...
 
 # Run a single test or example
 go test -race -run Example ./...
@@ -81,13 +85,14 @@ go tool cover -func=coverage.out
 golangci-lint run ./...
 (cd fit && golangci-lint run ./...)
 (cd circuit && golangci-lint run ./...)
+(cd retry && golangci-lint run ./...)
 ```
 
 CI runs all of these for every module in one check named `Build`, which the default branch requires.
 
 ## Conventions
 
-- **Library code imports only what its module allows.** The bedrock module's library code imports only the standard library. `fit`'s library code imports only the standard library and `go.opentelemetry.io/otel/baggage`, and never the bedrock module. `circuit`'s library code imports only the standard library, and never the bedrock module or `fit`. Tests in any module may use third-party modules. golangci-lint's depguard enforces this.
+- **Library code imports only what its module allows.** The bedrock module's library code imports only the standard library. `fit`'s library code imports only the standard library and `go.opentelemetry.io/otel/baggage`, and never the bedrock module. `circuit`'s library code imports only the standard library, and never the bedrock module or `fit`. `retry`'s library code imports only the standard library, and never the bedrock module, `fit` or `circuit`. Tests in any module may use third-party modules. golangci-lint's depguard enforces this.
 - **Tests assert with `github.com/stretchr/testify/require`.**
 - **The process is reached only through the value passed to `Run`.** Library and application code never read the environment, the standard streams or the signals of the current process directly, and never exit the process themselves. A single file at the OS edge builds that value from the real process and turns the returned status into the process exit code; it is the only place allowed to do so.
 - **Panics are assertions.** Panic only on a programming error, such as a broken invariant or a missing required field, and never recover a panic.
