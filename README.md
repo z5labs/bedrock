@@ -142,6 +142,39 @@ transports, interceptors and metrics belong to the framework built on it. The
 design is discussed in
 [discussion #595](https://github.com/z5labs/bedrock/discussions/595).
 
+## retry
+
+[retry](https://pkg.go.dev/github.com/z5labs/bedrock/retry) retries calls to a
+dependency inline, in the caller's own code, by ranging over the attempts of a
+call:
+
+```go
+var err error
+for a := range r.Attempts(ctx) {
+	err = call(ctx)
+	a.Done(err)
+}
+return err
+```
+
+`Done` classifies each result with a function the caller provides, and returns
+why the loop goes on or ends. A `Budget`, after gRPC's retry throttling, limits
+the retries of every call that shares it, and `Exponential` backs off with full
+jitter.
+
+It is a nested module with its own `go.mod`, and its library code imports only
+the standard library:
+
+```bash
+go get github.com/z5labs/bedrock/retry
+```
+
+retry ships no classifier. What can be retried is the caller's decision, and a
+circuit breaker composes with it through the classifier, which returns `Stop`
+for the breaker's rejection. Transports, interceptors and metrics belong to the
+framework built on it. The design is discussed in
+[discussion #606](https://github.com/z5labs/bedrock/discussions/606).
+
 ## Releases
 
 Every module in this repository is released with the same version, after
