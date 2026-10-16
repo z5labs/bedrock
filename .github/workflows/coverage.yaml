@@ -6,7 +6,8 @@ on:
       - main
     paths:
       - '**.go'
-      - 'go.mod'
+      - '**/go.mod'
+      - '**/go.sum'
 
 permissions:
   contents: read
@@ -24,8 +25,26 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
+      # Every directory holding a go.mod is a module. `./...` does not descend
+      # into a nested module, so each module is tested on its own, and the
+      # profiles are merged so that one gate covers them all. The per-function
+      # report is made per module, because go tool cover resolves a profile's
+      # files only from inside the module that holds them.
+      - name: List modules
+        run: git ls-files -- 'go.mod' '**/go.mod' | xargs -n1 dirname | sort -u > modules.txt
+
       - name: Run tests with coverage
-        run: go test ./... -covermode=count -coverprofile=coverage.out | tee coverage.txt
+        run: |
+          echo 'mode: count' > coverage.out
+          : > coverage.txt
+          : > coverage-func.txt
+          : > packages.txt
+          while read -r module; do
+            go -C "$module" test ./... -covermode=count -coverprofile=module-coverage.out | tee -a coverage.txt
+            tail -n +2 "$module/module-coverage.out" >> coverage.out
+            go -C "$module" tool cover -func=module-coverage.out >> coverage-func.txt
+            go -C "$module" list -f '{{if ne .Name "main"}}{{.ImportPath}}{{end}}' ./... >> packages.txt
+          done < modules.txt
 
       - name: Write coverage to the job summary
         run: |
@@ -41,18 +60,17 @@ jobs:
             echo '### Per function'
             echo
             echo '```'
-            go tool cover -func=coverage.out
+            cat coverage-func.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Library packages keep 100% statement coverage, so anything less fails
-      # the pull request. Every non-main package is gated, including ones added
-      # later, and a package without tests counts as uncovered rather than
-      # being skipped. Statements are compared exactly, so 99.96% does not
-      # pass by rounding to 100.0%.
+      # the pull request. Every non-main package of every module is gated,
+      # including ones added later, and a package without tests counts as
+      # uncovered rather than being skipped. Statements are compared exactly,
+      # so 99.96% does not pass by rounding to 100.0%.
       - name: Require 100.0% statement coverage of every non-main package
         run: |
-          go list -f '{{if ne .Name "main"}}{{.ImportPath}}{{end}}' ./... > packages.txt
           awk '
             NR == FNR { if ($0 != "") gated[$0] = 1; next }
             FNR == 1 { next }

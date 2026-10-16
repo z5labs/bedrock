@@ -1,11 +1,43 @@
 version: "2"
+# This file configures every module in the repository. golangci-lint run from
+# a nested module, such as fit, finds it by searching the parent directories,
+# and every path below is relative to this file rather than to the module.
 run:
   timeout: 5m
   tests: true
+  relative-path-mode: cfg
 linters:
   enable:
+    - depguard
     - forbidigo
   settings:
+    depguard:
+      rules:
+        # Library code of the bedrock module imports only the standard
+        # library, and bedrock's own packages. Tests may use any module.
+        bedrock:
+          list-mode: strict
+          files:
+            - $all
+            - "!$test"
+            - "!${base-path}/fit/**"
+          allow:
+            - $gostd
+            - github.com/z5labs/bedrock
+          deny:
+            - pkg: github.com/z5labs/bedrock/fit
+              desc: the bedrock module does not depend on the fit module
+        # Library code of the fit module imports only the standard library
+        # and OpenTelemetry's baggage. It does not import the bedrock module.
+        # Tests may use any module.
+        fit:
+          list-mode: strict
+          files:
+            - "${base-path}/fit/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - go.opentelemetry.io/otel/baggage
     forbidigo:
       # Examples are documentation that users copy, so they are held to the
       # same rule as everything else.

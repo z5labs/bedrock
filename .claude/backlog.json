@@ -9,8 +9,11 @@
   },
   "verify": [
     "golangci-lint run",
+    "cd fit && golangci-lint run",
     "go build ./...",
-    "go test -race -cover ./..."
+    "go -C fit build ./...",
+    "go test -race -cover ./...",
+    "go -C fit test -race -cover ./..."
   ],
   "merge": {
     "label": "auto-merge",
