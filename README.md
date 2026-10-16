@@ -95,6 +95,25 @@ func TestGreeter(t *testing.T) {
 
 Library code imports only the standard library.
 
+## fit
+
+[fit](https://pkg.go.dev/github.com/z5labs/bedrock/fit) is request-scoped
+failure injection after Netflix's Failure Injection Testing: a request under
+test carries a failure scenario as OpenTelemetry baggage, and each injection
+point it passes through asks an `Evaluator` which fault to emulate. It is a
+nested module with its own `go.mod`, so the OpenTelemetry dependency stays out
+of bedrock itself:
+
+```bash
+go get github.com/z5labs/bedrock/fit
+```
+
+fit owns no wire convention. It declares no baggage key, value grammar, size
+limit, signature scheme or expiry; organisations supply their own codecs, a
+`Decoder` and, at the edge, an `Encoder`, that decide all of them. The design
+is discussed in
+[discussion #578](https://github.com/z5labs/bedrock/discussions/578).
+
 ## Migrating from v0.21.0
 
 bedrock v0.21.0 was built around `Builder`, `Runtime` and `Runner`, with HTTP,

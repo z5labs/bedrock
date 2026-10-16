@@ -136,3 +136,37 @@ func (d staticDecoder) Decode(b baggage.Baggage) (fit.Scenario, bool, error) {
 func (d staticDecoder) Strip(b baggage.Baggage) baggage.Baggage {
 	return b.DeleteMember(d.targetKey).DeleteMember(d.faultKey)
 }
+
+// errUnknownScenario is the error registryDecoder returns for an ID it does
+// not hold.
+var errUnknownScenario = errors.New("unknown scenario")
+
+// registryDecoder resolves a scenario ID carried in one baggage member against
+// scenarios the service holds, so that only IDs the service already knows can
+// inject anything:
+//
+//	baggage: acme-fault=scn-42
+//
+// An unknown ID is an error. registryDecoder is a fit.Decoder only.
+type registryDecoder struct {
+	key       string
+	scenarios map[string]fit.Scenario
+}
+
+var _ fit.Decoder = registryDecoder{}
+
+func (d registryDecoder) Decode(b baggage.Baggage) (fit.Scenario, bool, error) {
+	m := b.Member(d.key)
+	if m.Key() == "" {
+		return fit.Scenario{}, false, nil
+	}
+	s, ok := d.scenarios[m.Value()]
+	if !ok {
+		return fit.Scenario{}, true, fmt.Errorf("%s: %w: %s", d.key, errUnknownScenario, m.Value())
+	}
+	return s, true, nil
+}
+
+func (d registryDecoder) Strip(b baggage.Baggage) baggage.Baggage {
+	return b.DeleteMember(d.key)
+}
