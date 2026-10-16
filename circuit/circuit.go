@@ -203,3 +203,21 @@ func (e *RejectedError) Error() string {
 
 // Unwrap returns ErrRejected.
 func (e *RejectedError) Unwrap() error { return ErrRejected }
+
+// validate returns an error naming every invalid field of c, or nil.
+func (c Config) validate() error {
+	var errs []error
+	if c.Window < 1 || c.Window > MaxCount {
+		errs = append(errs, fmt.Errorf("circuit: window must be between 1 and %d, got %d", MaxCount, c.Window))
+	}
+	if c.Probes < 1 || c.Probes > MaxCount {
+		errs = append(errs, fmt.Errorf("circuit: probes must be between 1 and %d, got %d", MaxCount, c.Probes))
+	}
+	if c.OpenFor <= 0 {
+		errs = append(errs, fmt.Errorf("circuit: open duration must be positive, got %v", c.OpenFor))
+	}
+	if c.ProbeTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("circuit: probe timeout must be positive, got %v", c.ProbeTimeout))
+	}
+	return errors.Join(errs...)
+}
