@@ -7,6 +7,7 @@ package config_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"testing"
@@ -128,6 +129,35 @@ func ExampleOneOf() {
 	fmt.Println(err)
 	// Output:
 	// config LOG_LEVEL: trace is not one of [debug info warn error]
+}
+
+// Validate checks a value without changing it. Chained after Default, it
+// checks the default too, and an error is named after the variable whichever
+// of the two the value came from.
+func ExampleValue_Validate() {
+	nonNegative := func(d time.Duration) error {
+		if d < 0 {
+			return errors.New("must not be negative")
+		}
+		return nil
+	}
+
+	read := func(env map[string]string, d time.Duration) {
+		timeout, err := config.Env(bedrock.NewStaticEnvironment(env), "READ_TIMEOUT").
+			Parse(time.ParseDuration).
+			Default(d).
+			Validate(nonNegative).
+			Read(context.Background())
+		fmt.Println(timeout, err)
+	}
+
+	read(map[string]string{"READ_TIMEOUT": "-5s"}, 5*time.Second)
+	read(map[string]string{}, -5*time.Second)
+	read(map[string]string{"READ_TIMEOUT": "30s"}, 5*time.Second)
+	// Output:
+	// 0s config READ_TIMEOUT: must not be negative
+	// 0s config READ_TIMEOUT: must not be negative
+	// 30s <nil>
 }
 
 // Settings is the configuration of the service in ExampleStruct.

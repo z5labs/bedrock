@@ -25,8 +25,21 @@
 //
 // Value is the concrete type the combinators live on. [Value.Map],
 // [Value.Parse] and [Value.FlatMap] are generic methods, which a Value has
-// and an interface could not declare. [Env], [Func], [From] and [Static]
+// and an interface could not declare. [Value.Validate] checks a value with a
+// func(T) error and returns it unchanged. [Env], [Func], [From] and [Static]
 // construct one, and the zero Value is a value that is never set.
+//
+// # Checking a value
+//
+// [Value.Parse] turns a value into another; [Value.Validate] checks one
+// without changing it. A check fails the value under its own name, and
+// chained after [Value.Default] it checks the default too:
+//
+//	config.Env(p.Environment, "READ_TIMEOUT").Parse(time.ParseDuration).Default(5 * time.Second).Validate(nonNegative)
+//
+// fails with "config READ_TIMEOUT: must not be negative" whether the
+// negative duration was set or was the default. A value that is not set is
+// never checked, so a Default chained after Validate still applies.
 //
 // # Not found is an error
 //

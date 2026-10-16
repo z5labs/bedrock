@@ -178,6 +178,39 @@ func (v Value[T]) FlatMap[U any](f func(T) Value[U]) Value[U] {
 	}
 }
 
+// Validate returns a Value that reads v and checks it with f. An error from
+// f is a failure of the value and is wrapped in an [*Error] with the name of
+// v, so "READ_TIMEOUT=-5s" read through
+// Parse(time.ParseDuration).Validate(nonNegative) fails with
+// "config READ_TIMEOUT: must not be negative". A value that is not set is
+// not checked: its ErrNotFound is returned as it is, so Or and Default
+// still apply after Validate. Chained after Default, Validate checks the
+// default too, and an error from it is named after v. Validate panics if f
+// is nil.
+//
+// Validate is the general form of a check. [OneOf] is a check written as a
+// parser, so that it can sit in a chain of [Value.Parse].
+func (v Value[T]) Validate(f func(T) error) Value[T] {
+	if f == nil {
+		panic("config: Validate requires a non-nil function")
+	}
+	return Value[T]{
+		name: v.name,
+		read: func(ctx context.Context) (T, error) {
+			t, err := v.Read(ctx)
+			if err != nil {
+				var zero T
+				return zero, err
+			}
+			if err := f(t); err != nil {
+				var zero T
+				return zero, err
+			}
+			return t, nil
+		},
+	}
+}
+
 // Or returns a Value that reads v and, only when v is not set, reads next
 // instead. Any other error from v is returned as it is, so a value that is
 // present but malformed is never replaced by next. An error from next that
@@ -293,6 +326,10 @@ func ParseFloat64(s string) (float64, error) {
 // is one of allowed, and returns it unchanged:
 //
 //	level := config.Env(p.Environment, "LOG_LEVEL").Parse(config.OneOf("debug", "info", "warn", "error"))
+//
+// [Value.Validate] is the general form of a check, taking a func(T) error.
+// OneOf stays a parser, returning the value it accepts, so that it can sit
+// in a chain of Parse like any other parser.
 //
 // OneOf panics if allowed is empty, because no value could ever pass.
 func OneOf[T comparable](allowed ...T) func(T) (T, error) {

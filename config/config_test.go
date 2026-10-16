@@ -360,6 +360,120 @@ func TestValue_FlatMap(t *testing.T) {
 	})
 }
 
+var errNegative = errors.New("must not be negative")
+
+// nonNegative is a check for Validate that rejects a negative duration.
+func nonNegative(d time.Duration) error {
+	if d < 0 {
+		return errNegative
+	}
+	return nil
+}
+
+func TestValue_Validate(t *testing.T) {
+	t.Parallel()
+
+	e := env(map[string]string{
+		"GOOD_TIMEOUT":      "30s",
+		"NEGATIVE_TIMEOUT":  "-5s",
+		"MALFORMED_TIMEOUT": "30",
+	})
+
+	// timeout reads name as a duration and counts the calls of its check.
+	timeout := func(name string, calls *atomic.Int64) config.Value[time.Duration] {
+		return config.Env(e, name).Parse(time.ParseDuration).Validate(func(d time.Duration) error {
+			calls.Add(1)
+			return nonNegative(d)
+		})
+	}
+
+	t.Run("a value that passes f is returned unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		var calls atomic.Int64
+		d, err := timeout("GOOD_TIMEOUT", &calls).Read(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, 30*time.Second, d)
+		require.EqualValues(t, 1, calls.Load())
+	})
+
+	t.Run("a value that fails f is an *Error with the value's name", func(t *testing.T) {
+		t.Parallel()
+
+		var calls atomic.Int64
+		d, err := timeout("NEGATIVE_TIMEOUT", &calls).Read(t.Context())
+		require.Zero(t, d)
+		require.EqualError(t, err, "config NEGATIVE_TIMEOUT: must not be negative")
+		require.ErrorIs(t, err, errNegative)
+		require.NotErrorIs(t, err, config.ErrNotFound)
+
+		cerr, ok := errors.AsType[*config.Error](err)
+		require.True(t, ok)
+		require.Equal(t, "NEGATIVE_TIMEOUT", cerr.Name)
+		require.EqualValues(t, 1, calls.Load())
+	})
+
+	t.Run("a value that is not set is not checked and is recovered by Default", func(t *testing.T) {
+		t.Parallel()
+
+		var calls atomic.Int64
+		_, err := timeout("MISSING_TIMEOUT", &calls).Read(t.Context())
+		require.ErrorIs(t, err, config.ErrNotFound)
+		require.EqualError(t, err, "config MISSING_TIMEOUT: not found")
+
+		d, err := timeout("MISSING_TIMEOUT", &calls).Default(-time.Second).Read(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, -time.Second, d, "a Default chained after Validate is not checked")
+		require.Zero(t, calls.Load())
+	})
+
+	t.Run("a malformed value fails Parse without calling f", func(t *testing.T) {
+		t.Parallel()
+
+		var calls atomic.Int64
+		_, err := timeout("MALFORMED_TIMEOUT", &calls).Read(t.Context())
+		require.EqualError(t, err, "config MALFORMED_TIMEOUT: time: missing unit in duration \"30\"")
+		require.Zero(t, calls.Load())
+	})
+
+	t.Run("chained after Default, the default is checked under the variable's name", func(t *testing.T) {
+		t.Parallel()
+
+		withDefault := func(d time.Duration) config.Value[time.Duration] {
+			return config.Env(e, "MISSING_TIMEOUT").Parse(time.ParseDuration).Default(d).Validate(nonNegative)
+		}
+
+		_, err := withDefault(-5 * time.Second).Read(t.Context())
+		require.EqualError(t, err, "config MISSING_TIMEOUT: must not be negative")
+		require.ErrorIs(t, err, errNegative)
+		require.NotErrorIs(t, err, config.ErrNotFound)
+
+		d, err := withDefault(5 * time.Second).Read(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, 5*time.Second, d)
+	})
+
+	t.Run("does not check the zero Value, which is not set", func(t *testing.T) {
+		t.Parallel()
+
+		called := false
+		_, err := config.Value[int]{}.Validate(func(int) error {
+			called = true
+			return nil
+		}).Read(t.Context())
+		require.ErrorIs(t, err, config.ErrNotFound)
+		require.False(t, called)
+	})
+
+	t.Run("panics on a nil function when it is called", func(t *testing.T) {
+		t.Parallel()
+
+		require.PanicsWithValue(t, "config: Validate requires a non-nil function", func() {
+			config.Static(time.Second).Validate(nil)
+		})
+	})
+}
+
 func TestValue_Or(t *testing.T) {
 	t.Parallel()
 
