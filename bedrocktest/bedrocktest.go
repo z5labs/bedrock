@@ -7,19 +7,21 @@
 // run a whole [bedrock.App], in the way net/http/httptest provides servers
 // for tests of HTTP handlers.
 //
-// A test builds a [Process] with [NewProcess], runs its App on
-// [Process.Process], drives the App's signals with [Process.Notified] and
-// [Process.Signal], and asserts on the returned status and on
-// [Process.Stdout] and [Process.Stderr]:
+// A test runs its App on a new [Process] with [Start], drives the App's
+// signals with [Process.Notified] and [Process.Signal], and asserts on the
+// status it receives and on [Process.Stdout] and [Process.Stderr]:
 //
-//	fp := bedrocktest.NewProcess(t, bedrocktest.WithArgs("-addr", ":0"))
-//	go func() { statusCh <- app.Run(t.Context(), fp.Process()) }()
+//	fp, status := bedrocktest.Start(t, app, bedrocktest.WithArgs("-addr", ":0"))
 //	<-fp.Notified(syscall.SIGTERM)
 //	fp.Signal(syscall.SIGTERM)
+//	st := <-status
+//
+// A test that needs a Process without running an App on it, or runs the App
+// itself, builds one with [NewProcess] and passes [Process.Process] to Run.
 //
 // The fake touches nothing of the real process, so such a test can run in
-// parallel, and it starts no goroutines, so it can run inside a
-// testing/synctest bubble.
+// parallel. A Process starts no goroutines, and Start starts only the App's,
+// so either can run inside a testing/synctest bubble.
 package bedrocktest
 
 import (
@@ -144,6 +146,44 @@ func NewProcess(tb testing.TB, opts ...Option) *Process {
 	}
 	tb.Cleanup(p.checkStopped)
 	return p
+}
+
+// Start runs app on a new Process built from opts, as NewProcess(tb, opts...)
+// would build it, in a new goroutine. It returns the Process, and a channel
+// that receives the App's status when Run returns. The channel has a buffer
+// of one, so a test that never receives from it leaks nothing.
+//
+// app runs with tb.Context(), which is cancelled when the test ends. Start
+// registers a tb.Cleanup that waits for Run to return, so no App outlives
+// its test. That cleanup runs before the Process's own check for
+// NotifyContexts that were never stopped, so an App that stops its contexts
+// on the way out passes that check. An App that ignores a cancelled
+// context makes the test hang; inside testing/synctest this is reported as
+// a deadlock.
+//
+// Start panics if app is nil. It does not recover a panic in app, which
+// crashes the test binary as it would crash the process.
+//
+// To use Start with testing/synctest, call it inside synctest.Test with the
+// bubble's t, so that the App's goroutine belongs to the bubble.
+func Start(tb testing.TB, app bedrock.App, opts ...Option) (*Process, <-chan bedrock.ExitStatus) {
+	if app == nil {
+		panic("bedrocktest: Start requires a non-nil bedrock.App")
+	}
+
+	// NewProcess registers its check for unstopped NotifyContexts first, so
+	// the wait registered below runs before it: cleanups run last-registered
+	// first.
+	p := NewProcess(tb, opts...)
+	ctx := tb.Context()
+	status := make(chan bedrock.ExitStatus, 1)
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		status <- app.Run(ctx, p.Process())
+	}()
+	tb.Cleanup(func() { <-returned })
+	return p, status
 }
 
 // Process returns the [bedrock.Process] to run an App on. Every field is
