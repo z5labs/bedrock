@@ -35,6 +35,51 @@
 // An injection point emulates its Fault with [Fault.Inject], or with
 // [Fault.Wait] and its own failure when it can fail more realistically.
 //
+// # Injection points
+//
+// An injection point asks an [Evaluator] which Fault to emulate for the
+// current request:
+//
+//	if err := eval.Eval(ctx, "http:payments").Inject(ctx); err != nil {
+//		return err
+//	}
+//
+// [Evaluator.Eval] never fails a request because of its test metadata. A
+// request that carries no Scenario gets the zero Fault. A Scenario the
+// [Decoder] rejects, for example because it has expired or names an unknown
+// scenario, also gives the zero Fault, and the Decoder's error goes to the
+// observe function passed to [NewEvaluator] in [Evaluation.Err]. A Delay
+// longer than the Evaluator's maximum is clamped to it rather than rejected,
+// so services with different maximums still agree on the rest of a Scenario.
+// A Scenario with no rules injects nothing, yet observe sees every point the
+// request reaches, which is how the points a request passes through are
+// discovered.
+//
+// fit ships no observe function. Recording an [Evaluation] as a span event,
+// a log line or a metric, and naming its attributes, is a convention of the
+// organisation that builds on fit.
+//
+// Each call belongs either at startup or on the request path:
+//
+//	| Call                                                                  | When                                                   |
+//	|-----------------------------------------------------------------------|--------------------------------------------------------|
+//	| Building the Decoder/Encoder (keys, registry, clock) and NewEvaluator | Startup, inside App.Run                                |
+//	| Point names fixed per client, such as a client bound to one host      | When the client is built                               |
+//	| ContextWithoutScenario on requests from untrusted callers             | Per request, at ingress                                |
+//	| ContextWithScenario                                                   | Per request, at the edge                               |
+//	| Eval, then Inject, or Wait plus a protocol-specific abort             | Per outbound call                                      |
+//	| observe                                                               | Per evaluation, only on requests that carry a scenario |
+//	| ContextWithoutScenario before calling a third party                   | Per outbound call                                      |
+//
+// One Evaluator is shared by every request goroutine, so its Decoder and its
+// observe function must be safe for concurrent use.
+//
+// Decode runs on every call to Eval, so a request under test that reaches N
+// injection points is decoded N times. A Decoder whose Decode is costly, such
+// as one that verifies a signature, should memoize internally, keyed by the
+// raw member value. A Decoder that checks expiry decides whether a Scenario
+// that expires partway through a request still applies.
+//
 // # No wire convention
 //
 // fit owns no wire convention. The scenario travels as OpenTelemetry
