@@ -93,6 +93,22 @@ func (b *Budget) Tokens() float64 {
 	return float64(b.tokens) / 1000
 }
 
+// succeeded adds TokenRatio tokens to b, up to MaxTokens.
+func (b *Budget) succeeded() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.tokens = min(b.max, b.tokens+b.ratio)
+}
+
+// failed takes one token from b, down to zero, and reports whether a retry
+// may follow.
+func (b *Budget) failed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.tokens = max(0, b.tokens-1000)
+	return b.tokens > b.max/2
+}
+
 func (b *Budget) mustBeBuilt(method string) {
 	if b == nil || b.max == 0 {
 		panic("retry: Budget." + method + " called on a Budget not built by NewBudget")
