@@ -1,0 +1,109 @@
+name: Release
+
+# bedrock holds more than one Go module: the root module and every nested
+# module with its own go.mod, such as fit. The Go toolchain resolves a nested
+# module's versions from tags prefixed with its directory, so version v0.22.0
+# of github.com/z5labs/bedrock/fit is the tag fit/v0.22.0.
+#
+# Strategy. Versions are in lockstep, after OpenTelemetry Go: every module is
+# tagged with the same version on every release, whether or not it changed. One
+# version number identifies a consistent set of modules, and nobody has to work
+# out which modules changed.
+#
+# Releasing. Publish a GitHub release whose tag is vX.Y.Z, or vX.Y.Z-pre for a
+# pre-release. GitHub creates the root tag; this workflow does the rest:
+#
+#   1. It checks out the release tag and runs .github/scripts/tag-modules.sh,
+#      which finds every nested module at that commit — every tracked go.mod
+#      except the root's and any under testdata or a directory starting with
+#      . or _ — and creates <dir>/vX.Y.Z for each, at the same commit as the
+#      root tag, in one atomic push.
+#   2. Before creating any tag, the script refuses a release tag that is not a
+#      Go module version, a major version of 2 or more (those need /vN module
+#      paths first), a nested module whose path is not its directory under
+#      github.com/z5labs/bedrock, and a nested tag that already exists at a
+#      different commit. A nested tag already at the release commit is
+#      skipped, so re-running this workflow is safe.
+#   3. It then resolves the root module and every nested module at the new
+#      version through proxy.golang.org, failing if any does not resolve.
+#      That request is also what gets pkg.go.dev to index the version.
+#
+# Dry run. To see what a release would tag, without creating anything:
+#
+#   .github/scripts/tag-modules.sh --dry-run --commit origin/main v0.22.0
+#
+# The tests for the script are .github/scripts/tag-modules_test.sh.
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+# Two releases published close together must not interleave their pushes.
+concurrency:
+  group: release-tag-modules
+  cancel-in-progress: false
+
+jobs:
+  tag-modules:
+    name: Tag modules
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # github.ref is refs/tags/<release tag>, so this checks out the release
+      # commit and leaves the release tag in the local repository.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Tag nested modules
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: .github/scripts/tag-modules.sh "$RELEASE_TAG"
+
+  resolve-modules:
+    name: Resolve modules
+    needs: tag-modules
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: 'go.mod'
+          cache: false
+
+      # The proxy fetches a version it has not seen from GitHub on demand, so a
+      # tag pushed moments ago normally resolves on the first request; the
+      # retries only absorb a transient failure.
+      - name: Resolve every module through proxy.golang.org
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GOPROXY: https://proxy.golang.org
+          GOFLAGS: ''
+        run: |
+          .github/scripts/tag-modules.sh --list "$RELEASE_TAG" > "$RUNNER_TEMP/modules.txt"
+          cd "$RUNNER_TEMP"
+          failed=0
+          while read -r module; do
+            for attempt in 1 2 3 4 5; do
+              if go list -m "$module@$RELEASE_TAG"; then
+                continue 2
+              fi
+              echo "attempt $attempt to resolve $module@$RELEASE_TAG failed"
+              sleep 30
+            done
+            echo "::error title=Module did not resolve::$module@$RELEASE_TAG did not resolve through $GOPROXY"
+            failed=1
+          done < modules.txt
+          exit "$failed"
