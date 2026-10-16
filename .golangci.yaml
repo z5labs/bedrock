@@ -22,6 +22,7 @@ linters:
             - "!$test"
             - "!${base-path}/fit/**"
             - "!${base-path}/circuit/**"
+            - "!${base-path}/retry/**"
           allow:
             - $gostd
             - github.com/z5labs/bedrock
@@ -30,6 +31,8 @@ linters:
               desc: the bedrock module does not depend on the fit module
             - pkg: github.com/z5labs/bedrock/circuit
               desc: the bedrock module does not depend on the circuit module
+            - pkg: github.com/z5labs/bedrock/retry
+              desc: the bedrock module does not depend on the retry module
         # Library code of the fit module imports only the standard library
         # and OpenTelemetry's baggage. It does not import the bedrock module.
         # Tests may use any module.
@@ -48,6 +51,16 @@ linters:
           list-mode: strict
           files:
             - "${base-path}/circuit/**"
+            - "!$test"
+          allow:
+            - $gostd
+        # Library code of the retry module imports only the standard
+        # library. It does not import the bedrock module, the fit module or
+        # the circuit module. Tests may use any module.
+        retry:
+          list-mode: strict
+          files:
+            - "${base-path}/retry/**"
             - "!$test"
           allow:
             - $gostd
