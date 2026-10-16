@@ -33,7 +33,7 @@ func main() { bedrock.Main(app) }
 - **`Environment`** offers lookup only: `Value(name)` returns a `ValueNotFoundError` for a variable that is not set. `OSEnvironment` reads the real process and `StaticEnvironment` holds fixed values for tests.
 - **`AppFunc`** adapts a function to `App`.
 - **`bedrocktest.NewProcess(t, opts...)`** builds a hermetic fake `Process` with `WithArgs`, `WithEnv` and `WithStdin`. **`bedrocktest.Start(t, app, opts...)`** builds one the same way, runs `app` on it with `t.Context()` in a new goroutine, and returns the `Process` and a channel that receives the App's status; its cleanup waits for `Run` to return. A test drives its signals with `Notified` and `Signal`, and reads its output with `Stdout` and `Stderr`.
-- **`config.Value[T]`** is a configuration value composed by chaining, such as `config.Env(p.Environment, "PORT").Parse(strconv.Atoi).Default(8080)`. "Not set" is `config.ErrNotFound`, and `Or` and `Default` recover from it and from nothing else. `config.Struct` reads many values and reports every failure in one error.
+- **`config.Value[T]`** is a configuration value composed by chaining, such as `config.Env(p.Environment, "PORT").Parse(strconv.Atoi).Default(8080)`. `Parse` turns a value into another and `Validate` checks one with a `func(T) error`, failing it under its own name, including a `Default` it is chained after. "Not set" is `config.ErrNotFound`, and `Or` and `Default` recover from it and from nothing else. `config.Struct` reads many values and reports every failure in one error.
 
 Run `go doc -all` on a package for the full API. `MIGRATING.md` maps every export of v0.21.0 onto this API, onto z5labs/humus, or onto the standard library.
 

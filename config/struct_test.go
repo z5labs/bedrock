@@ -248,6 +248,45 @@ func TestStruct(t *testing.T) {
 		require.Equal(t, app{DB: db{DSN: "postgres://replica"}, Port: 8080}, got)
 	})
 
+	t.Run("two values that fail Validate are reported together", func(t *testing.T) {
+		t.Parallel()
+
+		type timeouts struct {
+			Read  time.Duration
+			Write time.Duration
+			Idle  time.Duration
+		}
+		e := env(map[string]string{"READ_TIMEOUT": "-5s", "IDLE_TIMEOUT": "1m"})
+		timeout := func(name string, d time.Duration) config.Value[time.Duration] {
+			return config.Env(e, name).Parse(time.ParseDuration).Default(d).Validate(nonNegative)
+		}
+
+		got, err := config.Struct(func(r *config.Resolver) timeouts {
+			return timeouts{
+				Read:  r.Get(timeout("READ_TIMEOUT", 5*time.Second)),
+				Write: r.Get(timeout("WRITE_TIMEOUT", -time.Second)),
+				Idle:  r.Get(timeout("IDLE_TIMEOUT", time.Minute)),
+			}
+		}).Read(t.Context())
+		require.Zero(t, got)
+		require.ErrorIs(t, err, errNegative)
+		require.NotErrorIs(t, err, config.ErrNotFound)
+		require.EqualError(t, err, "config READ_TIMEOUT: must not be negative\n"+
+			"config WRITE_TIMEOUT: must not be negative")
+
+		joined, ok := err.(interface{ Unwrap() []error })
+		require.True(t, ok, "the error is an errors.Join of every failure")
+
+		var names []string
+		for _, e := range joined.Unwrap() {
+			cerr, ok := errors.AsType[*config.Error](e)
+			require.True(t, ok, "each failure is a *config.Error")
+			require.ErrorIs(t, cerr, errNegative)
+			names = append(names, cerr.Name)
+		}
+		require.Equal(t, []string{"READ_TIMEOUT", "WRITE_TIMEOUT"}, names)
+	})
+
 	t.Run("panics on a nil build function", func(t *testing.T) {
 		t.Parallel()
 
