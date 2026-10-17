@@ -39,14 +39,14 @@ jobs:
         - name: Lint Go Code (bedrock)
           uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
           with:
-            version: v2.14.0
+            version: v2.15.0
             skip-cache: false
 
         - name: Lint Go Code (fit)
           if: ${{ !cancelled() }}
           uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
           with:
-            version: v2.14.0
+            version: v2.15.0
             skip-cache: false
             working-directory: fit
 
@@ -54,7 +54,7 @@ jobs:
           if: ${{ !cancelled() }}
           uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
           with:
-            version: v2.14.0
+            version: v2.15.0
             skip-cache: false
             working-directory: circuit
 
@@ -62,7 +62,7 @@ jobs:
           if: ${{ !cancelled() }}
           uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
           with:
-            version: v2.14.0
+            version: v2.15.0
             skip-cache: false
             working-directory: retry
 
