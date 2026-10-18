@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/fstest"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -23,22 +25,46 @@ import (
 	"github.com/z5labs/bedrock/host/hosttest"
 )
 
-// conformanceFS lists the methods the FS conformance table checks
-// *hosttest.FS has, with the same results as host.OSFS.
+// conformanceFS lists every method of host.OSFS, which the FS conformance
+// table checks *hosttest.FS has, with the same results as host.OSFS. Getwd
+// is the one whose results it does not compare.
 type conformanceFS interface {
 	Open(name string) (*os.File, error)
 	OpenFile(name string, flag int, perm os.FileMode) (*os.File, error)
+	Create(name string) (*os.File, error)
 	CreateTemp(dir, pattern string) (*os.File, error)
-	MkdirTemp(dir, pattern string) (string, error)
+	OpenRoot(name string) (*os.Root, error)
+	OpenInRoot(dir, name string) (*os.File, error)
+	ReadFile(name string) ([]byte, error)
+	WriteFile(name string, data []byte, perm os.FileMode) error
+	Truncate(name string, size int64) error
+	CopyFS(dir string, fsys fs.FS) error
 	Mkdir(name string, perm os.FileMode) error
 	MkdirAll(name string, perm os.FileMode) error
+	MkdirTemp(dir, pattern string) (string, error)
+	ReadDir(name string) ([]os.DirEntry, error)
 	Remove(name string) error
 	RemoveAll(name string) error
 	Rename(oldname, newname string) error
+	Link(oldname, newname string) error
+	Symlink(oldname, newname string) error
+	Readlink(name string) (string, error)
 	Stat(name string) (os.FileInfo, error)
-	ReadDir(name string) ([]os.DirEntry, error)
+	Lstat(name string) (os.FileInfo, error)
+	Chmod(name string, mode os.FileMode) error
+	Chown(name string, uid, gid int) error
+	Lchown(name string, uid, gid int) error
+	Chtimes(name string, atime, mtime time.Time) error
+	Getwd() (string, error)
 	DirFS(dir string) fs.FS
 }
+
+// Both filesystems have every method conformanceFS lists, so this stops
+// compiling if *hosttest.FS lacks one of host.OSFS's.
+var (
+	_ conformanceFS = host.OSFS{}
+	_ conformanceFS = (*hosttest.FS)(nil)
+)
 
 // conformanceFiles is the directory every scenario starts from, on both
 // filesystems.
@@ -180,6 +206,22 @@ func TestConformance_FS(t *testing.T) {
 		"MkdirAll an existing directory": func(t *testing.T, fsys conformanceFS, dir string) any {
 			return describe(t, dir, fsys.MkdirAll(filepath.Join(dir, "dir", "sub"), 0o750))
 		},
+		"MkdirAll an existing file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.MkdirAll(filepath.Join(dir, "dir", "file"), 0o750))
+		},
+		"MkdirAll a symbolic link to a directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "link")
+			require.NoError(t, fsys.Symlink("dir", name))
+			return describe(t, dir, fsys.MkdirAll(name, 0o750))
+		},
+		"MkdirAll a dangling symbolic link": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "link")
+			require.NoError(t, fsys.Symlink("missing", name))
+			return describe(t, dir, fsys.MkdirAll(name, 0o750))
+		},
+		"MkdirAll under a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.MkdirAll(filepath.Join(dir, "dir", "file", "a", "b"), 0o750))
+		},
 
 		"Remove a file": func(t *testing.T, fsys conformanceFS, dir string) any {
 			name := filepath.Join(dir, "dir", "file")
@@ -243,6 +285,243 @@ func TestConformance_FS(t *testing.T) {
 			return describe(t, dir, err)
 		},
 
+		"Create a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "new")
+			f, err := fsys.Create(name)
+			require.NoError(t, err)
+			_, err = io.WriteString(f, "new")
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+			return []any{read(t, fsys, name), stat(t, fsys, name)}
+		},
+		"Create truncates an existing file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "file")
+			f, err := fsys.Create(name)
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+			return read(t, fsys, name)
+		},
+		"Create in a missing directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.Create(filepath.Join(dir, "missing", "new"))
+			return describe(t, dir, err)
+		},
+
+		"OpenRoot a directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			root, err := fsys.OpenRoot(filepath.Join(dir, "dir"))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, root.Close()) }()
+			b, err := root.ReadFile(filepath.Join("sub", "leaf"))
+			require.NoError(t, err)
+			_, escaped := root.Open(filepath.Join("..", "empty", ".keep"))
+			return []any{string(b), describe(t, dir, escaped)}
+		},
+		"OpenRoot a missing directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.OpenRoot(filepath.Join(dir, "missing"))
+			return describe(t, dir, err)
+		},
+
+		"OpenInRoot a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			f, err := fsys.OpenInRoot(filepath.Join(dir, "dir"), filepath.Join("sub", "leaf"))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, f.Close()) }()
+			b, err := io.ReadAll(f)
+			require.NoError(t, err)
+			return string(b)
+		},
+		"OpenInRoot a name that leaves dir": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.OpenInRoot(filepath.Join(dir, "dir", "sub"), filepath.Join("..", "file"))
+			return describe(t, dir, err)
+		},
+		"OpenInRoot a missing dir": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.OpenInRoot(filepath.Join(dir, "missing"), "file")
+			return describe(t, dir, err)
+		},
+		"OpenInRoot a missing file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.OpenInRoot(filepath.Join(dir, "dir"), "missing")
+			return describe(t, dir, err)
+		},
+
+		"ReadFile": func(t *testing.T, fsys conformanceFS, dir string) any {
+			b, err := fsys.ReadFile(filepath.Join(dir, "dir", "sub", "leaf"))
+			require.NoError(t, err)
+			return string(b)
+		},
+		"ReadFile a missing file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.ReadFile(filepath.Join(dir, "missing"))
+			return describe(t, dir, err)
+		},
+		"ReadFile a directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.ReadFile(filepath.Join(dir, "dir"))
+			return describe(t, dir, err)
+		},
+
+		"WriteFile creates a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "new")
+			require.NoError(t, fsys.WriteFile(name, []byte("new"), 0o600))
+			return []any{read(t, fsys, name), stat(t, fsys, name)}
+		},
+		"WriteFile replaces a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "file")
+			require.NoError(t, fsys.WriteFile(name, []byte("replaced"), 0o600))
+			return []any{read(t, fsys, name), stat(t, fsys, name)}
+		},
+		"WriteFile in a missing directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.WriteFile(filepath.Join(dir, "missing", "new"), nil, 0o600))
+		},
+		"WriteFile a directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.WriteFile(filepath.Join(dir, "dir"), nil, 0o600))
+		},
+
+		"Truncate shrinks a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "file")
+			require.NoError(t, fsys.Truncate(name, 2))
+			return read(t, fsys, name)
+		},
+		"Truncate extends a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "file")
+			require.NoError(t, fsys.Truncate(name, 6))
+			return []any{read(t, fsys, name), stat(t, fsys, name)}
+		},
+		"Truncate a missing file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Truncate(filepath.Join(dir, "missing"), 0))
+		},
+		"Truncate a directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Truncate(filepath.Join(dir, "dir"), 0))
+		},
+		"Truncate to a negative size": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Truncate(filepath.Join(dir, "dir", "file"), -1))
+		},
+
+		"CopyFS directories, files and relative symbolic links": func(t *testing.T, fsys conformanceFS, dir string) any {
+			to := filepath.Join(dir, "copy")
+			require.NoError(t, fsys.CopyFS(to, fstest.MapFS{
+				"a/b":     {Data: []byte("b"), Mode: 0o640},
+				"a/x":     {Data: []byte("x"), Mode: 0o755},
+				"a/link":  {Data: []byte("b"), Mode: fs.ModeSymlink},
+				"a/up":    {Data: []byte("../c"), Mode: fs.ModeSymlink},
+				"c":       {Mode: fs.ModeDir | 0o700},
+				"d/e/f/g": {Data: []byte("g")},
+			}))
+			return tree(t, fsys, to)
+		},
+		"CopyFS into an existing directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			require.NoError(t, fsys.CopyFS(filepath.Join(dir, "dir"), fstest.MapFS{"sub/new": {Data: []byte("new")}}))
+			return tree(t, fsys, filepath.Join(dir, "dir"))
+		},
+		"CopyFS onto an existing file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			err := fsys.CopyFS(filepath.Join(dir, "dir"), fstest.MapFS{"file": {Data: []byte("overwritten")}})
+			return []any{describe(t, dir, err), read(t, fsys, filepath.Join(dir, "dir", "file"))}
+		},
+		"CopyFS a symbolic link onto an existing name": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.CopyFS(filepath.Join(dir, "dir"), fstest.MapFS{"file": {Data: []byte("sub"), Mode: fs.ModeSymlink}}))
+		},
+		"CopyFS a named pipe": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.CopyFS(filepath.Join(dir, "copy"), fstest.MapFS{"pipe": {Mode: fs.ModeNamedPipe}}))
+		},
+		"CopyFS under a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.CopyFS(filepath.Join(dir, "dir", "file"), fstest.MapFS{"new": {Data: []byte("new")}}))
+		},
+
+		"Link": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "hard")
+			require.NoError(t, fsys.Link(filepath.Join(dir, "dir", "file"), name))
+			return []any{read(t, fsys, name), stat(t, fsys, name)}
+		},
+		"Link a missing file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Link(filepath.Join(dir, "missing"), filepath.Join(dir, "hard")))
+		},
+		"Link onto an existing name": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Link(filepath.Join(dir, "dir", "file"), filepath.Join(dir, "dir", "sub", "leaf")))
+		},
+
+		"Symlink to a relative target": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "link")
+			require.NoError(t, fsys.Symlink(filepath.Join("sub", "leaf"), name))
+			target, err := fsys.Readlink(name)
+			require.NoError(t, err)
+			return []any{target, read(t, fsys, name), lstat(t, fsys, name), stat(t, fsys, name)}
+		},
+		"Symlink to a relative directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "link")
+			require.NoError(t, fsys.Symlink("dir", name))
+			return []any{read(t, fsys, filepath.Join(name, "sub", "leaf")), entries(t, fsys, name, nil)}
+		},
+		"Symlink to a missing target": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dangling")
+			require.NoError(t, fsys.Symlink("missing", name))
+			_, err := fsys.Stat(name)
+			return []any{lstat(t, fsys, name), describe(t, dir, err)}
+		},
+		"Symlink onto an existing name": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Symlink("file", filepath.Join(dir, "dir", "sub")))
+		},
+		"Symlink in a missing directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Symlink("file", filepath.Join(dir, "missing", "link")))
+		},
+
+		"Readlink a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.Readlink(filepath.Join(dir, "dir", "file"))
+			return describe(t, dir, err)
+		},
+		"Readlink a missing name": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.Readlink(filepath.Join(dir, "missing"))
+			return describe(t, dir, err)
+		},
+
+		"Lstat a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return lstat(t, fsys, filepath.Join(dir, "dir", "file"))
+		},
+		"Lstat a directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return lstat(t, fsys, filepath.Join(dir, "dir", "sub"))
+		},
+		"Lstat a missing name": func(t *testing.T, fsys conformanceFS, dir string) any {
+			_, err := fsys.Lstat(filepath.Join(dir, "missing"))
+			return describe(t, dir, err)
+		},
+
+		"Chmod a file": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "file")
+			require.NoError(t, fsys.Chmod(name, 0o600))
+			return stat(t, fsys, name)
+		},
+		"Chmod a directory": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "sub")
+			require.NoError(t, fsys.Chmod(name, 0o700))
+			return stat(t, fsys, name)
+		},
+		"Chmod a missing name": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Chmod(filepath.Join(dir, "missing"), 0o600))
+		},
+
+		"Chown to the current user": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "file")
+			return []any{describe(t, dir, fsys.Chown(name, os.Getuid(), os.Getgid())), stat(t, fsys, name)}
+		},
+		"Chown a missing name": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Chown(filepath.Join(dir, "missing"), os.Getuid(), os.Getgid()))
+		},
+
+		"Lchown a symbolic link to the current user": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "link")
+			require.NoError(t, fsys.Symlink("dir", name))
+			return []any{describe(t, dir, fsys.Lchown(name, os.Getuid(), os.Getgid())), lstat(t, fsys, name)}
+		},
+		"Lchown a missing name": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Lchown(filepath.Join(dir, "missing"), os.Getuid(), os.Getgid()))
+		},
+
+		"Chtimes": func(t *testing.T, fsys conformanceFS, dir string) any {
+			name := filepath.Join(dir, "dir", "file")
+			mtime := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
+			require.NoError(t, fsys.Chtimes(name, mtime, mtime))
+			fi, err := fsys.Stat(name)
+			require.NoError(t, err)
+			return fi.ModTime().UTC()
+		},
+		"Chtimes a missing name": func(t *testing.T, fsys conformanceFS, dir string) any {
+			return describe(t, dir, fsys.Chtimes(filepath.Join(dir, "missing"), time.Time{}, time.Time{}))
+		},
+
 		"DirFS walks a directory": func(t *testing.T, fsys conformanceFS, dir string) any {
 			var walked []string
 			err := fs.WalkDir(fsys.DirFS(filepath.Join(dir, "dir")), ".", func(path string, d fs.DirEntry, err error) error {
@@ -287,6 +566,82 @@ func TestConformance_FS(t *testing.T) {
 	}
 }
 
+// linkScenario is one row of the FS conformance table's one exception: a
+// symbolic link to an absolute target. It runs on fsys, whose directory is
+// dir, and returns the target the link was made with, the name of the
+// link, and the error of the call that made it.
+type linkScenario func(t *testing.T, fsys conformanceFS, dir string) (target, name string, err error)
+
+// TestConformance_FS_absolute_symbolic_links is the exception to
+// TestConformance_FS: host.OSFS makes a symbolic link to an absolute
+// target, and *hosttest.FS refuses to, with an *os.LinkError naming both
+// paths whose Err is errors.ErrUnsupported, and creates nothing. Its
+// os.Root would never follow such a link, even to a file inside its
+// directory.
+func TestConformance_FS_absolute_symbolic_links(t *testing.T) {
+	testCases := map[string]linkScenario{
+		"Symlink to a target inside the directory": func(t *testing.T, fsys conformanceFS, dir string) (string, string, error) {
+			target, name := filepath.Join(dir, "dir", "file"), filepath.Join(dir, "link")
+			return target, name, fsys.Symlink(target, name)
+		},
+		"Symlink to a target outside the directory": func(t *testing.T, fsys conformanceFS, dir string) (string, string, error) {
+			target, name := filepath.Join(filepath.Dir(dir), "outside"), filepath.Join(dir, "dir", "link")
+			return target, name, fsys.Symlink(target, name)
+		},
+		"CopyFS of a symbolic link to an absolute target": func(t *testing.T, fsys conformanceFS, dir string) (string, string, error) {
+			target, to := filepath.Join(dir, "dir", "file"), filepath.Join(dir, "copy")
+			err := fsys.CopyFS(to, fstest.MapFS{"link": {Data: []byte(target), Mode: fs.ModeSymlink}})
+			return target, filepath.Join(to, "link"), err
+		},
+	}
+
+	for name, scenario := range testCases {
+		t.Run(name, func(t *testing.T) {
+			t.Run("host.OSFS", func(t *testing.T) {
+				dir := t.TempDir()
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, "dir"), 0o755))
+				target, link, err := scenario(t, host.OSFS{}, dir)
+				require.NoError(t, err)
+				got, err := os.Readlink(link)
+				require.NoError(t, err)
+				require.Equal(t, target, got)
+			})
+			t.Run("hosttest.FS", func(t *testing.T) {
+				h := hosttest.New(t, hosttest.WithFiles(conformanceFiles))
+				target, link, err := scenario(t, h.FS(), h.Path("."))
+				var le *os.LinkError
+				require.ErrorAs(t, err, &le)
+				require.Equal(t, "symlink", le.Op)
+				require.Equal(t, target, le.Old)
+				require.Equal(t, link, le.New)
+				require.ErrorIs(t, err, errors.ErrUnsupported)
+				_, err = os.Lstat(link)
+				require.ErrorIs(t, err, fs.ErrNotExist, "nothing was created")
+			})
+		})
+	}
+}
+
+// Getwd is the one method of host.OSFS the table does not compare: OSFS's
+// is the process's working directory, and *hosttest.FS's is its Host's
+// directory.
+func TestConformance_FS_Getwd(t *testing.T) {
+	t.Run("host.OSFS", func(t *testing.T) {
+		want, err := os.Getwd()
+		require.NoError(t, err)
+		got, err := host.OSFS{}.Getwd()
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+	})
+	t.Run("hosttest.FS", func(t *testing.T) {
+		h := hosttest.New(t)
+		got, err := h.FS().Getwd()
+		require.NoError(t, err)
+		require.True(t, filepath.IsAbs(got), got)
+		require.Equal(t, h.Path("."), got)
+	})
+}
+
 // read returns the contents of the named file, opened through fsys.
 func read(t *testing.T, fsys conformanceFS, name string) string {
 	t.Helper()
@@ -307,11 +662,54 @@ func stat(t *testing.T, fsys conformanceFS, name string) info {
 	t.Helper()
 	fi, err := fsys.Stat(name)
 	require.NoError(t, err)
+	return infoOf(fi)
+}
+
+// lstat is stat, with Lstat.
+func lstat(t *testing.T, fsys conformanceFS, name string) info {
+	t.Helper()
+	fi, err := fsys.Lstat(name)
+	require.NoError(t, err)
+	return infoOf(fi)
+}
+
+func infoOf(fi os.FileInfo) info {
 	i := info{Name: fi.Name(), Mode: fi.Mode(), IsDir: fi.IsDir()}
 	if fi.Mode().IsRegular() {
 		i.Size = fi.Size()
 	}
 	return i
+}
+
+// tree returns every name under dir, without following symbolic links,
+// with what Lstat says of it, and the contents of each file or the target
+// of each symbolic link.
+func tree(t *testing.T, fsys conformanceFS, dir string) []string {
+	t.Helper()
+	var got []string
+	var walk func(name string)
+	walk = func(name string) {
+		for _, e := range entries(t, fsys, name, nil) {
+			p := filepath.Join(name, e.Name)
+			rel, err := filepath.Rel(dir, p)
+			require.NoError(t, err)
+			i := lstat(t, fsys, p)
+			line := fmt.Sprintf("%s %v %d", filepath.ToSlash(rel), i.Mode, i.Size)
+			switch {
+			case i.IsDir:
+				got = append(got, line)
+				walk(p)
+			case i.Mode&fs.ModeSymlink != 0:
+				target, err := fsys.Readlink(p)
+				require.NoError(t, err)
+				got = append(got, line+" -> "+target)
+			default:
+				got = append(got, line+" "+read(t, fsys, p))
+			}
+		}
+	}
+	walk(dir)
+	return got
 }
 
 // entry is what the table compares of an os.DirEntry.

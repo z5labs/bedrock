@@ -6,6 +6,7 @@
 package hosttest_test
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -16,7 +17,10 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"testing/fstest"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -223,16 +227,10 @@ func TestNew_fails_the_test_when_it_cannot_open_its_directory(t *testing.T) {
 type appFS interface {
 	host.FS
 	Open(name string) (*os.File, error)
-	OpenFile(name string, flag int, perm os.FileMode) (*os.File, error)
-	CreateTemp(dir, pattern string) (*os.File, error)
-	MkdirTemp(dir, pattern string) (string, error)
-	Mkdir(name string, perm os.FileMode) error
-	MkdirAll(name string, perm os.FileMode) error
-	Remove(name string) error
-	RemoveAll(name string) error
-	Rename(oldname, newname string) error
-	Stat(name string) (os.FileInfo, error)
-	ReadDir(name string) ([]os.DirEntry, error)
+	ReadFile(name string) ([]byte, error)
+	WriteFile(name string, data []byte, perm os.FileMode) error
+	Symlink(oldname, newname string) error
+	Getwd() (string, error)
 	DirFS(dir string) fs.FS
 }
 
@@ -243,6 +241,11 @@ func TestFS_is_the_filesystem_of_a_host_Host(t *testing.T) {
 	got, err := readAll(hh.FS, "etc/config.yaml")
 	require.NoError(t, err)
 	require.Equal(t, "port: 8080", got)
+
+	require.NoError(t, hh.FS.WriteFile("etc/other.yaml", []byte("port: 9090"), 0o600))
+	b, err := hh.FS.ReadFile("etc/other.yaml")
+	require.NoError(t, err)
+	require.Equal(t, "port: 9090", string(b))
 }
 
 func TestFS_embeds_only_host_FS(t *testing.T) {
@@ -748,4 +751,474 @@ func TestHost_parallel_Hosts_never_see_each_others_files(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFS_Create(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
+		f, err := w.fs.Create(name)
+		require.NoError(t, err)
+		_, err = io.WriteString(f, "new")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+		require.Equal(t, w.host.Path("dir/file"), f.Name(), "Name() is the absolute OS path")
+
+		b, err := os.ReadFile(w.host.Path("dir/file"))
+		require.NoError(t, err)
+		require.Equal(t, "new", string(b), "an existing file is truncated")
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		f, err := w.fs.Create(name)
+		if err == nil {
+			_ = f.Close()
+		}
+		return err
+	})
+}
+
+func TestFS_OpenRoot(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, name string) {
+		root, err := w.fs.OpenRoot(name)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, root.Close()) }()
+
+		b, err := root.ReadFile("file")
+		require.NoError(t, err)
+		require.Equal(t, "file", string(b))
+
+		_, err = root.Open(filepath.Join("..", "dir", "file"))
+		require.Error(t, err, "the root is confined to the directory opened")
+	})
+
+	escaping(t, "dir", func(t *testing.T, w *world, name string) error {
+		root, err := w.fs.OpenRoot(name)
+		if err == nil {
+			_ = root.Close()
+		}
+		return err
+	})
+}
+
+func TestFS_OpenInRoot(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, dir string) {
+		f, err := w.fs.OpenInRoot(dir, filepath.Join("sub", "leaf"))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, f.Close()) }()
+		b, err := io.ReadAll(f)
+		require.NoError(t, err)
+		require.Equal(t, "leaf", string(b))
+	})
+
+	t.Run("name can't leave dir", func(t *testing.T) {
+		w := newWorld(t)
+		require.NoError(t, os.Symlink("..", w.host.Path("dir/sub/up")))
+		for _, name := range []string{
+			filepath.Join("..", "file"),
+			w.host.Path("dir/file"),
+			filepath.Join("up", "file"),
+			filepath.Join("..", "..", "out", "secret"),
+		} {
+			f, err := w.fs.OpenInRoot("dir/sub", name)
+			if err == nil {
+				_ = f.Close()
+			}
+			var pe *fs.PathError
+			require.ErrorAs(t, err, &pe, name)
+			require.Equal(t, name, pe.Path, "the error names the path passed")
+		}
+		w.requireUntouched(t)
+	})
+
+	t.Run("an error names the dir passed", func(t *testing.T) {
+		w := newWorld(t)
+		_, err := w.fs.OpenInRoot(w.host.Path("missing"), "file")
+		var pe *fs.PathError
+		require.ErrorAs(t, err, &pe)
+		require.ErrorIs(t, err, fs.ErrNotExist)
+		require.Equal(t, w.host.Path("missing"), pe.Path)
+	})
+
+	escaping(t, "dir", func(t *testing.T, w *world, dir string) error {
+		f, err := w.fs.OpenInRoot(dir, ".")
+		if err == nil {
+			_ = f.Close()
+		}
+		return err
+	})
+}
+
+func TestFS_ReadFile(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
+		b, err := w.fs.ReadFile(name)
+		require.NoError(t, err)
+		require.Equal(t, "file", string(b))
+	})
+
+	t.Run("a directory", func(t *testing.T) {
+		forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, name string) {
+			_, err := w.fs.ReadFile(name)
+			var pe *fs.PathError
+			require.ErrorAs(t, err, &pe)
+			require.Equal(t, name, pe.Path, "the error names the path passed")
+		})
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		_, err := w.fs.ReadFile(name)
+		return err
+	})
+}
+
+func TestFS_WriteFile(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("dir/new") }, func(t *testing.T, w *world, name string) {
+		require.NoError(t, w.fs.WriteFile(name, []byte("new"), 0o600))
+		b, err := os.ReadFile(w.host.Path("dir/new"))
+		require.NoError(t, err)
+		require.Equal(t, "new", string(b))
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		return w.fs.WriteFile(name, []byte("overwritten"), 0o600)
+	})
+}
+
+func TestFS_Truncate(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
+		require.NoError(t, w.fs.Truncate(name, 2))
+		b, err := os.ReadFile(w.host.Path("dir/file"))
+		require.NoError(t, err)
+		require.Equal(t, "fi", string(b))
+	})
+
+	t.Run("every error is a *fs.PathError naming the path passed", func(t *testing.T) {
+		testCases := map[string]struct {
+			name string
+			size int64
+			err  error
+		}{
+			"a missing file":  {name: "missing", err: fs.ErrNotExist},
+			"a directory":     {name: "dir", err: syscall.EISDIR},
+			"a negative size": {name: "dir/file", size: -1, err: syscall.EINVAL},
+		}
+		for desc, tc := range testCases {
+			t.Run(desc, func(t *testing.T) {
+				forEach(t, func(w *world) map[string]string { return w.names(tc.name) }, func(t *testing.T, w *world, name string) {
+					err := w.fs.Truncate(name, tc.size)
+					var pe *fs.PathError
+					require.ErrorAs(t, err, &pe)
+					require.Equal(t, name, pe.Path)
+					require.ErrorIs(t, err, tc.err)
+				})
+			})
+		}
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		err := w.fs.Truncate(name, 0)
+		var pe *fs.PathError
+		require.ErrorAs(t, err, &pe)
+		require.Equal(t, name, pe.Path)
+		return err
+	})
+}
+
+// fileFS is an fs.FS whose files fail as its fields say: a directory "dir"
+// that can't be read, a file "unopened" that can't be opened, "unstated"
+// that can't be stat'ed once open, "unread" that can't be read, and a
+// symbolic link "unlinked" whose target can't be read, since fileFS has no
+// ReadLink method. It has only Open, so that fs.WalkDir and fs.ReadLink
+// can't go round it to the fstest.MapFS's own methods.
+type fileFS struct {
+	files fstest.MapFS
+	err   error
+}
+
+func (f fileFS) Open(name string) (fs.File, error) {
+	switch name {
+	case "dir", "unopened":
+		return nil, &fs.PathError{Op: "open", Path: name, Err: f.err}
+	}
+	file, err := f.files.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	switch name {
+	case "unstated":
+		return failingFile{File: file, statErr: f.err}, nil
+	case "unread":
+		return failingFile{File: file, readErr: f.err}, nil
+	}
+	return file, nil
+}
+
+// failingFile is an fs.File whose Stat or Read fails.
+type failingFile struct {
+	fs.File
+	statErr, readErr error
+}
+
+func (f failingFile) Stat() (fs.FileInfo, error) {
+	if f.statErr != nil {
+		return nil, f.statErr
+	}
+	return f.File.Stat()
+}
+
+func (f failingFile) Read(b []byte) (int, error) {
+	if f.readErr != nil {
+		return 0, f.readErr
+	}
+	return f.File.Read(b)
+}
+
+func TestFS_CopyFS(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("copy") }, func(t *testing.T, w *world, dir string) {
+		require.NoError(t, w.fs.CopyFS(dir, fstest.MapFS{
+			"a/b":    {Data: []byte("b")},
+			"a/link": {Data: []byte("b"), Mode: fs.ModeSymlink},
+		}))
+		b, err := os.ReadFile(w.host.Path("copy/a/link"))
+		require.NoError(t, err)
+		require.Equal(t, "b", string(b))
+		target, err := os.Readlink(w.host.Path("copy/a/link"))
+		require.NoError(t, err)
+		require.Equal(t, "b", target, "a relative target is stored as written")
+	})
+
+	t.Run("an existing file is never overwritten", func(t *testing.T) {
+		w := newWorld(t)
+		err := w.fs.CopyFS("dir", fstest.MapFS{"file": {Data: []byte("overwritten")}})
+		require.ErrorIs(t, err, fs.ErrExist)
+		var pe *fs.PathError
+		require.ErrorAs(t, err, &pe)
+		require.Equal(t, filepath.Join("dir", "file"), pe.Path, "the error names the target under the dir passed")
+		b, err := os.ReadFile(w.host.Path("dir/file"))
+		require.NoError(t, err)
+		require.Equal(t, "file", string(b))
+	})
+
+	t.Run("an absolute symbolic link is refused", func(t *testing.T) {
+		w := newWorld(t)
+		target := w.host.Path("dir/file")
+		err := w.fs.CopyFS("copy", fstest.MapFS{"link": {Data: []byte(target), Mode: fs.ModeSymlink}})
+		require.ErrorIs(t, err, errors.ErrUnsupported)
+		var le *os.LinkError
+		require.ErrorAs(t, err, &le)
+		require.Equal(t, target, le.Old)
+		require.Equal(t, filepath.Join("copy", "link"), le.New)
+	})
+
+	t.Run("a name that is not a local path", func(t *testing.T) {
+		w := newWorld(t)
+		err := w.fs.CopyFS("copy", fstest.MapFS{"a\x00b": {Data: []byte("x")}})
+		require.Error(t, err)
+		require.Equal(t, map[string]string{".": "<dir>"}, snapshot(t, w.host.Path("copy")))
+	})
+
+	t.Run("fsys fails", func(t *testing.T) {
+		cause := errors.New("cause")
+		testCases := map[string]struct {
+			files fstest.MapFS
+			is    error
+			name  string // the path the error names, if it is a *fs.PathError
+		}{
+			"reading a directory":            {files: fstest.MapFS{"dir/x": {}}, is: cause, name: "dir"},
+			"opening a file":                 {files: fstest.MapFS{"unopened": {}}, is: cause, name: "unopened"},
+			"stating a file":                 {files: fstest.MapFS{"unstated": {}}, is: cause},
+			"reading a file":                 {files: fstest.MapFS{"unread": {Data: []byte("x")}}, is: cause, name: filepath.Join("copy", "unread")},
+			"reading a symbolic link target": {files: fstest.MapFS{"unlinked": {Data: []byte("x"), Mode: fs.ModeSymlink}}, is: fs.ErrInvalid, name: "unlinked"},
+		}
+		for desc, tc := range testCases {
+			t.Run(desc, func(t *testing.T) {
+				w := newWorld(t)
+				err := w.fs.CopyFS("copy", fileFS{files: tc.files, err: cause})
+				require.ErrorIs(t, err, tc.is, "fsys's error is returned")
+				if tc.name != "" {
+					var pe *fs.PathError
+					require.ErrorAs(t, err, &pe)
+					require.Equal(t, tc.name, pe.Path)
+				}
+			})
+		}
+	})
+
+	escaping(t, "dir", func(t *testing.T, w *world, dir string) error {
+		return w.fs.CopyFS(dir, fstest.MapFS{"planted": {Data: []byte("planted")}})
+	})
+}
+
+func TestFS_Link(t *testing.T) {
+	forEach(t, func(w *world) map[string]string {
+		return map[string]string{
+			"relative": "dir/file|hard",
+			"absolute": w.host.Path("dir/file") + "|" + w.host.Path("hard"),
+		}
+	}, func(t *testing.T, w *world, names string) {
+		oldname, newname, _ := strings.Cut(names, "|")
+		require.NoError(t, w.fs.Link(oldname, newname))
+		b, err := os.ReadFile(w.host.Path("hard"))
+		require.NoError(t, err)
+		require.Equal(t, "file", string(b))
+	})
+
+	t.Run("an error names the paths passed", func(t *testing.T) {
+		w := newWorld(t)
+		oldname, newname := w.host.Path("missing"), w.host.Path("hard")
+		err := w.fs.Link(oldname, newname)
+		var le *os.LinkError
+		require.ErrorAs(t, err, &le)
+		require.Equal(t, oldname, le.Old)
+		require.Equal(t, newname, le.New)
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		return w.fs.Link(name, "stolen")
+	})
+	t.Run("into", func(t *testing.T) {
+		escaping(t, "planted", func(t *testing.T, w *world, name string) error {
+			return w.fs.Link("dir/file", name)
+		})
+	})
+}
+
+func TestFS_Symlink(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("dir/link") }, func(t *testing.T, w *world, name string) {
+		require.NoError(t, w.fs.Symlink(filepath.Join("sub", "leaf"), name))
+		got, err := readAll(w.fs, name)
+		require.NoError(t, err, "Open follows a relative link inside the directory")
+		require.Equal(t, "leaf", got)
+		target, err := w.fs.Readlink(name)
+		require.NoError(t, err)
+		require.Equal(t, filepath.Join("sub", "leaf"), target, "the target is stored as written")
+	})
+
+	t.Run("a relative target that leaves the directory", func(t *testing.T) {
+		w := newWorld(t)
+		rel, err := filepath.Rel(w.host.Path("dir"), filepath.Join(w.outside, "secret"))
+		require.NoError(t, err)
+		require.NoError(t, w.fs.Symlink(rel, "dir/link"), "the link is created")
+		target, err := w.fs.Readlink("dir/link")
+		require.NoError(t, err)
+		require.Equal(t, rel, target)
+		_, err = readAll(w.fs, "dir/link")
+		require.Error(t, err, "Open through it fails")
+		w.requireUntouched(t)
+	})
+
+	t.Run("an absolute target is refused", func(t *testing.T) {
+		w := newWorld(t)
+		for _, target := range []string{w.host.Path("dir/file"), filepath.Join(w.outside, "secret")} {
+			err := w.fs.Symlink(target, "dir/link")
+			var le *os.LinkError
+			require.ErrorAs(t, err, &le, target)
+			require.Equal(t, "symlink", le.Op)
+			require.Equal(t, target, le.Old)
+			require.Equal(t, "dir/link", le.New)
+			require.ErrorIs(t, err, errors.ErrUnsupported)
+			_, err = os.Lstat(w.host.Path("dir/link"))
+			require.ErrorIs(t, err, fs.ErrNotExist, "nothing is created")
+		}
+	})
+
+	t.Run("an error names the paths passed", func(t *testing.T) {
+		w := newWorld(t)
+		newname := w.host.Path("dir/file")
+		err := w.fs.Symlink("sub", newname)
+		var le *os.LinkError
+		require.ErrorAs(t, err, &le)
+		require.ErrorIs(t, err, fs.ErrExist)
+		require.Equal(t, "sub", le.Old)
+		require.Equal(t, newname, le.New)
+	})
+
+	escaping(t, "planted", func(t *testing.T, w *world, name string) error {
+		return w.fs.Symlink("dir", name)
+	})
+}
+
+func TestFS_Readlink(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("relout") }, func(t *testing.T, w *world, name string) {
+		target, err := w.fs.Readlink(name)
+		require.NoError(t, err)
+		want, err := filepath.Rel(w.host.Path("."), w.outside)
+		require.NoError(t, err)
+		require.Equal(t, want, target, "a link out can be read, though not followed")
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		_, err := w.fs.Readlink(name)
+		return err
+	})
+}
+
+func TestFS_Lstat(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("out") }, func(t *testing.T, w *world, name string) {
+		fi, err := w.fs.Lstat(name)
+		require.NoError(t, err)
+		require.Equal(t, "out", fi.Name())
+		require.NotZero(t, fi.Mode()&fs.ModeSymlink, "the link itself, not what it points to")
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		_, err := w.fs.Lstat(name)
+		return err
+	})
+}
+
+func TestFS_Chmod(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
+		require.NoError(t, w.fs.Chmod(name, 0o600))
+		fi, err := os.Stat(w.host.Path("dir/file"))
+		require.NoError(t, err)
+		require.Equal(t, fs.FileMode(0o600), fi.Mode().Perm())
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		return w.fs.Chmod(name, 0o666)
+	})
+}
+
+func TestFS_Chown(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
+		require.NoError(t, w.fs.Chown(name, os.Getuid(), os.Getgid()))
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		return w.fs.Chown(name, os.Getuid(), os.Getgid())
+	})
+}
+
+func TestFS_Lchown(t *testing.T) {
+	forEach(t, func(w *world) map[string]string { return w.names("out") }, func(t *testing.T, w *world, name string) {
+		require.NoError(t, w.fs.Lchown(name, os.Getuid(), os.Getgid()))
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		return w.fs.Lchown(name, os.Getuid(), os.Getgid())
+	})
+}
+
+func TestFS_Chtimes(t *testing.T) {
+	mtime := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
+	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
+		require.NoError(t, w.fs.Chtimes(name, mtime, mtime))
+		fi, err := os.Stat(w.host.Path("dir/file"))
+		require.NoError(t, err)
+		require.True(t, mtime.Equal(fi.ModTime()), fi.ModTime())
+	})
+
+	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
+		return w.fs.Chtimes(name, mtime, mtime)
+	})
+}
+
+func TestFS_Getwd(t *testing.T) {
+	h := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"dir/file": []byte("file")}))
+	wd, err := h.FS().Getwd()
+	require.NoError(t, err)
+	require.Equal(t, h.Path("."), wd, "the Host's directory")
+
+	got, err := readAll(h.FS(), filepath.Join(wd, "dir", "file"))
+	require.NoError(t, err)
+	require.Equal(t, "file", got, "relative names are relative to it")
 }
