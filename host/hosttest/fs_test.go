@@ -546,6 +546,20 @@ func TestFS_MkdirAll(t *testing.T) {
 		require.True(t, fi.IsDir())
 	})
 
+	t.Run("under a file, the error names the file as the caller would", func(t *testing.T) {
+		w := newWorld(t)
+		for _, tc := range []struct{ name, file string }{
+			{name: filepath.FromSlash("dir/file/a/b"), file: filepath.FromSlash("dir/file")},
+			{name: w.host.Path("dir/file/a/b"), file: w.host.Path("dir/file")},
+		} {
+			err := w.fs.MkdirAll(tc.name, 0o700)
+			var pe *fs.PathError
+			require.ErrorAs(t, err, &pe, tc.name)
+			require.ErrorIs(t, err, syscall.ENOTDIR)
+			require.Equal(t, tc.file, pe.Path)
+		}
+	})
+
 	escaping(t, "a/b", func(t *testing.T, w *world, name string) error {
 		return w.fs.MkdirAll(name, 0o700)
 	})
@@ -906,6 +920,7 @@ func TestFS_Truncate(t *testing.T) {
 					err := w.fs.Truncate(name, tc.size)
 					var pe *fs.PathError
 					require.ErrorAs(t, err, &pe)
+					require.Equal(t, "truncate", pe.Op, "as os.Truncate's")
 					require.Equal(t, name, pe.Path)
 					require.ErrorIs(t, err, tc.err)
 				})
@@ -1199,16 +1214,17 @@ func TestFS_Lchown(t *testing.T) {
 }
 
 func TestFS_Chtimes(t *testing.T) {
+	atime := time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)
 	mtime := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
-		require.NoError(t, w.fs.Chtimes(name, mtime, mtime))
+		require.NoError(t, w.fs.Chtimes(name, atime, mtime))
 		fi, err := os.Stat(w.host.Path("dir/file"))
 		require.NoError(t, err)
 		require.True(t, mtime.Equal(fi.ModTime()), fi.ModTime())
 	})
 
 	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
-		return w.fs.Chtimes(name, mtime, mtime)
+		return w.fs.Chtimes(name, atime, mtime)
 	})
 }
 

@@ -223,15 +223,20 @@ func (f *FS) WriteFile(name string, data []byte, perm os.FileMode) error {
 
 // Truncate is host.OSFS's Truncate, confined to the Host's directory. It
 // opens the file to truncate it, so it fails, as os.Truncate does, for a
-// directory, and every error is a *fs.PathError naming the name passed.
+// directory. It opens without blocking, so a named pipe fails rather than
+// waiting for a reader. Every error is a *fs.PathError whose Op is
+// "truncate" and whose Path is the name passed, as os.Truncate's are.
 func (f *FS) Truncate(name string, size int64) error {
-	file, err := f.OpenFile(name, os.O_WRONLY, 0)
-	if err != nil {
-		return err
+	file, err := f.OpenFile(name, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+	if err == nil {
+		err = file.Truncate(size)
+		if cerr := file.Close(); err == nil {
+			err = cerr
+		}
 	}
-	err = renamed(file.Truncate(size), file.Name(), name)
-	if cerr := file.Close(); err == nil {
-		err = renamed(cerr, file.Name(), name)
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		pe.Op, pe.Path = "truncate", name
 	}
 	return err
 }
@@ -286,7 +291,7 @@ func (f *FS) copyFile(fsys fs.FS, path, target string) error {
 	}
 	if _, err := io.Copy(w, r); err != nil {
 		_ = w.Close() // the copy has already failed, and is what is reported
-		return &fs.PathError{Op: "Copy", Path: target, Err: err}
+		return &fs.PathError{Op: "Copy", Path: target, Err: renamed(err, w.Name(), target)}
 	}
 	return renamed(w.Close(), w.Name(), target)
 }
@@ -488,6 +493,12 @@ func (f *FS) MkdirAll(name string, perm os.FileMode) error {
 		if _, serr := f.root.Stat(rel); serr == nil {
 			return &fs.PathError{Op: "mkdir", Path: name, Err: syscall.ENOTDIR}
 		}
+	}
+	// os.Root names a parent it could not make relative to the
+	// directory, which for an absolute name is not the caller's form.
+	var pe *fs.PathError
+	if filepath.IsAbs(name) && errors.As(err, &pe) && pe.Path != rel && filepath.IsLocal(pe.Path) {
+		pe.Path = f.abs(pe.Path)
 	}
 	return renamed(err, rel, name)
 }

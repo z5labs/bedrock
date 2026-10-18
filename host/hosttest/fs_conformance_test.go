@@ -512,11 +512,12 @@ func TestConformance_FS(t *testing.T) {
 
 		"Chtimes": func(t *testing.T, fsys conformanceFS, dir string) any {
 			name := filepath.Join(dir, "dir", "file")
+			atime := time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)
 			mtime := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
-			require.NoError(t, fsys.Chtimes(name, mtime, mtime))
+			require.NoError(t, fsys.Chtimes(name, atime, mtime))
 			fi, err := fsys.Stat(name)
 			require.NoError(t, err)
-			return fi.ModTime().UTC()
+			return []any{accessTime(fi), fi.ModTime().UTC()}
 		},
 		"Chtimes a missing name": func(t *testing.T, fsys conformanceFS, dir string) any {
 			return describe(t, dir, fsys.Chtimes(filepath.Join(dir, "missing"), time.Time{}, time.Time{}))
