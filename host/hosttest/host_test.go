@@ -601,7 +601,22 @@ func TestHost_Listening(t *testing.T) {
 		})
 	})
 
-	t.Run("stays closed while another listener still reaches it", func(t *testing.T) {
+	t.Run("stays the same closed channel when another listener closes", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			api := listen(t, h, "api:80")
+			defer func() { require.NoError(t, api.Close()) }()
+			admin := listen(t, h, "admin:80")
+			ch := h.Listening("api:80")
+			require.True(t, isClosed(ch))
+
+			require.NoError(t, admin.Close())
+			require.Equal(t, ch, h.Listening("api:80"), "the listener it reaches still lives")
+			require.True(t, isClosed(ch))
+		})
+	})
+
+	t.Run("is closed by an every-name listener made after the named one closes", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			named := listen(t, h, "api:80")
@@ -624,6 +639,25 @@ func TestHost_Listening(t *testing.T) {
 			require.Len(t, tb.errors, 1)
 			require.Contains(t, tb.errors[0], `hosttest: Listening("api")`)
 		})
+	})
+
+	t.Run("fails the test for port 0, which no listener holds", func(t *testing.T) {
+		for _, address := range []string{"api:0", "api:", ":0"} {
+			t.Run(address, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					tb := &fakeTB{TB: t}
+					h := hosttest.New(tb)
+					ln := listen(t, h, address)
+					defer func() { require.NoError(t, ln.Close()) }()
+
+					ch := h.Listening(address)
+					require.True(t, isClosed(ch), "a closed channel, rather than one that never closes")
+					require.Len(t, tb.errors, 1)
+					require.Contains(t, tb.errors[0], fmt.Sprintf("hosttest: Listening(%q)", address))
+					require.Contains(t, tb.errors[0], "port 0")
+				})
+			})
+		}
 	})
 }
 

@@ -139,11 +139,15 @@ func (h *Host) Dial(ctx context.Context, network, address string) (net.Conn, err
 // one is made. The channel is created on the first call, and no goroutine
 // is started, so Listening works inside a testing/synctest bubble.
 //
-// If address is not a host and port, Listening fails the test through the
-// testing.TB given to New and returns a closed channel, so that the Dial
-// which follows reports the same mistake rather than the test hanging.
+// If address is not a host and port, or its port is 0, which no listener
+// holds, Listening fails the test through the testing.TB given to New and
+// returns a closed channel, so that the test goes on to report the mistake
+// rather than hang.
 func (h *Host) Listening(address string) <-chan struct{} {
 	k, err := parseAddress(address)
+	if err == nil && k.port == 0 {
+		err = errors.New("port 0 is never listened on; wait for the port the listener picked")
+	}
 	if err != nil {
 		h.tb.Helper()
 		h.tb.Errorf("hosttest: Listening(%q): %v", address, err)
