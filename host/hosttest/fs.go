@@ -7,7 +7,6 @@ package hosttest
 
 import (
 	"bytes"
-	"cmp"
 	"errors"
 	"io/fs"
 	"maps"
@@ -173,31 +172,43 @@ func (f *FS) OpenFile(name string, flag int, perm os.FileMode) (*os.File, error)
 }
 
 // tempDir returns the name, relative to the directory, of the directory
-// that CreateTemp or MkdirTemp creates in: dir, or for "" the Host's
-// temporary directory, which it creates.
-func (f *FS) tempDir(dir string) (string, error) {
+// that CreateTemp or MkdirTemp creates in, and the name to report it by
+// in errors: dir both times, or for "" the Host's temporary directory,
+// which it creates, and its absolute path.
+func (f *FS) tempDir(dir string) (rel, shown string, err error) {
 	if dir != "" {
-		return f.rel(dir), nil
+		return f.rel(dir), dir, nil
 	}
 	if err := f.root.MkdirAll(tempDirName, 0o755); err != nil {
-		return "", renamed(err, tempDirName, f.abs(tempDirName))
+		return "", "", renamed(err, tempDirName, f.abs(tempDirName))
 	}
-	return tempDirName, nil
+	return tempDirName, f.abs(tempDirName), nil
 }
 
-// tempName splits pattern at its last "*", as os.CreateTemp does, and
-// returns a function making a new random name from it.
-func tempName(op, pattern string) (func() string, error) {
+// tempPattern splits pattern at its last "*", as os.CreateTemp does.
+func tempPattern(op, pattern string) (prefix, suffix string, err error) {
 	if strings.ContainsRune(pattern, os.PathSeparator) || strings.ContainsRune(pattern, '/') {
-		return nil, &fs.PathError{Op: op, Path: pattern, Err: errors.New("pattern contains path separator")}
+		return "", "", &fs.PathError{Op: op, Path: pattern, Err: errors.New("pattern contains path separator")}
 	}
-	prefix, suffix := pattern, ""
+	prefix = pattern
 	if i := strings.LastIndexByte(pattern, '*'); i >= 0 {
 		prefix, suffix = pattern[:i], pattern[i+1:]
 	}
-	return func() string {
-		return prefix + strconv.FormatUint(uint64(rand.Uint32()), 10) + suffix
-	}, nil
+	return prefix, suffix, nil
+}
+
+// random returns the random part of a name CreateTemp or MkdirTemp tries.
+func random() string {
+	return strconv.FormatUint(uint64(rand.Uint32()), 10)
+}
+
+// joinPath joins dir and name as package os does for CreateTemp and
+// MkdirTemp, so that their errors name dir as the caller wrote it.
+func joinPath(dir, name string) string {
+	if len(dir) > 0 && os.IsPathSeparator(dir[len(dir)-1]) {
+		return dir + name
+	}
+	return dir + string(os.PathSeparator) + name
 }
 
 // tempTries is how many names CreateTemp and MkdirTemp try before giving
@@ -207,49 +218,51 @@ const tempTries = 10000
 // CreateTemp is host.OSFS's CreateTemp, confined to the Host's directory.
 // With dir == "" it creates the file in "tmp" inside the directory.
 func (f *FS) CreateTemp(dir, pattern string) (*os.File, error) {
-	next, err := tempName("createtemp", pattern)
+	prefix, suffix, err := tempPattern("createtemp", pattern)
 	if err != nil {
 		return nil, err
 	}
-	return f.createTemp(dir, pattern, next)
+	return f.createTemp(dir, prefix, suffix, random)
 }
 
-// createTemp is CreateTemp, trying the names next makes.
-func (f *FS) createTemp(dir, pattern string, next func() string) (*os.File, error) {
-	d, err := f.tempDir(dir)
+// createTemp is CreateTemp, trying names whose random part random makes.
+func (f *FS) createTemp(dir, prefix, suffix string, random func() string) (*os.File, error) {
+	d, shown, err := f.tempDir(dir)
 	if err != nil {
 		return nil, err
 	}
 	for range tempTries {
-		rel := filepath.Join(d, next())
+		base := prefix + random() + suffix
+		rel := filepath.Join(d, base)
 		file, err := f.root.OpenFile(rel, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 		if errors.Is(err, fs.ErrExist) {
 			continue
 		}
-		return file, renamed(err, rel, f.abs(rel))
+		return file, renamed(err, rel, joinPath(shown, base))
 	}
-	return nil, &fs.PathError{Op: "createtemp", Path: f.abs(filepath.Join(d, pattern)), Err: fs.ErrExist}
+	return nil, &fs.PathError{Op: "createtemp", Path: joinPath(shown, prefix) + "*" + suffix, Err: fs.ErrExist}
 }
 
 // MkdirTemp is host.OSFS's MkdirTemp, confined to the Host's directory.
 // With dir == "" it creates the directory in "tmp" inside the Host's
 // directory. It returns an absolute OS path.
 func (f *FS) MkdirTemp(dir, pattern string) (string, error) {
-	next, err := tempName("mkdirtemp", pattern)
+	prefix, suffix, err := tempPattern("mkdirtemp", pattern)
 	if err != nil {
 		return "", err
 	}
-	return f.mkdirTemp(dir, pattern, next)
+	return f.mkdirTemp(dir, prefix, suffix, random)
 }
 
-// mkdirTemp is MkdirTemp, trying the names next makes.
-func (f *FS) mkdirTemp(dir, pattern string, next func() string) (string, error) {
-	d, err := f.tempDir(dir)
+// mkdirTemp is MkdirTemp, trying names whose random part random makes.
+func (f *FS) mkdirTemp(dir, prefix, suffix string, random func() string) (string, error) {
+	d, shown, err := f.tempDir(dir)
 	if err != nil {
 		return "", err
 	}
 	for range tempTries {
-		rel := filepath.Join(d, next())
+		base := prefix + random() + suffix
+		rel := filepath.Join(d, base)
 		err := f.root.Mkdir(rel, 0o700)
 		if errors.Is(err, fs.ErrExist) {
 			continue
@@ -258,15 +271,15 @@ func (f *FS) mkdirTemp(dir, pattern string, next func() string) (string, error) 
 			// As os.MkdirTemp does, a missing dir is reported as the
 			// failure to stat dir, not to make the name inside it.
 			if _, serr := f.root.Stat(d); errors.Is(serr, fs.ErrNotExist) {
-				return "", renamed(serr, d, cmp.Or(dir, f.abs(d)))
+				return "", renamed(serr, d, shown)
 			}
 		}
 		if err != nil {
-			return "", renamed(err, rel, f.abs(rel))
+			return "", renamed(err, rel, joinPath(shown, base))
 		}
 		return f.abs(rel), nil
 	}
-	return "", &fs.PathError{Op: "mkdirtemp", Path: f.abs(filepath.Join(d, pattern)), Err: fs.ErrExist}
+	return "", &fs.PathError{Op: "mkdirtemp", Path: joinPath(shown, prefix) + "*" + suffix, Err: fs.ErrExist}
 }
 
 // Mkdir is host.OSFS's Mkdir, confined to the Host's directory.
@@ -342,7 +355,13 @@ func (f *FS) ReadDir(name string) ([]os.DirEntry, error) {
 // DirFS is host.OSFS's DirFS, confined to the Host's directory. For a dir
 // outside it, every Open of the fs.FS fails, since DirFS cannot.
 func (f *FS) DirFS(dir string) fs.FS {
-	sub, err := fs.Sub(f.root.FS(), filepath.ToSlash(f.rel(dir)))
+	name := f.rel(dir)
+	if name != "" {
+		// os.DirFS takes "./dir" and "dir/", which fs.Sub does not, and
+		// fails for "", which Clean would make the whole directory.
+		name = filepath.Clean(name)
+	}
+	sub, err := fs.Sub(f.root.FS(), filepath.ToSlash(name))
 	if err != nil {
 		return errFS{err: &fs.PathError{Op: "dirfs", Path: dir, Err: errNotLocal}}
 	}

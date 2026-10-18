@@ -152,12 +152,20 @@ func forEach(t *testing.T, names func(w *world) map[string]string, f func(t *tes
 }
 
 // escaping runs f for every escape to elem, and checks that each one
-// failed and left the outside untouched.
+// failed naming the path passed, and left the outside untouched.
 func escaping(t *testing.T, elem string, f func(t *testing.T, w *world, name string) error) {
+	t.Helper()
+	escapingWith(t, elem, func(t *testing.T, err error, name string) {
+		require.ErrorContains(t, err, name, "the error names the path passed")
+	}, f)
+}
+
+// escapingWith is escaping, checking each escape's error with check.
+func escapingWith(t *testing.T, elem string, check func(t *testing.T, err error, name string), f func(t *testing.T, w *world, name string) error) {
 	t.Helper()
 	t.Run("outside", func(t *testing.T) {
 		forEach(t, func(w *world) map[string]string { return w.escapes(t, elem) }, func(t *testing.T, w *world, name string) {
-			require.Error(t, f(t, w, name))
+			check(t, f(t, w, name), name)
 			w.requireUntouched(t)
 		})
 	})
@@ -436,9 +444,16 @@ func TestFS_CreateTemp(t *testing.T) {
 	})
 
 	t.Run("a missing dir", func(t *testing.T) {
-		w := newWorld(t)
-		_, err := w.fs.CreateTemp("missing", "x")
-		require.ErrorIs(t, err, fs.ErrNotExist)
+		for _, dir := range []string{"missing", "missing" + string(filepath.Separator)} {
+			w := newWorld(t)
+			_, err := w.fs.CreateTemp(dir, "pre-*.suf")
+			require.ErrorIs(t, err, fs.ErrNotExist)
+			var pe *fs.PathError
+			require.ErrorAs(t, err, &pe)
+			base, ok := strings.CutPrefix(pe.Path, filepath.Join("missing", "pre-"))
+			require.True(t, ok, "the error names the dir passed, as os.CreateTemp's does: %s", pe.Path)
+			require.True(t, strings.HasSuffix(base, ".suf"), pe.Path)
+		}
 	})
 
 	t.Run(`dir == "" when tmp is a file`, func(t *testing.T) {
@@ -682,7 +697,26 @@ func TestFS_DirFS(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	escaping(t, "dir", func(t *testing.T, w *world, dir string) error {
+	t.Run("a relative dir that is not clean", func(t *testing.T) {
+		for _, dir := range []string{"./dir", "dir/", "dir/../dir", "dir/sub/.."} {
+			w := newWorld(t)
+			b, err := fs.ReadFile(w.fs.DirFS(dir), "sub/leaf")
+			require.NoError(t, err, dir)
+			require.Equal(t, "leaf", string(b), dir)
+		}
+	})
+
+	t.Run(`dir == ""`, func(t *testing.T) {
+		w := newWorld(t)
+		_, err := w.fs.DirFS("").Open("dir")
+		require.Error(t, err, "as os.DirFS(\"\") fails, rather than serving the whole directory")
+	})
+
+	// Through a symbolic link, the dir is inside the Host's directory, and
+	// it is the fs.FS that refuses to follow the link out. Its errors name
+	// paths inside the fs.FS, as os.DirFS's do, so the dir passed is not in
+	// them.
+	escapingWith(t, "dir", func(t *testing.T, err error, _ string) { require.Error(t, err) }, func(t *testing.T, w *world, dir string) error {
 		return fs.WalkDir(w.fs.DirFS(dir), ".", func(path string, d fs.DirEntry, err error) error {
 			return err
 		})
