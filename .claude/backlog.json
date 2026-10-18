@@ -22,7 +22,8 @@
     "go -C fit test -race -cover ./...",
     "go -C circuit test -race -cover ./...",
     "go -C retry test -race -cover ./...",
-    "go -C host test -race -cover ./..."
+    "go -C host test -race -cover ./...",
+    "go -C host test -race -tags conformance -run '^TestConformance_' ./..."
   ],
   "merge": {
     "label": "auto-merge",
