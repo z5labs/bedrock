@@ -140,10 +140,11 @@ jobs:
 
         # Runs hosttest's network conformance table on real loopback sockets
         # as well, which needs 127.0.0.2 on the loopback interface, as Linux
-        # has.
+        # has. -v names TestConformance_loopback in the log, so the log shows
+        # that the loopback half ran rather than only that the package passed.
         - name: Conformance (host)
           if: ${{ !cancelled() }}
-          run: go -C host test -race -tags conformance -run '^TestConformance_' ./...
+          run: go -C host test -race -v -tags conformance -run '^TestConformance_' ./...
 
         - name: Test release tagging script
           if: ${{ !cancelled() }}
