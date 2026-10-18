@@ -15,12 +15,15 @@ import (
 	"testing"
 )
 
-// Host is a test's network, of net.Pipe connections. It starts no
+// Host is a test's network, of net.Pipe connections, and a filesystem in
+// a directory from tb.TempDir(), confined with os.Root. It starts no
 // goroutines, so build it inside the testing/synctest bubble that uses it.
 //
 // A Host is safe for concurrent use.
 type Host struct {
-	tb testing.TB
+	tb   testing.TB
+	dir  string
+	root *os.Root
 
 	mu        sync.Mutex
 	listeners map[key]*listener
@@ -32,7 +35,9 @@ type Host struct {
 // Option configures a [Host] built by [New].
 type Option func(*Host)
 
-// New returns a Host configured by opts. It reports misuse through tb.
+// New returns a Host whose directory comes from tb.TempDir(), so it is
+// removed when the test ends. It is configured by opts, and reports misuse
+// through tb.
 //
 // New starts no goroutines and makes no channels: Listen and Listening
 // make theirs when they are called. To use a Host with testing/synctest,
@@ -40,8 +45,19 @@ type Option func(*Host)
 // channel the Host makes belongs to the bubble that uses it.
 func New(tb testing.TB, opts ...Option) *Host {
 	tb.Helper()
+	dir := tb.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		tb.Fatalf("hosttest: New: %v", err)
+	}
+	// Cleanups run last in, first out, so the root closes before
+	// tb.TempDir's cleanup removes the directory.
+	tb.Cleanup(func() { _ = root.Close() })
+
 	h := &Host{
 		tb:        tb,
+		dir:       dir,
+		root:      root,
 		listeners: make(map[key]*listener),
 		held:      make(map[int]int),
 		listening: make(map[key]chan struct{}),
