@@ -159,8 +159,10 @@
 //     imports only the standard library, the library code of the nested
 //     fit module imports only the standard library and OpenTelemetry's
 //     baggage package, the library code of the nested circuit and retry
-//     modules imports only the standard library, and tests alone may use
-//     third-party modules. golangci-lint's depguard enforces all four.
+//     modules imports only the standard library, the library code of the
+//     nested host module imports only the standard library and the host
+//     module's own packages, and tests alone may use third-party modules.
+//     golangci-lint's depguard enforces all five.
 //   - Exhaustive testing is applied as statement coverage: every non-main
 //     package of every module is at 100.0%, and CI fails a pull request
 //     that leaves any of them below it.

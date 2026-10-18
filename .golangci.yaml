@@ -23,6 +23,7 @@ linters:
             - "!${base-path}/fit/**"
             - "!${base-path}/circuit/**"
             - "!${base-path}/retry/**"
+            - "!${base-path}/host/**"
           allow:
             - $gostd
             - github.com/z5labs/bedrock
@@ -33,6 +34,8 @@ linters:
               desc: the bedrock module does not depend on the circuit module
             - pkg: github.com/z5labs/bedrock/retry
               desc: the bedrock module does not depend on the retry module
+            - pkg: github.com/z5labs/bedrock/host
+              desc: the bedrock module does not depend on the host module
         # Library code of the fit module imports only the standard library
         # and OpenTelemetry's baggage. It does not import the bedrock module.
         # Tests may use any module.
@@ -64,6 +67,18 @@ linters:
             - "!$test"
           allow:
             - $gostd
+        # Library code of the host module imports only the standard library
+        # and the host module's own packages. It does not import the bedrock
+        # module, the fit module, the circuit module or the retry module.
+        # Tests may use any module.
+        host:
+          list-mode: strict
+          files:
+            - "${base-path}/host/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/z5labs/bedrock/host
     forbidigo:
       # Examples are documentation that users copy, so they are held to the
       # same rule as everything else.
