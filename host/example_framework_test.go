@@ -40,8 +40,9 @@ func OSHost() Host {
 // copies the fields of host.OS into it, and the compiler checks that OSFS
 // has every method FS lists.
 //
-// A command reaches the filesystem only through h.FS, and only through
-// the methods FS lists.
+// The command itself reaches the filesystem only through h.FS, and only
+// through the methods FS lists. Only the example's setup, which stands in
+// for the command's configuration, goes around it.
 func Example() {
 	h := OSHost()
 

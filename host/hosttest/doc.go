@@ -12,10 +12,10 @@
 // code under test listens on the Host's network and the test dials it, and
 // every file either opens is inside the test's own temp directory.
 //
-// The network opens no real socket and starts no goroutines, so the code
-// runs inside a testing/synctest bubble, with no real time and no file
-// outside the test's temp directory. Build the Host inside the bubble that
-// uses it, with the bubble's t, so that every channel it makes belongs to
+// The network opens no real socket, starts no goroutines and blocks only
+// on channels, so the code can run inside a testing/synctest bubble, with
+// no real time, and the filesystem is confined with os.Root to the test's
+// temp directory. Build the Host inside the bubble that uses it, with the bubble's t, so that every channel it makes belongs to
 // that bubble. Here serve is the code under test, which serves hello over
 // HTTP on ":8080" of the host.Host it is given, and the test dials it:
 //
@@ -24,7 +24,8 @@
 //			h := hosttest.New(t)
 //			hh := host.Host[FS]{Listen: h.Listen, Dial: h.Dial, FS: h.FS()}
 //			ctx, cancel := context.WithCancel(t.Context())
-//			done := make(chan error)
+//			defer cancel()
+//			done := make(chan error, 1)
 //			go func() { done <- serve(ctx, hh) }()
 //
 //			// Wait until every goroutine in the bubble is blocked, which
@@ -47,9 +48,10 @@
 //	}
 //
 // The code reaches the network and the filesystem only through the
-// host.Host it is given: it listens with Listen and opens files with FS,
-// never with net.Listen or os.Open, which would reach the real machine and
-// block where synctest can't see.
+// host.Host it is given: it listens with Listen and opens files with FS.
+// net.Listen would open a real socket, whose Accept is not durably blocked,
+// so synctest.Wait would never return, and os.Open would reach files
+// outside the test's directory.
 //
 // # Names
 //
@@ -80,8 +82,8 @@
 //
 // The filesystem is real. [New] takes a directory from t.TempDir(), which
 // is removed when the test ends, and [WithFiles] writes the files a test
-// sets up before the code starts. [Host.FS] opens files with an os.Root on
-// that directory, so ".." and symbolic links can't leave it, and
+// sets up before the code starts. The [FS] that [Host.FS] returns opens
+// files with an os.Root on that directory, so ".." and symbolic links can't leave it, and
 // [Host.Path] gives the absolute path of a file in it to put in an
 // argument or a setting. Relative names are relative to the directory,
 // which is what the filesystem's [FS.Getwd] returns.
