@@ -175,6 +175,42 @@ for the breaker's rejection. Transports, interceptors and metrics belong to the
 framework built on it. The design is discussed in
 [discussion #606](https://github.com/z5labs/bedrock/discussions/606).
 
+## host
+
+[host](https://pkg.go.dev/github.com/z5labs/bedrock/host) is the network and
+the filesystem that a framework hands an App beyond its process. bedrock
+defines the contract and never passes a `Host`; each framework declares the
+filesystem its users see as an interface that embeds `host.FS` and lists the
+methods it needs, and hides the type parameter behind an alias:
+
+```go
+type FS interface {
+	host.FS
+
+	Open(name string) (*os.File, error)
+	Getwd() (string, error)
+}
+
+type Host = host.Host[FS]
+```
+
+`host.OS()` is the Host of the real machine, and
+[hosttest](https://pkg.go.dev/github.com/z5labs/bedrock/host/hosttest) is the
+Host of a test: an in-memory network that can run inside a `testing/synctest`
+bubble, and a real filesystem confined to the test's temp directory.
+
+It is a nested module with its own `go.mod`, and its library code imports only
+the standard library and the module's own packages:
+
+```bash
+go get github.com/z5labs/bedrock/host
+```
+
+`FS` is sealed, so nothing outside the module implements it except by
+embedding `host.OSFS`, hosttest's `*FS` or `host.FS` itself, and a framework
+can rely on every filesystem being one of the two or a wrapper around one. The design is discussed in
+[discussion #614](https://github.com/z5labs/bedrock/discussions/614).
+
 ## Releases
 
 Every module in this repository is released with the same version, after
