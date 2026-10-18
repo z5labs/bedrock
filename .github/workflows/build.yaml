@@ -66,6 +66,14 @@ jobs:
             skip-cache: false
             working-directory: retry
 
+        - name: Lint Go Code (host)
+          if: ${{ !cancelled() }}
+          uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+          with:
+            version: v2.15.0
+            skip-cache: false
+            working-directory: host
+
         - name: Report golangci-lint version
           if: ${{ !cancelled() }}
           run: golangci-lint version
@@ -86,6 +94,10 @@ jobs:
           if: ${{ !cancelled() }}
           run: go -C retry build ./...
 
+        - name: Build (host)
+          if: ${{ !cancelled() }}
+          run: go -C host build ./...
+
         - name: Vet (bedrock)
           if: ${{ !cancelled() }}
           run: go vet ./...
@@ -102,6 +114,10 @@ jobs:
           if: ${{ !cancelled() }}
           run: go -C retry vet ./...
 
+        - name: Vet (host)
+          if: ${{ !cancelled() }}
+          run: go -C host vet ./...
+
         - name: Test (bedrock)
           if: ${{ !cancelled() }}
           run: go test -race -cover ./...
@@ -117,6 +133,10 @@ jobs:
         - name: Test (retry)
           if: ${{ !cancelled() }}
           run: go -C retry test -race -cover ./...
+
+        - name: Test (host)
+          if: ${{ !cancelled() }}
+          run: go -C host test -race -cover ./...
 
         - name: Test release tagging script
           if: ${{ !cancelled() }}
