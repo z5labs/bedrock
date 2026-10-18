@@ -71,6 +71,10 @@
 // time comes from testing/synctest, and randomness from testing/cryptotest
 // or a seeded source.
 //
+// For the network and the filesystem, the nested host module,
+// github.com/z5labs/bedrock/host, gives every framework the same contract
+// and the same two implementations, and bedrock itself never passes a Host.
+//
 // # Child processes
 //
 // An [Environment] offers lookup only, so it cannot be listed the way
@@ -102,6 +106,8 @@
 //     global providers are process-wide state.
 //   - slog.Default writes to the real standard error unless it is replaced,
 //     and replacing it is process-wide state.
+//   - os.TempDir, os.UserHomeDir, os.UserConfigDir and os.UserCacheDir
+//     read the real environment. Compute them from p.Environment instead.
 //
 // # Engineering rules
 //
