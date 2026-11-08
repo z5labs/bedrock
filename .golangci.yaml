@@ -24,6 +24,7 @@ linters:
             - "!${base-path}/circuit/**"
             - "!${base-path}/retry/**"
             - "!${base-path}/host/**"
+            - "!${base-path}/pki/**"
           allow:
             - $gostd
             - github.com/z5labs/bedrock
@@ -36,6 +37,8 @@ linters:
               desc: the bedrock module does not depend on the retry module
             - pkg: github.com/z5labs/bedrock/host
               desc: the bedrock module does not depend on the host module
+            - pkg: github.com/z5labs/bedrock/pki
+              desc: the bedrock module does not depend on the pki module
         # Library code of the fit module imports only the standard library
         # and OpenTelemetry's baggage. It does not import the bedrock module.
         # Tests may use any module.
@@ -79,6 +82,18 @@ linters:
           allow:
             - $gostd
             - github.com/z5labs/bedrock/host
+        # Library code of the pki module imports only the standard library
+        # and the pki module's own packages. It does not import the bedrock
+        # module, the fit module, the circuit module, the retry module or the
+        # host module. Tests may use any module.
+        pki:
+          list-mode: strict
+          files:
+            - "${base-path}/pki/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/z5labs/bedrock/pki
     forbidigo:
       # Examples are documentation that users copy, so they are held to the
       # same rule as everything else.

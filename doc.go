@@ -167,8 +167,10 @@
 //     baggage package, the library code of the nested circuit and retry
 //     modules imports only the standard library, the library code of the
 //     nested host module imports only the standard library and the host
-//     module's own packages, and tests alone may use third-party modules.
-//     golangci-lint's depguard enforces all five.
+//     module's own packages, the library code of the nested pki module
+//     imports only the standard library and the pki module's own packages,
+//     and tests alone may use third-party modules. golangci-lint's depguard
+//     enforces all six.
 //   - Exhaustive testing is applied as statement coverage: every non-main
 //     package of every module is at 100.0%, and CI fails a pull request
 //     that leaves any of them below it.
