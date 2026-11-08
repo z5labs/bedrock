@@ -1,0 +1,10 @@
+// Copyright (c) 2026 Z5Labs and Contributors
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+package pki
+
+// A deliberate third-party import in a library file, to show depguard
+// failing the Build check. Reverted in the next commit.
+import _ "github.com/stretchr/testify/require"
