@@ -45,8 +45,10 @@ func derOf(tb testing.TB, data []byte) []byte {
 }
 
 // noEnd returns block, a PEM block, without its END line.
-func noEnd(block []byte) []byte {
+func noEnd(tb testing.TB, block []byte) []byte {
+	tb.Helper()
 	i := bytes.Index(block, []byte("-----END "))
+	require.Positive(tb, i, "noEnd is given a PEM block with an END line: %q", block)
 	return block[:i]
 }
 
@@ -251,11 +253,11 @@ func lenientPairs(tb testing.TB, m *material) []lenientPair {
 			"pki: certPEM: block 2: x509: "),
 		row("a second key", m.certPEM, slices.Concat(m.keyPEM, m.otherKeyPEM),
 			"pki: keyPEM: block 2: a second private key"),
-		row("no END line in the middle of the chain", slices.Concat(m.leafPEM, noEnd(m.ca2PEM), m.caPEM), m.keyPEM,
+		row("no END line in the middle of the chain", slices.Concat(m.leafPEM, noEnd(tb, m.ca2PEM), m.caPEM), m.keyPEM,
 			"pki: certPEM: block 2: -----BEGIN starts no PEM block"),
-		row("no END line at the end of the chain", slices.Concat(m.leafPEM, noEnd(m.caPEM)), m.keyPEM,
+		row("no END line at the end of the chain", slices.Concat(m.leafPEM, noEnd(tb, m.caPEM)), m.keyPEM,
 			"pki: certPEM: block 2: -----BEGIN starts no PEM block"),
-		row("no END line on a second key", m.certPEM, slices.Concat(m.keyPEM, noEnd(m.otherKeyPEM)),
+		row("no END line on a second key", m.certPEM, slices.Concat(m.keyPEM, noEnd(tb, m.otherKeyPEM)),
 			"pki: keyPEM: block 2: -----BEGIN starts no PEM block"),
 		row("two files joined without a newline", slices.Concat(m.leafPEM, noNewline(m.ca2PEM), m.caPEM), m.keyPEM,
 			"pki: certPEM: block 2: -----BEGIN starts no PEM block"),
@@ -289,9 +291,9 @@ func lenientBundles(tb testing.TB, m *material) []lenientBundle {
 			`pki: block 2: a "PRIVATE KEY" block, not a CERTIFICATE`),
 		row("a corrupt certificate", slices.Concat(m.caPEM, corrupt, m.ca3PEM),
 			"pki: block 2: x509: "),
-		row("no END line in the middle", slices.Concat(m.caPEM, noEnd(m.ca2PEM), m.ca3PEM),
+		row("no END line in the middle", slices.Concat(m.caPEM, noEnd(tb, m.ca2PEM), m.ca3PEM),
 			"pki: block 2: -----BEGIN starts no PEM block"),
-		row("no END line at the end", slices.Concat(m.caPEM, noEnd(m.ca2PEM)),
+		row("no END line at the end", slices.Concat(m.caPEM, noEnd(tb, m.ca2PEM)),
 			"pki: block 2: -----BEGIN starts no PEM block"),
 		row("two files joined without a newline", slices.Concat(m.caPEM, noNewline(m.ca2PEM), m.ca3PEM),
 			"pki: block 2: -----BEGIN starts no PEM block"),

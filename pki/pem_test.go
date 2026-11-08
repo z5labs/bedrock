@@ -152,7 +152,7 @@ func TestCertificates_fails_on_data_with_no_block(t *testing.T) {
 
 func TestCertificates_names_the_first_block_that_fails(t *testing.T) {
 	m := newMaterial(t)
-	_, err := pki.Certificates(slices.Concat(m.keyPEM, noEnd(m.caPEM)))
+	_, err := pki.Certificates(slices.Concat(m.keyPEM, noEnd(t, m.caPEM)))
 	require.ErrorContains(t, err, `pki: block 1: a "PRIVATE KEY" block`)
 
 	_, err = pki.Certificates(noNewline(m.caPEM))
