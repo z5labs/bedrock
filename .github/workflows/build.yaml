@@ -74,6 +74,14 @@ jobs:
             skip-cache: false
             working-directory: host
 
+        - name: Lint Go Code (pki)
+          if: ${{ !cancelled() }}
+          uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+          with:
+            version: v2.15.0
+            skip-cache: false
+            working-directory: pki
+
         - name: Report golangci-lint version
           if: ${{ !cancelled() }}
           run: golangci-lint version
@@ -98,6 +106,10 @@ jobs:
           if: ${{ !cancelled() }}
           run: go -C host build ./...
 
+        - name: Build (pki)
+          if: ${{ !cancelled() }}
+          run: go -C pki build ./...
+
         - name: Vet (bedrock)
           if: ${{ !cancelled() }}
           run: go vet ./...
@@ -118,6 +130,10 @@ jobs:
           if: ${{ !cancelled() }}
           run: go -C host vet ./...
 
+        - name: Vet (pki)
+          if: ${{ !cancelled() }}
+          run: go -C pki vet ./...
+
         - name: Test (bedrock)
           if: ${{ !cancelled() }}
           run: go test -race -cover ./...
@@ -137,6 +153,10 @@ jobs:
         - name: Test (host)
           if: ${{ !cancelled() }}
           run: go -C host test -race -cover ./...
+
+        - name: Test (pki)
+          if: ${{ !cancelled() }}
+          run: go -C pki test -race -cover ./...
 
         # Runs hosttest's network conformance table on real loopback sockets
         # as well, which needs 127.0.0.2 on the loopback interface, as Linux
