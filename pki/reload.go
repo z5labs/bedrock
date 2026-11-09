@@ -19,7 +19,8 @@ import (
 // to call Reload is the caller's choice: on a ticker, after a file watcher
 // fires, or when an operator asks.
 //
-// Make a Reloader with NewReloader; the zero Reloader holds no value.
+// Make a Reloader with NewReloader. The zero Reloader is not ready for use:
+// its Value panics and its Reload never returns.
 type Reloader[T any] struct {
 	load func(context.Context) (T, error)
 
