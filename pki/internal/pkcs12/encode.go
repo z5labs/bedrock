@@ -6,6 +6,7 @@
 package pkcs12
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -14,6 +15,7 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"io"
+	"slices"
 )
 
 // The parameters of the encoder: those of go-pkcs12's Modern2023, which
@@ -174,11 +176,7 @@ func encryptPBES2(rand io.Reader, pw Password, plaintext []byte) (algorithm, []b
 		EncryptionScheme: algorithm{Algorithm: OIDAES256CBC, Parameters: asn1.RawValue{FullBytes: marshal(iv)}},
 	})}}
 	n := aes.BlockSize - len(plaintext)%aes.BlockSize
-	out := make([]byte, len(plaintext)+n)
-	copy(out, plaintext)
-	for i := len(plaintext); i < len(out); i++ {
-		out[i] = byte(n)
-	}
+	out := slices.Concat(plaintext, bytes.Repeat([]byte{byte(n)}, n))
 	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, out)
 	return alg, out, nil
 }
