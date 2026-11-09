@@ -108,6 +108,13 @@
 //     and replacing it is process-wide state.
 //   - os.TempDir, os.UserHomeDir, os.UserConfigDir and os.UserCacheDir
 //     read the real environment. Compute them from p.Environment instead.
+//   - A tls.Config whose RootCAs is nil, and x509.SystemCertPool, verify
+//     against the system roots, which read SSL_CERT_FILE and SSL_CERT_DIR
+//     from the real environment and the system's certificate files from
+//     the real filesystem. Since Go 1.27, either variable also replaces the
+//     platform verifier on macOS and Windows. Set RootCAs from a pool of
+//     your own instead: the pki module, github.com/z5labs/bedrock/pki,
+//     decodes one, and a test sets it from a CA of pki's pkitest package.
 //
 // # Engineering rules
 //

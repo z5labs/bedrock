@@ -211,6 +211,41 @@ embedding `host.OSFS`, hosttest's `*FS` or `host.FS` itself, and a framework
 can rely on every filesystem being one of the two or a wrapper around one. The design is discussed in
 [discussion #614](https://github.com/z5labs/bedrock/discussions/614).
 
+## pki
+
+[pki](https://pkg.go.dev/github.com/z5labs/bedrock/pki) decodes certificates
+and keys into the parts of a `tls.Config`, from PEM and from PKCS#12, and holds
+a part that rotates on disk in a `Reloader`. Each decoder is strict: it fails
+on input that the standard library would skip, and it fits a `config.Value`
+chain, so a key pair that doesn't decode fails at startup under the variable
+that names its file. pki never opens a file, and each framework builds its own
+`tls.Config` and decides when to reload:
+
+```go
+file := func(name string) config.Value[[]byte] {
+	return config.Env(p.Environment, name).Parse(fsys.ReadFile)
+}
+pair := file("TLS_CERT_FILE").FlatMap(func(certPEM []byte) config.Value[tls.Certificate] {
+	return file("TLS_KEY_FILE").Parse(func(keyPEM []byte) (tls.Certificate, error) {
+		return pki.KeyPair(certPEM, keyPEM)
+	})
+})
+```
+
+[pkitest](https://pkg.go.dev/github.com/z5labs/bedrock/pki/pkitest) is a
+certificate authority generated for one test, whose PEM and PKCS#12 output pki
+decodes.
+
+It is a nested module with its own `go.mod`, and its library code imports only
+the standard library and the module's own packages:
+
+```bash
+go get github.com/z5labs/bedrock/pki
+```
+
+The design is discussed in
+[discussion #621](https://github.com/z5labs/bedrock/discussions/621).
+
 ## Releases
 
 Every module in this repository is released with the same version, after
