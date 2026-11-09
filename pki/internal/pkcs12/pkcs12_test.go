@@ -229,7 +229,11 @@ func TestDecrypt(t *testing.T) {
 		alg     algorithm
 		wantErr string
 	}{
-		{"RC2", algorithm{Algorithm: OIDPBEWithSHAAnd40BitRC2CBC}, "unsupported encryption algorithm pbeWithSHAAnd40BitRC2-CBC (1.2.840.113549.1.12.1.6)"},
+		{"RC2 inside PBES2", pbes2Alg(t, kdf(algorithm{}, 0), asn1.ObjectIdentifier{1, 2, 840, 113549, 3, 2}, iv[:8]),
+			"unsupported PBES2 encryption scheme 1.2.840.113549.3.2"},
+		{"RC2 with no parameters", algorithm{Algorithm: OIDPBEWithSHAAnd40BitRC2CBC}, "pbeWithSHAAnd40BitRC2-CBC parameters: asn1: "},
+		{"RC2 with too many iterations", algorithm{Algorithm: OIDPBEWithSHAAnd128BitRC2CBC, Parameters: raw(mustMarshal(t, PBEParams{Salt: salt, Iterations: MaxIterations + 1}))},
+			"pbeWithSHAAnd128BitRC2-CBC: iteration count 5000001, outside 1 to 5000000"},
 		{"RC4", algorithm{Algorithm: OIDPBEWithSHAAnd128BitRC4}, "unsupported encryption algorithm pbeWithSHAAnd128BitRC4 (1.2.840.113549.1.12.1.1)"},
 		{"2-key 3DES", algorithm{Algorithm: OIDPBEWithSHAAnd2KeyTripleDESCBC}, "unsupported encryption algorithm pbeWithSHAAnd2-KeyTripleDES-CBC (1.2.840.113549.1.12.1.4)"},
 		{"PBES1", algorithm{Algorithm: asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 5, 10}}, "unsupported encryption algorithm pbeWithSHA1AndDES-CBC (PBES1) (1.2.840.113549.1.5.10)"},
@@ -345,6 +349,7 @@ func TestDecode_decodes_go_pkcs12(t *testing.T) {
 		name string
 		enc  *sslmate.Encoder
 	}{
+		{"LegacyRC2", sslmate.LegacyRC2},
 		{"LegacyDES", sslmate.LegacyDES},
 		{"Modern2023", sslmate.Modern2023},
 		{"Modern2026", sslmate.Modern2026},
@@ -390,7 +395,7 @@ func TestDecode_fails(t *testing.T) {
 	good := safeContentsOf(t, certBagOf(t, cert.der))
 	withMAC := func(safe []byte) []byte { return pfxOf(t, safe, sha1MacOf(t, safe, testPassword)) }
 	encrypted := func(ed EncryptedData) []byte { return withMAC(authSafeOf(t, encryptedInfo(t, ed))) }
-	unsupportedAlg := algorithm{Algorithm: OIDPBEWithSHAAnd40BitRC2CBC}
+	unsupportedAlg := algorithm{Algorithm: OIDPBEWithSHAAnd128BitRC4}
 	pfxWith := func(p PFX) []byte { return mustMarshal(t, p) }
 	pbmac1With := func(params []byte) []byte {
 		safe := authSafeOf(t, dataInfo(t, good))
@@ -409,7 +414,11 @@ func TestDecode_fails(t *testing.T) {
 		password string
 		wantErr  string
 	}{
-		{"not DER", []byte("PKCS#12"), testPassword, "PFX: asn1: "},
+		{"not BER", []byte("PKCS#12"), testPassword, "PFX: BER at offset 1: a length past the end of the input"},
+		{"not a PFX", mustMarshal(t, 1), testPassword, "PFX: asn1: "},
+		{"an AuthenticatedSafe that isn't BER", withMAC([]byte{0x30, 0x80}), testPassword, "AuthenticatedSafe: BER at offset 0: a missing end-of-contents"},
+		{"a SafeContents that isn't BER", withMAC(authSafeOf(t, dataInfo(t, []byte{0x30, 0x80}))), testPassword,
+			"AuthenticatedSafe: ContentInfo 1: SafeContents: BER at offset 0: a missing end-of-contents"},
 		{"trailing bytes", append(withMAC(authSafeOf(t, dataInfo(t, good))), 0), testPassword, "PFX: 1 trailing bytes"},
 		{"version 2", pfxWith(PFX{Version: 2, AuthSafe: dataInfo(t, authSafeOf(t))}), "", "PFX: version 2, not 3"},
 		{"a signed authSafe", pfxWith(PFX{Version: 3, AuthSafe: ContentInfo{ContentType: asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 2}, Content: wrap(mustMarshal(t, 1))}}), "",
@@ -440,12 +449,15 @@ func TestDecode_fails(t *testing.T) {
 			"AuthenticatedSafe: ContentInfo 1: data: asn1: "},
 		{"encryptedData that isn't EncryptedData", withMAC(authSafeOf(t, ContentInfo{ContentType: OIDEncryptedData, Content: wrap(mustMarshal(t, 1))})), testPassword,
 			"AuthenticatedSafe: ContentInfo 1: encryptedData: asn1: "},
-		{"encryptedData of version 1", encrypted(EncryptedData{Version: 1, EncryptedContentInfo: EncryptedContentInfo{ContentType: OIDData, ContentEncryptionAlgorithm: unsupportedAlg, EncryptedContent: []byte{1}}}), testPassword,
+		{"encryptedData of version 1", encrypted(EncryptedData{Version: 1, EncryptedContentInfo: EncryptedContentInfo{ContentType: OIDData, ContentEncryptionAlgorithm: unsupportedAlg, EncryptedContent: implicit([]byte{1})}}), testPassword,
 			"AuthenticatedSafe: ContentInfo 1: encryptedData: version 1, not 0"},
-		{"encryptedData of another content type", encrypted(EncryptedData{EncryptedContentInfo: EncryptedContentInfo{ContentType: OIDEncryptedData, ContentEncryptionAlgorithm: unsupportedAlg, EncryptedContent: []byte{1}}}), testPassword,
+		{"encryptedData of another content type", encrypted(EncryptedData{EncryptedContentInfo: EncryptedContentInfo{ContentType: OIDEncryptedData, ContentEncryptionAlgorithm: unsupportedAlg, EncryptedContent: implicit([]byte{1})}}), testPassword,
 			"AuthenticatedSafe: ContentInfo 1: encryptedData: content type encryptedData (1.2.840.113549.1.7.6), not data"},
-		{"encryptedData with RC2", encrypted(EncryptedData{EncryptedContentInfo: EncryptedContentInfo{ContentType: OIDData, ContentEncryptionAlgorithm: unsupportedAlg, EncryptedContent: []byte{1}}}), testPassword,
-			"AuthenticatedSafe: ContentInfo 1: encryptedData: unsupported encryption algorithm pbeWithSHAAnd40BitRC2-CBC"},
+		{"encryptedData with RC4", encrypted(EncryptedData{EncryptedContentInfo: EncryptedContentInfo{ContentType: OIDData, ContentEncryptionAlgorithm: unsupportedAlg, EncryptedContent: implicit([]byte{1})}}), testPassword,
+			"AuthenticatedSafe: ContentInfo 1: encryptedData: unsupported encryption algorithm pbeWithSHAAnd128BitRC4"},
+		{"encryptedContent of segments that aren't OCTET STRINGs", encrypted(EncryptedData{EncryptedContentInfo: EncryptedContentInfo{ContentType: OIDData, ContentEncryptionAlgorithm: unsupportedAlg,
+			EncryptedContent: asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: mustMarshal(t, 1)}}}), testPassword,
+			"AuthenticatedSafe: ContentInfo 1: encryptedData: encryptedContent: asn1: "},
 		{"a SafeContents that isn't a SEQUENCE", withMAC(authSafeOf(t, dataInfo(t, mustMarshal(t, 1)))), testPassword,
 			"AuthenticatedSafe: ContentInfo 1: SafeContents: asn1: "},
 	} {
@@ -466,7 +478,7 @@ func TestDecode_decrypts_encryptedData(t *testing.T) {
 	ed := EncryptedData{EncryptedContentInfo: EncryptedContentInfo{
 		ContentType:                OIDData,
 		ContentEncryptionAlgorithm: alg,
-		EncryptedContent:           pbes2Encrypt(t, sha256.New, salt, 32, iv, testPassword, plaintext),
+		EncryptedContent:           implicit(pbes2Encrypt(t, sha256.New, salt, 32, iv, testPassword, plaintext)),
 	}}
 	safe := authSafeOf(t, encryptedInfo(t, ed), dataInfo(t, safeContentsOf(t)), dataInfo(t, safeContentsOf(t, certBagOf(t, cert.der))))
 
@@ -478,6 +490,56 @@ func TestDecode_decrypts_encryptedData(t *testing.T) {
 	parsed, err := x509.ParsePKCS8PrivateKey(key)
 	require.NoError(t, err)
 	require.True(t, cert.equalKey(parsed))
+}
+
+func TestDecode_joins_a_constructed_encryptedContent(t *testing.T) {
+	cert := newTestCert(t)
+	salt, iv := []byte("saltsalt"), bytes.Repeat([]byte{5}, 16)
+	alg := pbes2Alg(t, pbkdf2Alg(t, PBKDF2Params{Salt: octetSalt(salt), IterationCount: 2048}), OIDAES128CBC, iv)
+	plaintext := indefinite(safeContentsOf(t, certBagOf(t, cert.der)))
+	ciphertext := pbes2Encrypt(t, sha1.New, salt, 16, iv, testPassword, plaintext)
+	// The segments of an OCTET STRING with an implicit [0] tag, as BER
+	// writes them.
+	var segments []byte
+	for i := 0; i < len(ciphertext); i += 16 {
+		segments = append(segments, mustMarshal(t, ciphertext[i:i+16])...)
+	}
+	ed := EncryptedData{EncryptedContentInfo: EncryptedContentInfo{
+		ContentType:                OIDData,
+		ContentEncryptionAlgorithm: alg,
+		EncryptedContent:           asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: segments},
+	}}
+	safe := authSafeOf(t, encryptedInfo(t, ed))
+
+	bags, _, err := Decode(pfxOf(t, safe, sha1MacOf(t, safe, testPassword)), testPassword)
+	require.NoError(t, err)
+	require.Len(t, bags, 1)
+	der, err := bags[0].Certificate()
+	require.NoError(t, err)
+	require.Equal(t, cert.der, der, "the decrypted SafeContents is rewritten to DER")
+}
+
+func TestDecode_decrypts_RC2_from_OpenSSL(t *testing.T) {
+	// Written by OpenSSL 3.5.9 for an EC key and a self-signed certificate:
+	// openssl pkcs12 -export -legacy -passout pass:1234
+	// -certpbe PBE-SHA1-RC2-128 -keypbe PBE-SHA1-RC2-128.
+	bags, p, err := Decode(fixture(t, "openssl-rc2-128.p12"), "1234")
+	require.NoError(t, err)
+	require.Len(t, bags, 2)
+	der, err := bags[0].Certificate()
+	require.NoError(t, err)
+	_, err = x509.ParseCertificate(der)
+	require.NoError(t, err)
+	key, err := bags[1].PrivateKey(p)
+	require.NoError(t, err)
+	_, err = x509.ParsePKCS8PrivateKey(key)
+	require.NoError(t, err)
+}
+
+// indefinite returns der, a DER value of a one-octet identifier, with an
+// indefinite length.
+func indefinite(der []byte) []byte {
+	return append(append([]byte{der[0], 0x80}, der[headerLength(der):]...), 0, 0)
 }
 
 func TestSafeBag_Certificate_fails(t *testing.T) {
@@ -518,6 +580,12 @@ func TestSafeBag_PrivateKey(t *testing.T) {
 		require.Equal(t, der, got)
 	})
 
+	t.Run("a pkcs8ShroudedKeyBag whose key is BER", func(t *testing.T) {
+		got, err := shroud(t, indefinite(der), testPassword).PrivateKey(p)
+		require.NoError(t, err)
+		require.Equal(t, der, got, "the decrypted key is rewritten to DER")
+	})
+
 	for _, row := range []struct {
 		name    string
 		bag     SafeBag
@@ -525,9 +593,9 @@ func TestSafeBag_PrivateKey(t *testing.T) {
 	}{
 		{"a keyBag with bytes after the key", SafeBag{ID: OIDKeyBag, Value: wrap(append(append([]byte{}, der...), 5, 0))}, "2 trailing bytes"},
 		{"a pkcs8ShroudedKeyBag that isn't one", SafeBag{ID: OIDPKCS8ShroudedKeyBag, Value: wrap(der)}, "asn1: "},
-		{"a pkcs8ShroudedKeyBag with RC2", SafeBag{ID: OIDPKCS8ShroudedKeyBag, Value: wrap(mustMarshal(t, EncryptedPrivateKeyInfo{
-			Algorithm: algorithm{Algorithm: OIDPBEWithSHAAnd128BitRC2CBC}, EncryptedData: []byte{1},
-		}))}, "unsupported encryption algorithm pbeWithSHAAnd128BitRC2-CBC (1.2.840.113549.1.12.1.5)"},
+		{"a pkcs8ShroudedKeyBag with RC4", SafeBag{ID: OIDPKCS8ShroudedKeyBag, Value: wrap(mustMarshal(t, EncryptedPrivateKeyInfo{
+			Algorithm: algorithm{Algorithm: OIDPBEWithSHAAnd40BitRC4}, EncryptedData: []byte{1},
+		}))}, "unsupported encryption algorithm pbeWithSHAAnd40BitRC4 (1.2.840.113549.1.12.1.2)"},
 		{"a pkcs8ShroudedKeyBag with bytes after the key", shroud(t, append(append([]byte{}, der...), 5, 0), testPassword), "2 trailing bytes"},
 		{"a pkcs8ShroudedKeyBag with a wrong password", shroud(t, der, "wrong"), ""},
 	} {

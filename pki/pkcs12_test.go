@@ -70,17 +70,6 @@ func TestPKCS12Pool_returns_what_DecodeTrustStore_returns(t *testing.T) {
 	}
 }
 
-func TestPKCS12KeyPair_fails_on_RC2_naming_it(t *testing.T) {
-	m := newMaterial(t)
-	data := encode(t, sslmate.LegacyRC2, chains(t, m)[0], password)
-	_, err := stdPair(data, password)
-	require.NoError(t, err, "go-pkcs12 decodes RC2")
-
-	got, err := pki.PKCS12KeyPair(data, password)
-	require.EqualError(t, err, "pki: PKCS#12: AuthenticatedSafe: ContentInfo 1: encryptedData: unsupported encryption algorithm pbeWithSHAAnd40BitRC2-CBC (1.2.840.113549.1.12.1.6)")
-	require.Equal(t, tls.Certificate{}, got)
-}
-
 func TestPKCS12KeyPair_decodes_RFC_9579s_test_vectors(t *testing.T) {
 	for _, n := range []int{1, 2, 3} {
 		t.Run("valid A."+string(rune('0'+n)), func(t *testing.T) {
@@ -247,7 +236,7 @@ func TestPKCS12KeyPair_fails_on_a_file_it_cannot_use(t *testing.T) {
 
 	t.Run("a file that isn't PKCS#12", func(t *testing.T) {
 		got, err := pki.PKCS12KeyPair(m.certPEM, "")
-		require.ErrorContains(t, err, "pki: PKCS#12: PFX: asn1: ")
+		require.ErrorContains(t, err, "pki: PKCS#12: PFX: ")
 		require.NotErrorIs(t, err, pki.ErrIncorrectPassword)
 		require.Equal(t, tls.Certificate{}, got)
 	})
@@ -276,7 +265,7 @@ func TestPKCS12Pool_fails_on_a_file_it_cannot_use(t *testing.T) {
 
 	t.Run("a file that isn't PKCS#12", func(t *testing.T) {
 		got, err := pki.PKCS12Pool(m.caPEM, "")
-		require.ErrorContains(t, err, "pki: PKCS#12: PFX: asn1: ")
+		require.ErrorContains(t, err, "pki: PKCS#12: PFX: ")
 		require.Nil(t, got)
 	})
 }

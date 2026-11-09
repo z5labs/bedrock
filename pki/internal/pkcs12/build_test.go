@@ -44,6 +44,12 @@ func wrap(der []byte) asn1.RawValue {
 	return asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: der}
 }
 
+// implicit returns b as an OCTET STRING with an implicit [0] tag, as
+// EncryptedContentInfo holds it.
+func implicit(b []byte) asn1.RawValue {
+	return asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, Bytes: b}
+}
+
 // raw is der as an already encoded value, for an AlgorithmIdentifier's
 // parameters.
 func raw(der []byte) asn1.RawValue {

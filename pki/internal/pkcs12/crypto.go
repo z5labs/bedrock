@@ -138,8 +138,8 @@ var aesKeySizes = []struct {
 }
 
 // Decrypt decrypts data, which alg encrypted, with pw, and removes its
-// padding. alg is PBES2 with PBKDF2 and AES-CBC, or
-// pbeWithSHAAnd3-KeyTripleDES-CBC.
+// padding. alg is PBES2 with PBKDF2 and AES-CBC, or one of RFC 7292's PBE
+// schemes with SHA-1 and 3DES or RC2.
 func Decrypt(alg pkix.AlgorithmIdentifier, pw Password, data []byte) ([]byte, error) {
 	newBlock, key, iv, err := scheme(alg, pw)
 	if err != nil {
@@ -148,26 +148,42 @@ func Decrypt(alg pkix.AlgorithmIdentifier, pw Password, data []byte) ([]byte, er
 	return decryptCBC(newBlock, key, iv, data)
 }
 
+// pbeSchemes are the PBE schemes of RFC 7292's Appendix C that the format
+// decrypts, with their key sizes in bytes. RC2's effective key length is
+// the length of its key. Each has a block of 8 bytes, the size of its IV.
+var pbeSchemes = []struct {
+	oid      asn1.ObjectIdentifier
+	name     string
+	keySize  int
+	newBlock func([]byte) (cipher.Block, error)
+}{
+	{OIDPBEWithSHAAnd3KeyTripleDESCBC, "pbeWithSHAAnd3-KeyTripleDES-CBC", 24, des.NewTripleDESCipher},
+	{OIDPBEWithSHAAnd128BitRC2CBC, "pbeWithSHAAnd128BitRC2-CBC", 16, rc2Cipher(128)},
+	{OIDPBEWithSHAAnd40BitRC2CBC, "pbeWithSHAAnd40BitRC2-CBC", 5, rc2Cipher(40)},
+}
+
 // scheme returns the block cipher alg names, and its key and IV, derived
 // from pw.
 func scheme(alg algorithm, pw Password) (func([]byte) (cipher.Block, error), []byte, []byte, error) {
-	switch {
-	case alg.Algorithm.Equal(OIDPBES2):
+	if alg.Algorithm.Equal(OIDPBES2) {
 		return pbes2(alg.Parameters.FullBytes, pw)
-	case alg.Algorithm.Equal(OIDPBEWithSHAAnd3KeyTripleDESCBC):
+	}
+	for _, s := range pbeSchemes {
+		if !s.oid.Equal(alg.Algorithm) {
+			continue
+		}
 		var p PBEParams
 		if err := unmarshal(alg.Parameters.FullBytes, &p); err != nil {
-			return nil, nil, nil, fmt.Errorf("pbeWithSHAAnd3-KeyTripleDES-CBC parameters: %w", err)
+			return nil, nil, nil, fmt.Errorf("%s parameters: %w", s.name, err)
 		}
 		if err := checkIterations(p.Iterations); err != nil {
-			return nil, nil, nil, fmt.Errorf("pbeWithSHAAnd3-KeyTripleDES-CBC: %w", err)
+			return nil, nil, nil, fmt.Errorf("%s: %w", s.name, err)
 		}
-		key := Derive(sha1.New, pw.bmp, p.Salt, p.Iterations, purposeKey, 24)
+		key := Derive(sha1.New, pw.bmp, p.Salt, p.Iterations, purposeKey, s.keySize)
 		iv := Derive(sha1.New, pw.bmp, p.Salt, p.Iterations, purposeIV, des.BlockSize)
-		return des.NewTripleDESCipher, key, iv, nil
-	default:
-		return nil, nil, nil, unsupported("encryption algorithm", alg.Algorithm)
+		return s.newBlock, key, iv, nil
 	}
+	return nil, nil, nil, unsupported("encryption algorithm", alg.Algorithm)
 }
 
 // pbes2 decodes PBES2's parameters, and returns its AES cipher and its key,
