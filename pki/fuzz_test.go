@@ -84,13 +84,16 @@ var allowedNotImplemented = []string{
 
 // FuzzPKCS12KeyPair checks that PKCS12KeyPair accepts nothing go-pkcs12's
 // DecodeChain rejects, unless DecodeChain rejects it for a structure
-// RFC 7292 allows, and that the two return the same pair whenever
-// DecodeChain's first certificate matches the key. Its seed corpus is the
-// PKCS#12 tables and RFC 9579's test vectors.
+// RFC 7292 allows, or because it is BER, and that the two return the same
+// pair whenever DecodeChain's first certificate matches the key. It checks
+// too that a file it accepts and that file re-encoded as BER decode to the
+// same pair. Its seed corpus is the PKCS#12 tables, their files re-encoded
+// as BER at every level, and RFC 9579's test vectors.
 func FuzzPKCS12KeyPair(f *testing.F) {
 	m := newMaterial(f)
 	for _, row := range validPKCS12Pairs(f, m) {
 		f.Add(row.data, row.password)
+		f.Add(berFile(f, row.data, row.password), row.password)
 	}
 	for _, row := range validTrustStores(f, m) {
 		f.Add(row.data, row.password)
@@ -108,8 +111,17 @@ func FuzzPKCS12KeyPair(f *testing.F) {
 			require.Equal(t, tls.Certificate{}, got)
 			return
 		}
+		if ber, ok := berOf(data); ok {
+			gotBER, err := pki.PKCS12KeyPair(ber, password)
+			require.NoError(t, err, "PKCS12KeyPair rejected the BER of what it accepts")
+			require.Equal(t, got, gotBER)
+		}
 		want, stdErr := stdPair(data, password)
 		if stdErr != nil {
+			if _, ok := berOf(data); !ok {
+				// go-pkcs12 decodes DER only.
+				return
+			}
 			ni, ok := errorsAsNotImplemented(stdErr)
 			require.True(t, ok, "PKCS12KeyPair accepted what DecodeChain rejects: %v", stdErr)
 			allowed := false

@@ -153,10 +153,32 @@ type EncryptedData struct {
 }
 
 // EncryptedContentInfo is the EncryptedContentInfo of PKCS#7.
+// EncryptedContent is an OCTET STRING with an implicit [0] tag, which BER
+// may write constructed, so it is held undecoded; see implicitOctets.
 type EncryptedContentInfo struct {
 	ContentType                asn1.ObjectIdentifier
 	ContentEncryptionAlgorithm pkix.AlgorithmIdentifier
-	EncryptedContent           []byte `asn1:"tag:0"`
+	EncryptedContent           asn1.RawValue `asn1:"tag:0"`
+}
+
+// implicitOctets returns the content octets of v, an OCTET STRING with an
+// implicit tag. Primitive, they are its contents. Constructed, as BER may
+// write it and as toDER leaves it, because its tag doesn't say it is an
+// OCTET STRING, its contents are OCTET STRINGs, whose octets it joins.
+func implicitOctets(v asn1.RawValue) ([]byte, error) {
+	if !v.IsCompound {
+		return v.Bytes, nil
+	}
+	out := []byte{}
+	for rest := v.Bytes; len(rest) > 0; {
+		var segment []byte
+		var err error
+		if rest, err = asn1.Unmarshal(rest, &segment); err != nil {
+			return nil, err
+		}
+		out = append(out, segment...)
+	}
+	return out, nil
 }
 
 // SafeBag is RFC 7292's SafeBag. Value is the [0] EXPLICIT wrapper, and its

@@ -30,11 +30,12 @@ var ErrIncorrectPassword = errors.New("pki: incorrect password")
 // the chain follows it in the order of the file.
 //
 // It verifies the file's MAC with password, and decrypts it with
-// password. It decrypts PBES2 with PBKDF2 and AES-CBC, and PBE with SHA-1
-// and 3DES. It fails on any other algorithm, naming it, and on an
-// iteration count above 5,000,000. A file with no MAC decodes only with
-// the empty password, so a password that the file doesn't use fails
-// rather than being ignored.
+// password. It decrypts what OpenSSL, Java, Windows, macOS, NSS and
+// cert-manager write by default: PBES2 with PBKDF2 and AES-CBC, and PBE
+// with SHA-1 and either 3DES or RC2. It fails on any other algorithm,
+// naming it, and on an iteration count above 5,000,000. A file with no
+// MAC decodes only with the empty password, so a password that the file
+// doesn't use fails rather than being ignored. data may be DER or BER.
 //
 // It fails where go-pkcs12's DecodeChain would skip or defer: on a bag
 // that is neither a certificate nor a private key, on a second private

@@ -114,6 +114,7 @@ var encoders = []struct {
 	name string
 	enc  *sslmate.Encoder
 }{
+	{"LegacyRC2", sslmate.LegacyRC2},
 	{"LegacyDES", sslmate.LegacyDES},
 	{"Modern2023", sslmate.Modern2023},
 	{"Modern2026", sslmate.Modern2026},

@@ -6,21 +6,30 @@
 package pkcs12
 
 import (
-	"encoding/asn1"
 	"errors"
 	"fmt"
 	"slices"
 )
 
-// Decode decodes data, a PFX, and verifies its MAC with password. It
-// returns the bags of every SafeContents, decrypted, in the order of the
-// file, and password in the form whose MAC verified, for
+// Decode decodes data, a PFX in DER or BER, and verifies its MAC with
+// password. It returns the bags of every SafeContents, decrypted, in the
+// order of the file, and password in the form whose MAC verified, for
 // SafeBag.PrivateKey. A file with no MAC decodes only with the empty
 // password. A MAC that doesn't verify fails with an error that wraps
 // ErrMAC.
+//
+// The order of the rewrite from BER matters, because the MAC covers the
+// AuthenticatedSafe's content octets as they were written. Decode rewrites
+// the PFX, which joins those octets but doesn't touch them otherwise,
+// verifies the MAC over them, and only then rewrites the AuthenticatedSafe
+// they encode, and each SafeContents once it is decrypted.
 func Decode(data []byte, password string) ([]SafeBag, Password, error) {
+	der, err := toDER(data)
+	if err != nil {
+		return nil, Password{}, fmt.Errorf("PFX: %w", err)
+	}
 	var pfx PFX
-	if err := unmarshal(data, &pfx); err != nil {
+	if err := unmarshal(der, &pfx); err != nil {
 		return nil, Password{}, fmt.Errorf("PFX: %w", err)
 	}
 	if pfx.Version != 3 {
@@ -38,6 +47,9 @@ func Decode(data []byte, password string) ([]SafeBag, Password, error) {
 		return nil, Password{}, err
 	}
 
+	if authSafe, err = toDER(authSafe); err != nil {
+		return nil, Password{}, fmt.Errorf("AuthenticatedSafe: %w", err)
+	}
 	var safe []ContentInfo
 	if err := unmarshal(authSafe, &safe); err != nil {
 		return nil, Password{}, fmt.Errorf("AuthenticatedSafe: %w", err)
@@ -99,12 +111,19 @@ func safeContents(ci ContentInfo, pw Password) ([]SafeBag, error) {
 		if !info.ContentType.Equal(OIDData) {
 			return nil, fmt.Errorf("encryptedData: content type %s, not data", Name(info.ContentType))
 		}
-		var err error
-		if data, err = Decrypt(info.ContentEncryptionAlgorithm, pw, info.EncryptedContent); err != nil {
+		encrypted, err := implicitOctets(info.EncryptedContent)
+		if err != nil {
+			return nil, fmt.Errorf("encryptedData: encryptedContent: %w", err)
+		}
+		if data, err = Decrypt(info.ContentEncryptionAlgorithm, pw, encrypted); err != nil {
 			return nil, fmt.Errorf("encryptedData: %w", err)
 		}
 	default:
 		return nil, fmt.Errorf("content type %s, neither data nor encryptedData", Name(ci.ContentType))
+	}
+	data, err := toDER(data)
+	if err != nil {
+		return nil, fmt.Errorf("SafeContents: %w", err)
 	}
 	var bags []SafeBag
 	if err := unmarshal(data, &bags); err != nil {
@@ -132,7 +151,8 @@ func (b SafeBag) Certificate() ([]byte, error) {
 
 // PrivateKey returns the DER of the PKCS#8 private key that b holds. A
 // keyBag holds it as it is. Any other bag is taken to be a
-// pkcs8ShroudedKeyBag, whose key PrivateKey decrypts with pw.
+// pkcs8ShroudedKeyBag, whose key PrivateKey decrypts with pw and rewrites
+// from BER.
 func (b SafeBag) PrivateKey(pw Password) ([]byte, error) {
 	der := b.Value.Bytes
 	if !b.ID.Equal(OIDKeyBag) {
@@ -145,12 +165,9 @@ func (b SafeBag) PrivateKey(pw Password) ([]byte, error) {
 			return nil, err
 		}
 	}
-	// x509.ParsePKCS8PrivateKey ignores bytes after the key.
-	var key asn1.RawValue
-	if err := unmarshal(der, &key); err != nil {
-		return nil, err
-	}
-	return key.FullBytes, nil
+	// x509.ParsePKCS8PrivateKey ignores bytes after the key, which toDER
+	// fails on.
+	return toDER(der)
 }
 
 // Trusted reports whether b holds Java's trust attribute, which marks a
