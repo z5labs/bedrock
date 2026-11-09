@@ -26,7 +26,8 @@
     "go -C retry test -race -cover ./...",
     "go -C host test -race -cover ./...",
     "go -C pki test -race -cover ./...",
-    "go -C host test -race -tags conformance -run '^TestConformance_' ./..."
+    "go -C host test -race -tags conformance -run '^TestConformance_' ./...",
+    "go -C pki test -race -tags interop -run '^TestInterop_' ./..."
   ],
   "merge": {
     "label": "auto-merge",

@@ -18,6 +18,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/z5labs/bedrock/pki/internal/pkcs12"
 )
 
 // A certificate is valid from notBefore before the time it is made to
@@ -66,6 +68,18 @@ func (ca *CA) Pool() *x509.CertPool {
 // PEM returns the CA's certificate as a PEM block, which pki.Pool decodes.
 func (ca *CA) PEM() []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw})
+}
+
+// PKCS12 returns the CA's certificate as a PKCS#12 trust store, marked
+// trusted as Java's keytool marks it, which pki.PKCS12Pool decodes. It is
+// encrypted as Certificate.PKCS12 encrypts, with a new password, and
+// PKCS12 returns the password with it.
+func (ca *CA) PKCS12(tb testing.TB) (bundle []byte, password string) {
+	tb.Helper()
+	password = rand.Text()
+	bundle, err := pkcs12.EncodeTrustStore(rand.Reader, [][]byte{ca.cert.Raw}, password)
+	check(tb, "PKCS12", err)
+	return bundle, password
 }
 
 // Issue returns a certificate signed by the CA, with a new key, for names,
@@ -125,6 +139,19 @@ func (c *Certificate) PEM() (certPEM, keyPEM []byte) {
 	)
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: c.pkcs8})
 	return certPEM, keyPEM
+}
+
+// PKCS12 returns the private key and the chain as a PKCS#12 file, which
+// pki.PKCS12KeyPair decodes. It is encrypted with the algorithms that
+// OpenSSL 3 uses by default, under a new password from crypto/rand.Text,
+// and PKCS12 returns the password with it. Each call makes a new password.
+// PKCS12 fails the test through tb if encoding fails.
+func (c *Certificate) PKCS12(tb testing.TB) (bundle []byte, password string) {
+	tb.Helper()
+	password = rand.Text()
+	bundle, err := pkcs12.Encode(rand.Reader, c.pkcs8, [][]byte{c.leaf.Raw, c.ca.cert.Raw}, password)
+	check(tb, "PKCS12", err)
+	return bundle, password
 }
 
 // create generates an ECDSA P-256 key and a certificate from tmpl for it,

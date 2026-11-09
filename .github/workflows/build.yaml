@@ -158,6 +158,16 @@ jobs:
           if: ${{ !cancelled() }}
           run: go -C pki test -race -cover ./...
 
+        # Runs pki's interop tests against the openssl and pk12util that write
+        # real PKCS#12 files. -v names each TestInterop_ in the log, so the log
+        # shows which rows ran.
+        - name: Interop (pki)
+          if: ${{ !cancelled() }}
+          run: |
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends libnss3-tools
+            go -C pki test -race -v -tags interop -run '^TestInterop_' ./...
+
         # Runs hosttest's network conformance table on real loopback sockets
         # as well, which needs 127.0.0.2 on the loopback interface, as Linux
         # has. -v names TestConformance_loopback in the log, so the log shows
