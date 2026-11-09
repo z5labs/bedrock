@@ -176,6 +176,7 @@ func TestInterop_NSS_writes_pki_reads(t *testing.T) {
 	data, err := os.ReadFile(out)
 	require.NoError(t, err)
 
+	require.GreaterOrEqual(t, len(data), 2, "pk12util -o writes a file")
 	require.Equal(t, []byte{0x30, 0x80}, data[:2], "pk12util writes BER, with an indefinite length")
 	pair, err := pki.PKCS12KeyPair(data, password)
 	require.NoError(t, err)
