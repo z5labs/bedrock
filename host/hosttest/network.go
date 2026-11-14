@@ -9,11 +9,14 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"strconv"
 	"sync"
+	"syscall"
 )
 
-// The range Listen picks a port from for port 0: IANA's dynamic ports.
+// The range Listen and ListenPacket pick a port from for port 0: IANA's
+// dynamic ports.
 const (
 	firstEphemeralPort = 49152
 	lastEphemeralPort  = 65535
@@ -38,8 +41,8 @@ func (k key) everyName() bool {
 	return false
 }
 
-// bound is the key a listener on k is held under: the empty name for a
-// listener on every name, and the name as written otherwise.
+// bound is the key a socket on k is held under: the empty name for a
+// socket on every name, and the name as written otherwise.
 func (k key) bound() key {
 	if k.everyName() {
 		return key{port: k.port}
@@ -47,19 +50,40 @@ func (k key) bound() key {
 	return k
 }
 
-func (k key) addr() net.Addr {
-	return addr(net.JoinHostPort(k.name, strconv.Itoa(k.port)))
+func (k key) String() string {
+	return net.JoinHostPort(k.name, strconv.Itoa(k.port))
 }
 
-// parse splits address into its host and port for a network the Host
-// serves.
-func parse(network, address string) (key, error) {
+func (k key) addr() net.Addr {
+	return addr(k.String())
+}
+
+func (k key) udpAddr() net.Addr {
+	return udpAddr(k.String())
+}
+
+// protocol returns "tcp" or "udp" for a network the Host serves, and ""
+// for any other.
+func protocol(network string) string {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
-	default:
-		return key{}, net.UnknownNetworkError(network)
+		return "tcp"
+	case "udp", "udp4", "udp6":
+		return "udp"
 	}
-	return parseAddress(address)
+	return ""
+}
+
+// parse splits address into its host and port for a network of one of
+// the protocols given.
+func parse(network, address string, protocols ...string) (key, error) {
+	p := protocol(network)
+	for _, want := range protocols {
+		if p == want {
+			return parseAddress(address)
+		}
+	}
+	return key{}, net.UnknownNetworkError(network)
 }
 
 // parseAddress splits address into its host and port. An empty port is
@@ -78,6 +102,88 @@ func parseAddress(address string) (key, error) {
 		return key{}, &net.AddrError{Err: "invalid port", Addr: address}
 	}
 	return key{name: host, port: int(n)}, nil
+}
+
+// ports is one protocol's sockets, by the key each is bound to: TCP's
+// listeners, or UDP's sockets. Each protocol has a table of its own, so
+// TCP and UDP can bind the same port, as on a real network.
+type ports[T comparable] struct {
+	bound map[key]T   // by key.bound
+	held  map[int]int // the number of sockets on each port
+	next  int         // the port a bind to port 0 tries first
+}
+
+func newPorts[T comparable]() ports[T] {
+	return ports[T]{
+		bound: make(map[key]T),
+		held:  make(map[int]int),
+		next:  firstEphemeralPort,
+	}
+}
+
+// bind returns k with its port picked, if it is 0, or fails with
+// EADDRINUSE when k conflicts with a socket.
+func (p *ports[T]) bind(k key) (key, error) {
+	if k.port == 0 {
+		port, ok := p.free(k.name)
+		if !ok {
+			return k, os.NewSyscallError("bind", syscall.EADDRINUSE)
+		}
+		k.port = port
+	} else if p.inUse(k) {
+		return k, os.NewSyscallError("bind", syscall.EADDRINUSE)
+	}
+	return k, nil
+}
+
+// add holds k, which bind returned, for v.
+func (p *ports[T]) add(k key, v T) {
+	p.bound[k.bound()] = v
+	p.held[k.port]++
+}
+
+// remove frees k.
+func (p *ports[T]) remove(k key) {
+	delete(p.bound, k.bound())
+	if p.held[k.port]--; p.held[k.port] == 0 {
+		delete(p.held, k.port)
+	}
+}
+
+// holder returns the socket that holds k: the one bound to that exact
+// name, or else one bound to every name on its port. It returns the zero
+// T when there is none.
+func (p *ports[T]) holder(k key) T {
+	if v, ok := p.bound[k.bound()]; ok {
+		return v
+	}
+	return p.bound[key{port: k.port}]
+}
+
+// inUse reports whether a bind to k conflicts with a socket.
+func (p *ports[T]) inUse(k key) bool {
+	if k.everyName() {
+		return p.held[k.port] > 0
+	}
+	_, named := p.bound[k]
+	_, every := p.bound[key{port: k.port}]
+	return named || every
+}
+
+// free picks a port in the ephemeral range that name can bind, starting
+// after the last one picked, as a real network does.
+func (p *ports[T]) free(name string) (int, bool) {
+	for range lastEphemeralPort - firstEphemeralPort + 1 {
+		port := p.next
+		p.next++
+		if p.next > lastEphemeralPort {
+			p.next = firstEphemeralPort
+		}
+		if !p.inUse(key{name: name, port: port}) {
+			return port, true
+		}
+	}
+	return 0, false
 }
 
 // addr is the net.Addr of a Host's listener: its host as written and its

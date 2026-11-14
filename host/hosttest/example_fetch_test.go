@@ -64,7 +64,7 @@ func ExampleNew() {
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 
-	hh := host.Host[FS]{Listen: h.Listen, Dial: h.Dial, FS: h.FS()}
+	hh := host.Host[FS]{Listen: h.Listen, ListenPacket: h.ListenPacket, Dial: h.Dial, FS: h.FS()}
 	err = fetch(context.Background(), hh, "http://downloads.internal/hello.txt", "hello.txt")
 	if err != nil {
 		fmt.Println(err)

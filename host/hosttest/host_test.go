@@ -97,7 +97,8 @@ func TestNew_applies_its_options(t *testing.T) {
 }
 
 // TestHost_starts_no_goroutines builds a Host inside a bubble and leaves a
-// listener open. synctest.Test fails with a deadlock if anything the Host
+// listener, a UDP socket with a datagram waiting, and two dialled UDP
+// sockets open. synctest.Test fails with a deadlock if anything the Host
 // did left a goroutine blocked behind.
 func TestHost_starts_no_goroutines(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
@@ -108,6 +109,15 @@ func TestHost_starts_no_goroutines(t *testing.T) {
 		require.ErrorIs(t, err, syscall.ECONNREFUSED)
 		require.True(t, isClosed(h.Listening("api:80")))
 		require.False(t, isClosed(h.Listening("api:81")))
+
+		_, err = h.ListenPacket("udp", "api:53")
+		require.NoError(t, err)
+		c, err := h.Dial(t.Context(), "udp", "api:53")
+		require.NoError(t, err)
+		_, err = c.Write([]byte("ping"))
+		require.NoError(t, err)
+		_, err = h.Dial(t.Context(), "udp", "api:54")
+		require.NoError(t, err)
 	})
 }
 
@@ -449,7 +459,7 @@ func TestHost_malformed_addresses(t *testing.T) {
 		{name: "a port out of range", network: "tcp", address: "api:65536"},
 		{name: "a negative port", network: "tcp", address: "api:-1"},
 		{name: "too many colons", network: "tcp", address: "::1:80"},
-		{name: "a network that is not TCP", network: "udp", address: "api:80"},
+		{name: "a network the Host does not serve", network: "unix", address: "api:80"},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

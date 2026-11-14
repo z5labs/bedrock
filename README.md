@@ -196,8 +196,10 @@ type Host = host.Host[FS]
 
 `host.OS()` is the Host of the real machine, and
 [hosttest](https://pkg.go.dev/github.com/z5labs/bedrock/host/hosttest) is the
-Host of a test: an in-memory network that can run inside a `testing/synctest`
-bubble, and a real filesystem confined to the test's temp directory.
+Host of a test: an in-memory network, over TCP and UDP, that can run inside a
+`testing/synctest` bubble, and a real filesystem confined to the test's temp
+directory. A server listens with `Listen` over TCP and `ListenPacket` over UDP,
+and a client connects over either with `Dial`.
 
 It is a nested module with its own `go.mod`, and its library code imports only
 the standard library and the module's own packages:

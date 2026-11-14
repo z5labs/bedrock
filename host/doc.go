@@ -20,6 +20,19 @@
 // [github.com/z5labs/bedrock/host/hosttest], an in-memory network and a
 // filesystem confined to a test's directory.
 //
+// # The network
+//
+// A Host's network carries TCP and UDP. A server listens over TCP with
+// the Host's Listen, which returns a [net.Listener], and over UDP with its
+// ListenPacket, which returns a [net.PacketConn], because UDP has no
+// listener. A client connects over either with the Host's Dial, which over
+// "udp" returns a connected socket: one that sends only to the address it
+// dialled and takes datagrams only from it. Dial resolves the name in a
+// UDP address as it does over TCP, so a client never resolves a UDP
+// address itself, and no field of a Host does. A protocol over UDP, such
+// as HTTP/3 over QUIC, serves on a socket from ListenPacket, and its
+// client dials with Dial.
+//
 // # bedrock fixes the contract, and each framework chooses the surface
 //
 // [Host] is generic over its filesystem, so the contract is fixed while the

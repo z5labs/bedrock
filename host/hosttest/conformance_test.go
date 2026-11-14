@@ -136,6 +136,14 @@ func TestConformance_in_memory(t *testing.T) {
 			scenario(t, h.Listen, h.Dial)
 		})
 	})
+	t.Run("udp", func(t *testing.T) {
+		testConformanceUDP(t, func(t *testing.T, scenario func(*testing.T, udpNetwork)) {
+			synctest.Test(t, func(t *testing.T) {
+				h := hosttest.New(t)
+				scenario(t, udpNetwork{listen: h.Listen, listenPacket: h.ListenPacket, dial: h.Dial})
+			})
+		})
+	})
 }
 
 // testCA is a certificate authority made for one test. It signs server
