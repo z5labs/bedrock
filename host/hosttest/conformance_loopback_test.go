@@ -21,4 +21,10 @@ func TestConformance_loopback(t *testing.T) {
 		h := host.OS()
 		scenario(t, h.Listen, h.Dial)
 	})
+	t.Run("udp", func(t *testing.T) {
+		testConformanceUDP(t, func(t *testing.T, scenario func(*testing.T, udpNetwork)) {
+			h := host.OS()
+			scenario(t, udpNetwork{listen: h.Listen, listenPacket: h.ListenPacket, dial: h.Dial})
+		})
+	})
 }

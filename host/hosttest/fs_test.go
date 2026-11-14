@@ -236,7 +236,7 @@ type appFS interface {
 
 func TestFS_is_the_filesystem_of_a_host_Host(t *testing.T) {
 	h := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"etc/config.yaml": []byte("port: 8080")}))
-	hh := host.Host[appFS]{Listen: h.Listen, Dial: h.Dial, FS: h.FS()}
+	hh := host.Host[appFS]{Listen: h.Listen, ListenPacket: h.ListenPacket, Dial: h.Dial, FS: h.FS()}
 
 	got, err := readAll(hh.FS, "etc/config.yaml")
 	require.NoError(t, err)

@@ -31,7 +31,7 @@ type Host = host.Host[FS]
 // OSHost returns the Host of the real machine.
 func OSHost() Host {
 	h := host.OS()
-	return Host{Listen: h.Listen, Dial: h.Dial, FS: h.FS}
+	return Host{Listen: h.Listen, ListenPacket: h.ListenPacket, Dial: h.Dial, FS: h.FS}
 }
 
 // A CLI framework declares the filesystem its commands see as an interface

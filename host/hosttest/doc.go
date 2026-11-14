@@ -8,7 +8,8 @@
 //
 // A test builds a [Host] with [New], and hands the code under test a
 // [github.com/z5labs/bedrock/host.Host] built from the Host's [Host.Listen],
-// [Host.Dial] and [Host.FS], in place of the Host of the real machine. The
+// [Host.ListenPacket], [Host.Dial] and [Host.FS], in place of the Host of
+// the real machine. The
 // code under test listens on the Host's network and the test dials it, and
 // every file either opens is inside the test's own temp directory.
 //
@@ -22,7 +23,7 @@
 //	func TestServe_serves_hello(t *testing.T) {
 //		synctest.Test(t, func(t *testing.T) {
 //			h := hosttest.New(t)
-//			hh := host.Host[FS]{Listen: h.Listen, Dial: h.Dial, FS: h.FS()}
+//			hh := host.Host[FS]{Listen: h.Listen, ListenPacket: h.ListenPacket, Dial: h.Dial, FS: h.FS()}
 //			ctx, cancel := context.WithCancel(t.Context())
 //			defer cancel()
 //			done := make(chan error, 1)
@@ -48,7 +49,8 @@
 //	}
 //
 // The code reaches the network and the filesystem only through the
-// host.Host it is given: it listens with Listen and opens files with FS.
+// host.Host it is given: it listens with Listen or ListenPacket, dials
+// with Dial, and opens files with FS.
 // net.Listen would open a real socket, whose Accept is not durably blocked,
 // so synctest.Wait would never return, and os.Open would reach files
 // outside the test's directory.
@@ -77,6 +79,51 @@
 //   - Anywhere, <-h.Listening(address), which waits for one particular
 //     listener, like bedrocktest's Process.Notified. [Host.Listening] also
 //     works outside a bubble.
+//
+// # UDP
+//
+// [Host.ListenPacket] binds a UDP socket, and [Host.Dial] over "udp",
+// "udp4" or "udp6" returns a connected one. UDP follows a real network, as
+// TCP does:
+//
+//   - "udp", "udp4" and "udp6" share one set of ports, apart from TCP's,
+//     so a UDP socket and a TCP listener can hold the same port.
+//   - A socket binds by TCP's rules. One bound to every name conflicts
+//     with any other socket on its port, names are compared as written
+//     and never resolved, port 0 picks a port from IANA's dynamic range,
+//     and a port already taken fails with EADDRINUSE.
+//   - Every error is a *net.OpError.
+//   - A datagram arrives whole and in order at the socket that holds its
+//     address: the one bound to that name, or else the one bound to every
+//     name on that port. It is dropped when no socket holds it.
+//   - A read into a short buffer truncates the datagram, and the rest of it
+//     is lost. A datagram bigger than UDP carries over loopback fails with
+//     EMSGSIZE: one of more than 65,507 bytes, or of more than 65,527 bytes
+//     to an IPv6 address.
+//   - A socket bound to every name replies from the address its peer sent
+//     to. To a peer it has not heard from, it sends from its own address,
+//     as LocalAddr reports it.
+//   - A dialled socket is bound to the name it dials, as written, and a
+//     port from the dynamic range, and takes datagrams only from the
+//     address it dialled. A write to an address no socket holds succeeds,
+//     and the socket's next read or write fails with ECONNREFUSED, as Linux
+//     reports the ICMP port unreachable that answers it. A socket from
+//     ListenPacket is never told.
+//   - Deadlines run on the clock of the testing/synctest bubble.
+//   - The sockets have SetReadBuffer and SetWriteBuffer, as a *net.UDPConn
+//     does, for code such as a QUIC implementation that calls them. They
+//     succeed and do nothing.
+//
+// One rule is kinder than loopback. A real socket bound to every name
+// takes the source address of its reply from the route to its peer, which
+// over loopback is 127.0.0.1 whatever address the peer sent to, so a
+// client that dials 127.0.0.2 on a real machine never takes the reply.
+//
+// [Host.Listening] waits for TCP listeners only. A UDP socket is bound
+// once ListenPacket returns, so a test whose code under test binds one
+// waits with synctest.Wait, which returns once that code is blocked
+// reading it, before the test sends. A datagram sent before then is
+// dropped, as on a real network.
 //
 // # Files
 //

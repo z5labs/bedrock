@@ -117,3 +117,54 @@ func ExampleWithFiles() {
 	// outside exists: true
 	// outside the directory refused: true
 }
+
+// A UDP server binds a socket with ListenPacket and a client dials it with
+// Dial, which binds the client's socket to the name it dials and a port of
+// its own. Datagrams wait for a read, so neither side needs a goroutine.
+// The server replies to the address ReadFrom returns, and the reply comes
+// from the address the client sent to, so the dialled socket takes it.
+func ExampleHost_ListenPacket() {
+	t := new(exampleTB)
+	defer t.runCleanups()
+
+	h := hosttest.New(t)
+	server, err := h.ListenPacket("udp", ":5353")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() { _ = server.Close() }()
+
+	client, err := h.Dial(context.Background(), "udp", "dns.internal:5353")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() { _ = client.Close() }()
+	if _, err := client.Write([]byte("ping")); err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	b := make([]byte, 512)
+	n, from, err := server.ReadFrom(b)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("server read", string(b[:n]), "from", from)
+	if _, err := server.WriteTo([]byte("pong"), from); err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	n, err = client.Read(b)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("client read", string(b[:n]))
+	// Output:
+	// server read ping from dns.internal:49152
+	// client read pong
+}

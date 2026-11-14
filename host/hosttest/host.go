@@ -15,9 +15,10 @@ import (
 	"testing"
 )
 
-// Host is a test's network, of net.Pipe connections, and a filesystem in
-// a directory from tb.TempDir(), confined with os.Root. It starts no
-// goroutines, so build it inside the testing/synctest bubble that uses it.
+// Host is a test's network, of net.Pipe connections over TCP and
+// in-memory datagrams over UDP, and a filesystem in a directory from
+// tb.TempDir(), confined with os.Root. It starts no goroutines, so build
+// it inside the testing/synctest bubble that uses it.
 //
 // A Host is safe for concurrent use.
 type Host struct {
@@ -26,10 +27,9 @@ type Host struct {
 	root *os.Root
 
 	mu        sync.Mutex
-	listeners map[key]*listener
-	held      map[int]int // the number of listeners on each port
+	tcp       ports[*listener]
+	udp       ports[*socket]
 	listening map[key]chan struct{}
-	nextPort  int
 }
 
 // Option configures a [Host] built by [New].
@@ -39,8 +39,8 @@ type Option func(*Host)
 // removed when the test ends. It is configured by opts, and reports misuse
 // through tb.
 //
-// New starts no goroutines and makes no channels: Listen and Listening
-// make theirs when they are called. To use a Host with testing/synctest,
+// New starts no goroutines and makes no channels: Listen, ListenPacket,
+// Dial and Listening make theirs when they are called. To use a Host with testing/synctest,
 // call New inside synctest.Test with the bubble's t, so that every
 // channel the Host makes belongs to the bubble that uses it.
 func New(tb testing.TB, opts ...Option) *Host {
@@ -58,10 +58,9 @@ func New(tb testing.TB, opts ...Option) *Host {
 		tb:        tb,
 		dir:       dir,
 		root:      root,
-		listeners: make(map[key]*listener),
-		held:      make(map[int]int),
+		tcp:       newPorts[*listener](),
+		udp:       newPorts[*socket](),
 		listening: make(map[key]chan struct{}),
-		nextPort:  firstEphemeralPort,
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -74,11 +73,11 @@ func New(tb testing.TB, opts ...Option) *Host {
 // EADDRINUSE when a listener already holds the same name and port, or
 // when one of the two listens on every name for that port.
 //
-// The network is "tcp", "tcp4" or "tcp6", which share one set of ports.
-// Every error is a *net.OpError. The listener's Addr reports the host as
-// written in address and the port it holds.
+// The network is "tcp", "tcp4" or "tcp6", which share one set of ports,
+// apart from UDP's. Every error is a *net.OpError. The listener's Addr
+// reports the host as written in address and the port it holds.
 func (h *Host) Listen(network, address string) (net.Listener, error) {
-	k, err := parse(network, address)
+	k, err := parse(network, address, "tcp")
 	if err != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Err: err}
 	}
@@ -86,14 +85,9 @@ func (h *Host) Listen(network, address string) (net.Listener, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if k.port == 0 {
-		port, ok := h.freePortLocked(k.name)
-		if !ok {
-			return nil, &net.OpError{Op: "listen", Net: network, Addr: k.addr(), Err: os.NewSyscallError("bind", syscall.EADDRINUSE)}
-		}
-		k.port = port
-	} else if h.inUseLocked(k) {
-		return nil, &net.OpError{Op: "listen", Net: network, Addr: k.addr(), Err: os.NewSyscallError("bind", syscall.EADDRINUSE)}
+	k, err = h.tcp.bind(k)
+	if err != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Addr: k.addr(), Err: err}
 	}
 
 	l := &listener{
@@ -102,8 +96,7 @@ func (h *Host) Listen(network, address string) (net.Listener, error) {
 		conns: make(chan net.Conn),
 		done:  make(chan struct{}),
 	}
-	h.listeners[k.bound()] = l
-	h.held[k.port]++
+	h.tcp.add(k, l)
 
 	for wk, ch := range h.listening {
 		if l.reaches(wk) && !isClosed(ch) {
@@ -113,21 +106,40 @@ func (h *Host) Listen(network, address string) (net.Listener, error) {
 	return l, nil
 }
 
-// Dial connects to the listener for the host and port of address: one
-// bound to that exact name, or else one that listens on every name for
-// that port. It fails with ECONNREFUSED when there is none. It never
-// waits for a listener.
+// Dial connects to the host and port of address over "tcp", "tcp4" or
+// "tcp6", or over "udp", "udp4" or "udp6". Every error is a *net.OpError.
 //
-// A Dial that finds its listener returns once the listener's Accept takes
-// the connection. If ctx is done first, Dial closes both ends of the
-// connection and returns ctx's error. Every error is a *net.OpError.
+// Over TCP, Dial connects to the listener for the address: one bound to
+// that exact name, or else one that listens on every name for that port.
+// It fails with ECONNREFUSED when there is none. It never waits for a
+// listener. A Dial that finds its listener returns once the listener's
+// Accept takes the connection. If ctx is done first, Dial closes both ends
+// of the connection and returns ctx's error.
+//
+// Over UDP, Dial returns a connected socket at once, whether or not a
+// socket holds the address, as a real one does. The socket is bound to the
+// name it dials, as written, and a port from IANA's dynamic range, as a
+// socket dialled over loopback is bound to the loopback address. It sends
+// only to the address it dialled, and takes datagrams only from that
+// address, dropping every other. A write to an address no socket holds
+// succeeds, and the socket's next read or write fails with ECONNREFUSED,
+// as Linux reports the ICMP port unreachable that answers it. The package
+// documentation says what else the socket does.
 func (h *Host) Dial(ctx context.Context, network, address string) (net.Conn, error) {
-	k, err := parse(network, address)
+	k, err := parse(network, address, "tcp", "udp")
 	if err != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Err: err}
 	}
+	udp := protocol(network) == "udp"
 	if err := ctx.Err(); err != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Addr: k.addr(), Err: err}
+		a := k.addr()
+		if udp {
+			a = k.udpAddr()
+		}
+		return nil, &net.OpError{Op: "dial", Net: network, Addr: a, Err: err}
+	}
+	if udp {
+		return h.dialUDP(network, k)
 	}
 
 	h.mu.Lock()
@@ -147,8 +159,9 @@ func (h *Host) Dial(ctx context.Context, network, address string) (net.Conn, err
 	return &conn{Conn: client, remote: k.addr()}, nil
 }
 
-// Listening returns a channel that is closed once a listener exists that a
-// Dial to address would reach. A test receives from it before dialling, so
+// Listening returns a channel that is closed once a TCP listener exists
+// that a Dial to address would reach. It never waits for a UDP socket: a
+// test that needs one bound waits with synctest.Wait. A test receives from it before dialling, so
 // that it doesn't dial before the App listens. It works like bedrocktest's
 // Process.Notified: once closed, the channel stays closed, and after that
 // listener closes, Listening returns a new channel, closed when the next
@@ -188,36 +201,7 @@ func (h *Host) Listening(address string) <-chan struct{} {
 
 // reachableLocked returns the listener a Dial to k reaches, or nil.
 func (h *Host) reachableLocked(k key) *listener {
-	if l, ok := h.listeners[k.bound()]; ok {
-		return l
-	}
-	return h.listeners[key{port: k.port}]
-}
-
-// inUseLocked reports whether a Listen on k conflicts with a listener.
-func (h *Host) inUseLocked(k key) bool {
-	if k.everyName() {
-		return h.held[k.port] > 0
-	}
-	_, named := h.listeners[k]
-	_, every := h.listeners[key{port: k.port}]
-	return named || every
-}
-
-// freePortLocked picks a port in the ephemeral range that name can listen
-// on, starting after the last one picked, as a real network does.
-func (h *Host) freePortLocked(name string) (int, bool) {
-	for range lastEphemeralPort - firstEphemeralPort + 1 {
-		port := h.nextPort
-		h.nextPort++
-		if h.nextPort > lastEphemeralPort {
-			h.nextPort = firstEphemeralPort
-		}
-		if !h.inUseLocked(key{name: name, port: port}) {
-			return port, true
-		}
-	}
-	return 0, false
+	return h.tcp.holder(k)
 }
 
 // remove forgets l, and every closed Listening channel that a Dial no
@@ -226,10 +210,7 @@ func (h *Host) remove(l *listener) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	delete(h.listeners, l.key.bound())
-	if h.held[l.key.port]--; h.held[l.key.port] == 0 {
-		delete(h.held, l.key.port)
-	}
+	h.tcp.remove(l.key)
 	for wk, ch := range h.listening {
 		if isClosed(ch) && h.reachableLocked(wk) == nil {
 			delete(h.listening, wk)
