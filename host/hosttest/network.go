@@ -15,8 +15,8 @@ import (
 	"syscall"
 )
 
-// The range Listen and ListenPacket pick a port from for port 0: IANA's
-// dynamic ports.
+// The range from which Listen, ListenPacket and a UDP Dial pick a port
+// when asked for port 0: IANA's dynamic ports.
 const (
 	firstEphemeralPort = 49152
 	lastEphemeralPort  = 65535
