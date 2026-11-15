@@ -80,6 +80,28 @@
 //     listener, like bedrocktest's Process.Notified. [Host.Listening] also
 //     works outside a bubble.
 //
+// # TCP connections
+//
+// A connection that [Host.Dial] makes over TCP, and that the listener's
+// Accept takes, is a stream like a socket's. Each direction buffers up to
+// 256 KiB, about what a loopback socket's buffers hold, so a Write returns
+// once its bytes are buffered and waits only while the buffer is full, not
+// until the peer reads them. A write the peer never reads, such as the
+// close_notify alert a TLS connection writes as it closes, doesn't hold
+// its writer, so a TLS connection closes as it does on a real socket, and
+// a client that rejects a certificate isn't held by a server still
+// writing its first flight.
+//
+//   - Once the peer closes, a Read returns what is left and then io.EOF.
+//     A Write after either end closes, and any call on an end that is
+//     closed, fails with io.ErrClosedPipe.
+//   - Deadlines run on the clock of the testing/synctest bubble, and one
+//     set while a Read or a Write waits applies to it. A Write that misses
+//     its deadline reports the bytes it buffered.
+//   - The listener's side reports the listener's address as its local
+//     address, and the client's side the address it dialled as its remote
+//     one.
+//
 // # UDP
 //
 // [Host.ListenPacket] binds a UDP socket, and [Host.Dial] over "udp",

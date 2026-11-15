@@ -15,10 +15,16 @@ import (
 	"testing"
 )
 
-// Host is a test's network, of net.Pipe connections over TCP and
+// Host is a test's network, of in-memory connections over TCP and
 // in-memory datagrams over UDP, and a filesystem in a directory from
 // tb.TempDir(), confined with os.Root. It starts no goroutines, so build
 // it inside the testing/synctest bubble that uses it.
+//
+// Each direction of a TCP connection buffers up to 256 KiB, as a
+// socket's buffers do, so a Write returns once its bytes are buffered and
+// waits only while the buffer is full. A write the peer never reads, such
+// as a TLS close_notify alert, doesn't hold its writer, so a TLS
+// connection closes as it does on a real socket.
 //
 // A Host is safe for concurrent use.
 type Host struct {
@@ -149,14 +155,16 @@ func (h *Host) Dial(ctx context.Context, network, address string) (net.Conn, err
 		return nil, refused(network, k)
 	}
 
-	client, server := net.Pipe()
-	if err := l.connect(ctx, client, &conn{Conn: server, local: l.Addr()}); err != nil {
+	client, server := newPipe()
+	server.local = l.Addr()
+	client.remote = k.addr()
+	if err := l.connect(ctx, client, server); err != nil {
 		if errors.Is(err, errListenerClosed) {
 			return nil, refused(network, k)
 		}
 		return nil, &net.OpError{Op: "dial", Net: network, Addr: k.addr(), Err: err}
 	}
-	return &conn{Conn: client, remote: k.addr()}, nil
+	return client, nil
 }
 
 // Listening returns a channel that is closed once a TCP listener exists

@@ -194,7 +194,7 @@ func (addr) Network() string  { return "tcp" }
 func (a addr) String() string { return string(a) }
 
 // listener is the net.Listener that Host.Listen returns. Dial hands it the
-// server end of a net.Pipe over conns, and Accept takes it.
+// server end of a connection newPipe made over conns, and Accept takes it.
 type listener struct {
 	host  *Host
 	key   key
@@ -266,25 +266,4 @@ func (l *listener) connect(ctx context.Context, client, server net.Conn) error {
 	_ = client.Close()
 	_ = server.Close()
 	return err
-}
-
-// conn is one end of a net.Pipe, reporting the listener's address as the
-// server's local address and the client's remote one.
-type conn struct {
-	net.Conn
-	local, remote net.Addr
-}
-
-func (c *conn) LocalAddr() net.Addr {
-	if c.local != nil {
-		return c.local
-	}
-	return c.Conn.LocalAddr()
-}
-
-func (c *conn) RemoteAddr() net.Addr {
-	if c.remote != nil {
-		return c.remote
-	}
-	return c.Conn.RemoteAddr()
 }

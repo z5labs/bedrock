@@ -381,9 +381,9 @@ func (c udpConn) RemoteAddr() net.Addr {
 	return c.remote.udpAddr()
 }
 
-// deadline is a read or a write deadline: a channel closed once it has
-// passed, on the clock of the bubble it was set in. It works like
-// net.Pipe's.
+// deadline is a read or a write deadline of a UDP socket or of one end of
+// a TCP connection: a channel closed once it has passed, on the clock of
+// the bubble it was set in.
 type deadline struct {
 	mu     sync.Mutex
 	timer  *time.Timer
