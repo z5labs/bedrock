@@ -26,8 +26,8 @@ import (
 )
 
 // conformanceFS lists every method of host.OSFilesystem, which the FS
-// conformance table checks *hosttest.FS has, with the same results as
-// host.OSFilesystem. Getwd is the one whose results it does not compare.
+// conformance table checks *hosttest.Filesystem has, with the same results
+// as host.OSFilesystem. Getwd is the one whose results it does not compare.
 type conformanceFS interface {
 	Open(name string) (*os.File, error)
 	OpenFile(name string, flag int, perm os.FileMode) (*os.File, error)
@@ -67,10 +67,12 @@ type conformanceRootFS interface {
 }
 
 // Each filesystem has every method of the table it is checked by, so this
-// stops compiling if *hosttest.FS lacks one of host.OSFilesystem's or of
+// stops compiling if *hosttest.Filesystem lacks one of
+// host.OSFilesystem's, or *hosttest.FS one of host.OSFilesystem's or of
 // host.OSFS's.
 var (
 	_ conformanceFS     = host.OSFilesystem{}
+	_ conformanceFS     = (*hosttest.Filesystem)(nil)
 	_ conformanceFS     = (*hosttest.FS)(nil)
 	_ conformanceRootFS = host.OSFS{}
 	_ conformanceRootFS = (*hosttest.FS)(nil)
@@ -92,10 +94,10 @@ var conformanceFiles = map[string][]byte{
 type fsScenario[F any] func(t *testing.T, fsys F, dir string) any
 
 // runFSConformance runs every scenario on real, the real filesystem named
-// realName, in a directory from t.TempDir(), and on the filesystem fake
-// returns for a hosttest.Host, in its Host's directory, and requires the
-// two to observe the same.
-func runFSConformance[F any](t *testing.T, realName string, real F, fake func(*hosttest.Host) F, testCases map[string]fsScenario[F]) {
+// realName, in a directory from t.TempDir(), and on the filesystem named
+// fakeName that fake returns for a hosttest.Host, in its Host's directory,
+// and requires the two to observe the same.
+func runFSConformance[F any](t *testing.T, realName string, real F, fakeName string, fake func(*hosttest.Host) F, testCases map[string]fsScenario[F]) {
 	t.Helper()
 	for name, scenario := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -109,17 +111,17 @@ func runFSConformance[F any](t *testing.T, realName string, real F, fake func(*h
 				}
 				want = scenario(t, real, dir)
 			})
-			t.Run("hosttest.FS", func(t *testing.T) {
+			t.Run(fakeName, func(t *testing.T) {
 				h := hosttest.New(t, hosttest.WithFiles(conformanceFiles))
 				got = scenario(t, fake(h), h.Path("."))
 			})
-			require.Equal(t, want, got, "*hosttest.FS observes what %s does", realName)
+			require.Equal(t, want, got, "*%s observes what %s does", fakeName, realName)
 		})
 	}
 }
 
 // TestConformance_FS runs every scenario on host.OSFilesystem, in a
-// directory from t.TempDir(), and on *hosttest.FS, in its Host's
+// directory from t.TempDir(), and on *hosttest.Filesystem, in its Host's
 // directory, and requires the two to observe the same.
 //
 // What a scenario observes is the same when the return values are: file
@@ -549,7 +551,7 @@ func TestConformance_FS(t *testing.T) {
 	}
 
 	runFSConformance(t, "host.OSFilesystem", conformanceFS(host.OSFilesystem{}),
-		func(h *hosttest.Host) conformanceFS { return h.FS() }, testCases)
+		"hosttest.Filesystem", func(h *hosttest.Host) conformanceFS { return h.Filesystem() }, testCases)
 }
 
 // TestConformance_FS_root runs every scenario of the two methods
@@ -596,7 +598,7 @@ func TestConformance_FS_root(t *testing.T) {
 	}
 
 	runFSConformance(t, "host.OSFS", conformanceRootFS(host.OSFS{}),
-		func(h *hosttest.Host) conformanceRootFS { return h.FS() }, testCases)
+		"hosttest.FS", func(h *hosttest.Host) conformanceRootFS { return h.FS() }, testCases)
 }
 
 // linkScenario is one row of the FS conformance table's one exception: a
@@ -607,7 +609,7 @@ type linkScenario func(t *testing.T, fsys conformanceFS, dir string) (target, na
 
 // TestConformance_FS_absolute_symbolic_links is the exception to
 // TestConformance_FS: host.OSFilesystem makes a symbolic link to an
-// absolute target, and *hosttest.FS refuses to, with an *os.LinkError
+// absolute target, and *hosttest.Filesystem refuses to, with an *os.LinkError
 // naming both paths whose Err is errors.ErrUnsupported, and creates
 // nothing. Its os.Root would never follow such a link, even to a file
 // inside its directory.
@@ -639,9 +641,9 @@ func TestConformance_FS_absolute_symbolic_links(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, target, got)
 			})
-			t.Run("hosttest.FS", func(t *testing.T) {
+			t.Run("hosttest.Filesystem", func(t *testing.T) {
 				h := hosttest.New(t, hosttest.WithFiles(conformanceFiles))
-				target, link, err := scenario(t, h.FS(), h.Path("."))
+				target, link, err := scenario(t, h.Filesystem(), h.Path("."))
 				var le *os.LinkError
 				require.ErrorAs(t, err, &le)
 				require.Equal(t, "symlink", le.Op)
@@ -656,8 +658,8 @@ func TestConformance_FS_absolute_symbolic_links(t *testing.T) {
 }
 
 // Getwd is the one method of host.OSFilesystem the table does not compare:
-// OSFilesystem's is the process's working directory, and *hosttest.FS's is
-// its Host's directory.
+// OSFilesystem's is the process's working directory, and
+// *hosttest.Filesystem's is its Host's directory.
 func TestConformance_FS_Getwd(t *testing.T) {
 	t.Run("host.OSFilesystem", func(t *testing.T) {
 		want, err := os.Getwd()
@@ -666,9 +668,9 @@ func TestConformance_FS_Getwd(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, want, got)
 	})
-	t.Run("hosttest.FS", func(t *testing.T) {
+	t.Run("hosttest.Filesystem", func(t *testing.T) {
 		h := hosttest.New(t)
-		got, err := h.FS().Getwd()
+		got, err := h.Filesystem().Getwd()
 		require.NoError(t, err)
 		require.True(t, filepath.IsAbs(got), got)
 		require.Equal(t, h.Path("."), got)

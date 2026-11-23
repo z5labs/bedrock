@@ -78,7 +78,14 @@ func local(name string) (string, error) {
 
 // FS returns the Host's filesystem.
 func (h *Host) FS() *FS {
-	return &FS{dir: h.dir, root: h.root}
+	return &FS{filesystem: filesystem{dir: h.dir, root: h.root}}
+}
+
+// Filesystem returns the Host's filesystem, without the seal. It is over
+// the same directory, with the same os.Root, as [Host.FS], so the two see
+// the same files.
+func (h *Host) Filesystem() *Filesystem {
+	return &Filesystem{dir: h.dir, root: h.root}
 }
 
 // Path returns the absolute path of name, relative to the Host's
@@ -100,6 +107,10 @@ func (h *Host) Path(name string) string {
 // sealed is host.FS under a name that is not exported, so that embedding
 // it gives FS host.FS's method without a field in FS's docs.
 type sealed = host.FS //nolint:unused // used only as FS's embedded field
+
+// filesystem is Filesystem under a name that is not exported, so that FS
+// embeds it for its methods without a field in FS's docs.
+type filesystem = Filesystem
 
 // FS is a filesystem confined to a Host's directory with os.Root. It has
 // every method of host.OSFS, with the same results, except that a name
@@ -125,68 +136,15 @@ type FS struct {
 	// would compile, and would escape the directory.
 	sealed //nolint:unused // embedded for its method set, never set or called
 
-	dir  string
-	root *os.Root
-}
-
-// rel returns the name to give the os.Root for name: name itself when it
-// is relative, and its path relative to the directory when it is
-// absolute. A name outside the directory comes back starting with "..",
-// and the os.Root refuses it.
-func (f *FS) rel(name string) string {
-	if !filepath.IsAbs(name) {
-		return name
-	}
-	rel, err := filepath.Rel(f.dir, name)
-	if err != nil {
-		// Only on Windows, for a name on another volume. Any path that
-		// escapes serves: the os.Root refuses it.
-		return ".." + string(filepath.Separator) + name
-	}
-	return rel
-}
-
-// abs returns the absolute OS path of rel, a name relative to the
-// directory.
-func (f *FS) abs(rel string) string {
-	return filepath.Join(f.dir, rel)
-}
-
-// renamed puts name back in a *fs.PathError the os.Root returned for rel,
-// so that an error names the path the caller passed.
-func renamed(err error, rel, name string) error {
-	var pe *fs.PathError
-	if errors.As(err, &pe) && pe.Path == rel {
-		pe.Path = name
-	}
-	return err
-}
-
-// Open is host.OSFS's Open, confined to the Host's directory.
-func (f *FS) Open(name string) (*os.File, error) {
-	rel := f.rel(name)
-	file, err := f.root.Open(rel)
-	return file, renamed(err, rel, name)
-}
-
-// OpenFile is host.OSFS's OpenFile, confined to the Host's directory.
-func (f *FS) OpenFile(name string, flag int, perm os.FileMode) (*os.File, error) {
-	rel := f.rel(name)
-	file, err := f.root.OpenFile(rel, flag, perm)
-	return file, renamed(err, rel, name)
-}
-
-// Create is host.OSFS's Create, confined to the Host's directory.
-func (f *FS) Create(name string) (*os.File, error) {
-	rel := f.rel(name)
-	file, err := f.root.Create(rel)
-	return file, renamed(err, rel, name)
+	// filesystem has every method of FS but the seal, OpenRoot and
+	// OpenInRoot, and holds the directory and its os.Root.
+	filesystem
 }
 
 // OpenRoot is host.OSFS's OpenRoot, confined to the Host's directory. The
 // *os.Root it returns is confined to the directory name.
 func (f *FS) OpenRoot(name string) (*os.Root, error) {
-	rel := f.rel(name)
+	rel := relative(f.dir, name)
 	root, err := f.root.OpenRoot(rel)
 	return root, renamed(err, rel, name)
 }
@@ -205,9 +163,78 @@ func (f *FS) OpenInRoot(dir, name string) (*os.File, error) {
 	return file, err
 }
 
+// Filesystem is a filesystem confined to a Host's directory with
+// os.Root, with host.OSFilesystem's 26 methods. It is FS without the
+// seal, and without OpenRoot and OpenInRoot. Its methods have the same
+// results as host.OSFilesystem's, except that a name that leaves the
+// directory fails, and that Symlink and CopyFS refuse a
+// symbolic link to an absolute target, which os.Root would never follow.
+// Its Getwd is the Host's directory.
+//
+// It is confined with os.Root, so ".." and symbolic links can't leave the
+// directory. Filesystem accepts absolute names under the directory, so
+// that a file's Name() can be passed back in, as with host.OSFilesystem.
+// Relative names are relative to the Host's directory. Files are opened
+// under its absolute path, so a file's Name() is an absolute OS path, and
+// MkdirTemp returns one. CreateTemp and MkdirTemp with dir == "" use "tmp"
+// inside the directory, created when it is first needed. Every error
+// names the path the caller passed.
+type Filesystem struct {
+	dir  string
+	root *os.Root
+}
+
+// relative returns the name to give the os.Root on dir for name: name
+// itself when it is relative, and its path relative to dir when it is
+// absolute. A name outside the directory comes back starting with "..",
+// and the os.Root refuses it.
+func relative(dir, name string) string {
+	if !filepath.IsAbs(name) {
+		return name
+	}
+	rel, err := filepath.Rel(dir, name)
+	if err != nil {
+		// Only on Windows, for a name on another volume. Any path that
+		// escapes serves: the os.Root refuses it.
+		return ".." + string(filepath.Separator) + name
+	}
+	return rel
+}
+
+// renamed puts name back in a *fs.PathError the os.Root returned for rel,
+// so that an error names the path the caller passed.
+func renamed(err error, rel, name string) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) && pe.Path == rel {
+		pe.Path = name
+	}
+	return err
+}
+
+// Open is host.OSFS's Open, confined to the Host's directory.
+func (f *Filesystem) Open(name string) (*os.File, error) {
+	rel := relative(f.dir, name)
+	file, err := f.root.Open(rel)
+	return file, renamed(err, rel, name)
+}
+
+// OpenFile is host.OSFS's OpenFile, confined to the Host's directory.
+func (f *Filesystem) OpenFile(name string, flag int, perm os.FileMode) (*os.File, error) {
+	rel := relative(f.dir, name)
+	file, err := f.root.OpenFile(rel, flag, perm)
+	return file, renamed(err, rel, name)
+}
+
+// Create is host.OSFS's Create, confined to the Host's directory.
+func (f *Filesystem) Create(name string) (*os.File, error) {
+	rel := relative(f.dir, name)
+	file, err := f.root.Create(rel)
+	return file, renamed(err, rel, name)
+}
+
 // ReadFile is host.OSFS's ReadFile, confined to the Host's directory.
-func (f *FS) ReadFile(name string) ([]byte, error) {
-	rel := f.rel(name)
+func (f *Filesystem) ReadFile(name string) ([]byte, error) {
+	rel := relative(f.dir, name)
 	data, err := f.root.ReadFile(rel)
 	// Reading a directory fails naming the file's Name(), which is
 	// absolute, so it is put back to the name passed.
@@ -215,8 +242,8 @@ func (f *FS) ReadFile(name string) ([]byte, error) {
 }
 
 // WriteFile is host.OSFS's WriteFile, confined to the Host's directory.
-func (f *FS) WriteFile(name string, data []byte, perm os.FileMode) error {
-	rel := f.rel(name)
+func (f *Filesystem) WriteFile(name string, data []byte, perm os.FileMode) error {
+	rel := relative(f.dir, name)
 	err := f.root.WriteFile(rel, data, perm)
 	return renamed(renamed(err, rel, name), joinPath(f.dir, rel), name)
 }
@@ -226,7 +253,7 @@ func (f *FS) WriteFile(name string, data []byte, perm os.FileMode) error {
 // directory. It opens without blocking, so a named pipe fails rather than
 // waiting for a reader. Every error is a *fs.PathError whose Op is
 // "truncate" and whose Path is the name passed, as os.Truncate's are.
-func (f *FS) Truncate(name string, size int64) error {
+func (f *Filesystem) Truncate(name string, size int64) error {
 	file, err := f.OpenFile(name, os.O_WRONLY|syscall.O_NONBLOCK, 0)
 	if err == nil {
 		err = file.Truncate(size)
@@ -245,7 +272,7 @@ func (f *FS) Truncate(name string, size int64) error {
 // os.CopyFS it never overwrites a file, failing with fs.ErrExist. It
 // copies a symbolic link with Symlink, so an fsys holding a symbolic link
 // to an absolute target fails as Symlink does.
-func (f *FS) CopyFS(dir string, fsys fs.FS) error {
+func (f *Filesystem) CopyFS(dir string, fsys fs.FS) error {
 	return fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -266,7 +293,7 @@ func (f *FS) CopyFS(dir string, fsys fs.FS) error {
 			}
 			return f.Symlink(link, target)
 		case 0:
-			return f.copyFile(fsys, path, target)
+			return copyFile(f, fsys, path, target)
 		default:
 			return &fs.PathError{Op: "CopyFS", Path: path, Err: fs.ErrInvalid}
 		}
@@ -275,7 +302,7 @@ func (f *FS) CopyFS(dir string, fsys fs.FS) error {
 
 // copyFile copies the regular file path of fsys to target, as os.CopyFS
 // does.
-func (f *FS) copyFile(fsys fs.FS, path, target string) error {
+func copyFile(f *Filesystem, fsys fs.FS, path, target string) error {
 	r, err := fsys.Open(path)
 	if err != nil {
 		return err
@@ -298,8 +325,8 @@ func (f *FS) copyFile(fsys fs.FS, path, target string) error {
 
 // Link is host.OSFS's Link, confined to the Host's directory: neither name
 // may leave it.
-func (f *FS) Link(oldname, newname string) error {
-	oldrel, newrel := f.rel(oldname), f.rel(newname)
+func (f *Filesystem) Link(oldname, newname string) error {
+	oldrel, newrel := relative(f.dir, oldname), relative(f.dir, newname)
 	return relinked(f.root.Link(oldrel, newrel), oldrel, oldname, newrel, newname)
 }
 
@@ -312,56 +339,56 @@ func (f *FS) Link(oldname, newname string) error {
 //
 // A relative oldname is stored as written. A link that leaves the
 // directory is created, but following it fails.
-func (f *FS) Symlink(oldname, newname string) error {
+func (f *Filesystem) Symlink(oldname, newname string) error {
 	if filepath.IsAbs(oldname) {
 		return &os.LinkError{Op: "symlink", Old: oldname, New: newname, Err: errors.ErrUnsupported}
 	}
-	newrel := f.rel(newname)
+	newrel := relative(f.dir, newname)
 	return relinked(f.root.Symlink(oldname, newrel), oldname, oldname, newrel, newname)
 }
 
 // Readlink is host.OSFS's Readlink, confined to the Host's directory. It
 // returns the target as it was written.
-func (f *FS) Readlink(name string) (string, error) {
-	rel := f.rel(name)
+func (f *Filesystem) Readlink(name string) (string, error) {
+	rel := relative(f.dir, name)
 	target, err := f.root.Readlink(rel)
 	return target, renamed(err, rel, name)
 }
 
 // Lstat is host.OSFS's Lstat, confined to the Host's directory.
-func (f *FS) Lstat(name string) (os.FileInfo, error) {
-	rel := f.rel(name)
+func (f *Filesystem) Lstat(name string) (os.FileInfo, error) {
+	rel := relative(f.dir, name)
 	fi, err := f.root.Lstat(rel)
 	return fi, renamed(err, rel, name)
 }
 
 // Chmod is host.OSFS's Chmod, confined to the Host's directory.
-func (f *FS) Chmod(name string, mode os.FileMode) error {
-	rel := f.rel(name)
+func (f *Filesystem) Chmod(name string, mode os.FileMode) error {
+	rel := relative(f.dir, name)
 	return renamed(f.root.Chmod(rel, mode), rel, name)
 }
 
 // Chown is host.OSFS's Chown, confined to the Host's directory.
-func (f *FS) Chown(name string, uid, gid int) error {
-	rel := f.rel(name)
+func (f *Filesystem) Chown(name string, uid, gid int) error {
+	rel := relative(f.dir, name)
 	return renamed(f.root.Chown(rel, uid, gid), rel, name)
 }
 
 // Lchown is host.OSFS's Lchown, confined to the Host's directory.
-func (f *FS) Lchown(name string, uid, gid int) error {
-	rel := f.rel(name)
+func (f *Filesystem) Lchown(name string, uid, gid int) error {
+	rel := relative(f.dir, name)
 	return renamed(f.root.Lchown(rel, uid, gid), rel, name)
 }
 
 // Chtimes is host.OSFS's Chtimes, confined to the Host's directory.
-func (f *FS) Chtimes(name string, atime, mtime time.Time) error {
-	rel := f.rel(name)
+func (f *Filesystem) Chtimes(name string, atime, mtime time.Time) error {
+	rel := relative(f.dir, name)
 	return renamed(f.root.Chtimes(rel, atime, mtime), rel, name)
 }
 
 // Getwd returns the Host's directory, an absolute path, which relative
 // names are relative to. It never fails.
-func (f *FS) Getwd() (string, error) {
+func (f *Filesystem) Getwd() (string, error) {
 	return f.dir, nil
 }
 
@@ -369,14 +396,14 @@ func (f *FS) Getwd() (string, error) {
 // that CreateTemp or MkdirTemp creates in, and the name to report it by
 // in errors: dir both times, or for "" the Host's temporary directory,
 // which it creates, and its absolute path.
-func (f *FS) tempDir(dir string) (rel, shown string, err error) {
+func tempDir(f *Filesystem, dir string) (rel, shown string, err error) {
 	if dir != "" {
-		return f.rel(dir), dir, nil
+		return relative(f.dir, dir), dir, nil
 	}
 	if err := f.root.MkdirAll(tempDirName, 0o755); err != nil {
-		return "", "", renamed(err, tempDirName, f.abs(tempDirName))
+		return "", "", renamed(err, tempDirName, filepath.Join(f.dir, tempDirName))
 	}
-	return tempDirName, f.abs(tempDirName), nil
+	return tempDirName, filepath.Join(f.dir, tempDirName), nil
 }
 
 // tempPattern splits pattern at its last "*", as os.CreateTemp does.
@@ -411,17 +438,17 @@ const tempTries = 10000
 
 // CreateTemp is host.OSFS's CreateTemp, confined to the Host's directory.
 // With dir == "" it creates the file in "tmp" inside the directory.
-func (f *FS) CreateTemp(dir, pattern string) (*os.File, error) {
+func (f *Filesystem) CreateTemp(dir, pattern string) (*os.File, error) {
 	prefix, suffix, err := tempPattern("createtemp", pattern)
 	if err != nil {
 		return nil, err
 	}
-	return f.createTemp(dir, prefix, suffix, random)
+	return createTemp(f, dir, prefix, suffix, random)
 }
 
 // createTemp is CreateTemp, trying names whose random part random makes.
-func (f *FS) createTemp(dir, prefix, suffix string, random func() string) (*os.File, error) {
-	d, shown, err := f.tempDir(dir)
+func createTemp(f *Filesystem, dir, prefix, suffix string, random func() string) (*os.File, error) {
+	d, shown, err := tempDir(f, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -440,17 +467,17 @@ func (f *FS) createTemp(dir, prefix, suffix string, random func() string) (*os.F
 // MkdirTemp is host.OSFS's MkdirTemp, confined to the Host's directory.
 // With dir == "" it creates the directory in "tmp" inside the Host's
 // directory. It returns an absolute OS path.
-func (f *FS) MkdirTemp(dir, pattern string) (string, error) {
+func (f *Filesystem) MkdirTemp(dir, pattern string) (string, error) {
 	prefix, suffix, err := tempPattern("mkdirtemp", pattern)
 	if err != nil {
 		return "", err
 	}
-	return f.mkdirTemp(dir, prefix, suffix, random)
+	return mkdirTemp(f, dir, prefix, suffix, random)
 }
 
 // mkdirTemp is MkdirTemp, trying names whose random part random makes.
-func (f *FS) mkdirTemp(dir, prefix, suffix string, random func() string) (string, error) {
-	d, shown, err := f.tempDir(dir)
+func mkdirTemp(f *Filesystem, dir, prefix, suffix string, random func() string) (string, error) {
+	d, shown, err := tempDir(f, dir)
 	if err != nil {
 		return "", err
 	}
@@ -471,20 +498,20 @@ func (f *FS) mkdirTemp(dir, prefix, suffix string, random func() string) (string
 		if err != nil {
 			return "", renamed(err, rel, joinPath(shown, base))
 		}
-		return f.abs(rel), nil
+		return filepath.Join(f.dir, rel), nil
 	}
 	return "", &fs.PathError{Op: "mkdirtemp", Path: joinPath(shown, prefix) + "*" + suffix, Err: fs.ErrExist}
 }
 
 // Mkdir is host.OSFS's Mkdir, confined to the Host's directory.
-func (f *FS) Mkdir(name string, perm os.FileMode) error {
-	rel := f.rel(name)
+func (f *Filesystem) Mkdir(name string, perm os.FileMode) error {
+	rel := relative(f.dir, name)
 	return renamed(f.root.Mkdir(rel, perm), rel, name)
 }
 
 // MkdirAll is host.OSFS's MkdirAll, confined to the Host's directory.
-func (f *FS) MkdirAll(name string, perm os.FileMode) error {
-	rel := f.rel(name)
+func (f *Filesystem) MkdirAll(name string, perm os.FileMode) error {
+	rel := relative(f.dir, name)
 	err := f.root.MkdirAll(rel, perm)
 	if errors.Is(err, fs.ErrExist) {
 		// os.Root reports a name that is not a directory as existing.
@@ -498,28 +525,28 @@ func (f *FS) MkdirAll(name string, perm os.FileMode) error {
 	// directory, which for an absolute name is not the caller's form.
 	var pe *fs.PathError
 	if filepath.IsAbs(name) && errors.As(err, &pe) && pe.Path != rel && filepath.IsLocal(pe.Path) {
-		pe.Path = f.abs(pe.Path)
+		pe.Path = filepath.Join(f.dir, pe.Path)
 	}
 	return renamed(err, rel, name)
 }
 
 // Remove is host.OSFS's Remove, confined to the Host's directory.
-func (f *FS) Remove(name string) error {
-	rel := f.rel(name)
+func (f *Filesystem) Remove(name string) error {
+	rel := relative(f.dir, name)
 	return renamed(f.root.Remove(rel), rel, name)
 }
 
 // RemoveAll is host.OSFS's RemoveAll, confined to the Host's directory. A
 // symbolic link is removed, not followed.
-func (f *FS) RemoveAll(name string) error {
-	rel := f.rel(name)
+func (f *Filesystem) RemoveAll(name string) error {
+	rel := relative(f.dir, name)
 	return renamed(f.root.RemoveAll(rel), rel, name)
 }
 
 // Rename is host.OSFS's Rename, confined to the Host's directory: neither
 // name may leave it.
-func (f *FS) Rename(oldname, newname string) error {
-	oldrel, newrel := f.rel(oldname), f.rel(newname)
+func (f *Filesystem) Rename(oldname, newname string) error {
+	oldrel, newrel := relative(f.dir, oldname), relative(f.dir, newname)
 	return relinked(f.root.Rename(oldrel, newrel), oldrel, oldname, newrel, newname)
 }
 
@@ -540,16 +567,16 @@ func relinked(err error, oldrel, oldname, newrel, newname string) error {
 }
 
 // Stat is host.OSFS's Stat, confined to the Host's directory.
-func (f *FS) Stat(name string) (os.FileInfo, error) {
-	rel := f.rel(name)
+func (f *Filesystem) Stat(name string) (os.FileInfo, error) {
+	rel := relative(f.dir, name)
 	fi, err := f.root.Stat(rel)
 	return fi, renamed(err, rel, name)
 }
 
 // ReadDir is host.OSFS's ReadDir, confined to the Host's directory. Its
 // entries are sorted by filename.
-func (f *FS) ReadDir(name string) ([]os.DirEntry, error) {
-	rel := f.rel(name)
+func (f *Filesystem) ReadDir(name string) ([]os.DirEntry, error) {
+	rel := relative(f.dir, name)
 	file, err := f.root.Open(rel)
 	if err != nil {
 		return nil, renamed(err, rel, name)
@@ -569,8 +596,8 @@ func (f *FS) ReadDir(name string) ([]os.DirEntry, error) {
 
 // DirFS is host.OSFS's DirFS, confined to the Host's directory. For a dir
 // outside it, every Open of the fs.FS fails, since DirFS cannot.
-func (f *FS) DirFS(dir string) fs.FS {
-	name := f.rel(dir)
+func (f *Filesystem) DirFS(dir string) fs.FS {
+	name := relative(f.dir, dir)
 	if name != "" {
 		// os.DirFS takes "./dir" and "dir/", which fs.Sub does not, and
 		// fails for "", which Clean would make the whole directory.

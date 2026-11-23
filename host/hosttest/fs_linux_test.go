@@ -23,22 +23,22 @@ func accessTime(fi fs.FileInfo) time.Time {
 	return time.Unix(st.Atim.Unix()).UTC()
 }
 
-func TestFS_Chtimes_sets_the_access_time(t *testing.T) {
+func TestFilesystem_Chtimes_sets_the_access_time(t *testing.T) {
 	h := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"file": []byte("file")}))
 	atime := time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)
 	mtime := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
-	require.NoError(t, h.FS().Chtimes("file", atime, mtime))
-	fi, err := h.FS().Stat("file")
+	require.NoError(t, h.Filesystem().Chtimes("file", atime, mtime))
+	fi, err := h.Filesystem().Stat("file")
 	require.NoError(t, err)
 	require.Equal(t, atime, accessTime(fi))
 	require.Equal(t, mtime, fi.ModTime().UTC())
 }
 
-func TestFS_Truncate_a_named_pipe_fails_without_waiting_for_a_reader(t *testing.T) {
+func TestFilesystem_Truncate_a_named_pipe_fails_without_waiting_for_a_reader(t *testing.T) {
 	h := hosttest.New(t)
 	require.NoError(t, syscall.Mkfifo(h.Path("pipe"), 0o600))
 	done := make(chan error, 1)
-	go func() { done <- h.FS().Truncate("pipe", 0) }()
+	go func() { done <- h.Filesystem().Truncate("pipe", 0) }()
 	select {
 	case err := <-done:
 		var pe *fs.PathError

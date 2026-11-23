@@ -14,7 +14,9 @@
 // [Host.DialTCP], [Host.ListenUDP] and [Host.DialUDP] split Listen,
 // ListenPacket and Dial by protocol, so a test hands the Host itself to
 // code that takes the methods of an IPNetwork, and [Seams] replaces one of
-// them inline. The
+// them inline. Code that takes a filesystem of its own declared methods,
+// as it takes host.OSFilesystem on the real machine, is handed
+// [Host.Filesystem], which is [Host.FS] without the seal. The
 // code under test listens on the Host's network and the test dials it, and
 // every file either opens is inside the test's own temp directory.
 //
@@ -163,17 +165,20 @@
 //
 // The filesystem is real. [New] takes a directory from t.TempDir(), which
 // is removed when the test ends, and [WithFiles] writes the files a test
-// sets up before the code starts. The [FS] that [Host.FS] returns opens
-// files with an os.Root on that directory, so ".." and symbolic links can't leave it, and
-// [Host.Path] gives the absolute path of a file in it to put in an
-// argument or a setting. Relative names are relative to the directory,
-// which is what the filesystem's [FS.Getwd] returns.
+// sets up before the code starts. The [FS] that [Host.FS] returns, and the
+// [Filesystem] that [Host.Filesystem] returns, open files with the same
+// os.Root on that directory, so ".." and symbolic links can't leave it,
+// and the two see the same files. Filesystem is FS without the seal of
+// host.FS, and without OpenRoot and OpenInRoot. [Host.Path] gives the
+// absolute path of a file in the directory to put in an argument or a
+// setting. Relative names are relative to the directory, which is what
+// the filesystem's [Filesystem.Getwd] returns.
 //
 // Real files are what let libraries that need an *os.File or a path keep
 // working in a test, and they cost two things. A test can't inject an I/O
 // error, such as a full disk, from the filesystem alone, so a test that
-// needs one embeds *FS in a type of its own and overrides the method that
-// fails. And a file's ModTime is real even inside a synctest bubble, whose
+// needs one embeds *FS or *Filesystem in a type of its own and overrides
+// the method that fails. And a file's ModTime is real even inside a synctest bubble, whose
 // clock is fake, so code that compares ModTime with time.Now needs Chtimes
 // in its tests.
 //
@@ -181,11 +186,11 @@
 //
 // os.Root never follows a symbolic link to an absolute target, even one
 // inside the directory, so such a link would fail at its first use rather
-// than where it was made. [FS.Symlink] refuses an absolute target instead,
-// creating nothing, with an *os.LinkError whose Err is
-// errors.ErrUnsupported, and [FS.CopyFS] fails the same way on an fsys
-// that holds one. Code that makes symbolic links makes relative ones, which
-// work the same on the real machine and under hosttest.
+// than where it was made. [Filesystem.Symlink], and so FS's, refuses an
+// absolute target instead, creating nothing, with an *os.LinkError whose
+// Err is errors.ErrUnsupported, and [Filesystem.CopyFS] fails the same way
+// on an fsys that holds one. Code that makes symbolic links makes relative
+// ones, which work the same on the real machine and under hosttest.
 //
 // The design is discussion #614,
 // https://github.com/z5labs/bedrock/discussions/614.
