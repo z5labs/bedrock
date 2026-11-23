@@ -18,9 +18,11 @@ import (
 	"github.com/z5labs/bedrock/host"
 )
 
-// Every test in this module works inside a directory from t.TempDir, and
-// only TestOS_binds_UDP_and_dials_it opens a socket, on loopback.
-// hosttest's conformance table runs OS over real loopback sockets.
+// Every test in this module works inside a directory from t.TempDir. The
+// tests that open sockets do so on loopback: TestOS_binds_UDP_and_dials_it,
+// the TestIPNetwork tests and ExampleIPNetwork in package host_test.
+// hosttest's conformance tables run OS and IPNetwork over real loopback
+// sockets.
 
 func TestOS_has_every_field(t *testing.T) {
 	h := host.OS()
