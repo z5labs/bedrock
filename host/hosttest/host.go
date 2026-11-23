@@ -136,8 +136,12 @@ func (h *Host) Listen(network, address string) (net.Listener, error) {
 // only to the address it dialled, and takes datagrams only from that
 // address, dropping every other. A write to an address no socket holds
 // succeeds, and the socket's next read or write fails with ECONNREFUSED,
-// as Linux reports the ICMP port unreachable that answers it. The package
-// documentation says what else the socket does.
+// as Linux reports the ICMP port unreachable that answers it. The socket
+// is a net.PacketConn, as a dialled *net.UDPConn is: its ReadFrom reads as
+// Read does and returns the address it dialled, and its WriteTo sends
+// nothing and fails with an error wrapping net.ErrWriteToConnected,
+// whatever the address. The package documentation says what else the
+// socket does.
 func (h *Host) Dial(ctx context.Context, network, address string) (net.Conn, error) {
 	k, err := parse(network, address, "tcp", "udp")
 	if err != nil {

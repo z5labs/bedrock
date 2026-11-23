@@ -137,6 +137,12 @@
 //     and the socket's next read or write fails with ECONNREFUSED, as Linux
 //     reports the ICMP port unreachable that answers it. A socket from
 //     ListenPacket is never told.
+//   - A dialled socket is a net.PacketConn, as a dialled *net.UDPConn is,
+//     so a client that frames its messages by that type, such as Go's
+//     resolver, sends datagrams on it. Its ReadFrom reads as Read does and
+//     returns the address it dialled. Its WriteTo sends nothing and fails
+//     with an error wrapping net.ErrWriteToConnected, whatever the
+//     address, even the one it dialled.
 //   - Deadlines run on the clock of the testing/synctest bubble.
 //   - The sockets have SetReadBuffer and SetWriteBuffer, as a *net.UDPConn
 //     does, for code such as a QUIC implementation that calls them. They

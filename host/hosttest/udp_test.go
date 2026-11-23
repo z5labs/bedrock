@@ -652,6 +652,182 @@ func TestHost_Dial_udp(t *testing.T) {
 	})
 }
 
+func TestHost_Dial_udp_is_a_PacketConn(t *testing.T) {
+	t.Run("from DialUDP, and from Dial over udp, udp4 and udp6", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			c, err := h.DialUDP(t.Context(), "udp", "dns:53")
+			require.NoError(t, err)
+			require.Implements(t, (*net.PacketConn)(nil), c)
+			require.NoError(t, c.Close())
+
+			for _, network := range []string{"udp", "udp4", "udp6"} {
+				c, err := h.Dial(t.Context(), network, "dns:53")
+				require.NoError(t, err, network)
+				require.Implements(t, (*net.PacketConn)(nil), c, network)
+				require.NoError(t, c.Close())
+			}
+		})
+	})
+}
+
+// dialPacketConn dials address over UDP and returns the socket as the
+// net.PacketConn it is.
+func dialPacketConn(t *testing.T, h *hosttest.Host, address string) net.PacketConn {
+	t.Helper()
+	pc, ok := dialUDP(t, h, address).(net.PacketConn)
+	require.True(t, ok)
+	return pc
+}
+
+func TestHost_Dial_udp_ReadFrom(t *testing.T) {
+	t.Run("returns the datagram and the address dialled", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			server := listenPacket(t, h, "dns:53")
+			client := dialPacketConn(t, h, "dns:53")
+			_, err := client.(net.Conn).Write([]byte("ping"))
+			require.NoError(t, err)
+			_, from := readFrom(t, server)
+			writeTo(t, server, "pong", from)
+
+			got, addr := readFrom(t, client)
+			require.Equal(t, "pong", got)
+			require.Equal(t, "dns:53", addr.String())
+			require.Equal(t, "udp", addr.Network())
+		})
+	})
+
+	t.Run("takes datagrams only from the address dialled", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			dialled := listenPacket(t, h, "dns:53")
+			other := listenPacket(t, h, "dns:54")
+			client := dialPacketConn(t, h, "dns:53")
+
+			writeTo(t, other, "other", client.LocalAddr())
+			writeTo(t, dialled, "dialled", client.LocalAddr())
+			got, addr := readFrom(t, client)
+			require.Equal(t, "dialled", got)
+			require.Equal(t, "dns:53", addr.String())
+			requireNothingToRead(t, client)
+		})
+	})
+
+	t.Run("truncates a datagram into a short buffer", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			server := listenPacket(t, h, "dns:53")
+			client := dialPacketConn(t, h, "dns:53")
+			writeTo(t, server, "0123456789", client.LocalAddr())
+			writeTo(t, server, "next", client.LocalAddr())
+
+			b := make([]byte, 4)
+			n, addr, err := client.ReadFrom(b)
+			require.NoError(t, err)
+			require.Equal(t, "0123", string(b[:n]))
+			require.Equal(t, "dns:53", addr.String())
+			got, _ := readFrom(t, client)
+			require.Equal(t, "next", got, "the rest of the datagram is lost")
+		})
+	})
+
+	t.Run("fails with ECONNREFUSED after a write to an address no socket holds", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			client := dialPacketConn(t, h, "dns:53")
+			_, err := client.(net.Conn).Write([]byte("anyone?"))
+			require.NoError(t, err)
+
+			n, addr, err := client.ReadFrom(make([]byte, 64))
+			require.Zero(t, n)
+			require.Nil(t, addr)
+			require.ErrorIs(t, err, syscall.ECONNREFUSED)
+			requireSyscall(t, err, "read")
+			opErr := asNetOpError(t, err, "read")
+			require.Equal(t, client.LocalAddr(), opErr.Source)
+			require.Equal(t, "dns:53", opErr.Addr.String())
+
+			requireNothingToRead(t, client)
+		})
+	})
+
+	t.Run("fails when its deadline passes, on the bubble's clock", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			client := dialPacketConn(t, h, "dns:53")
+
+			start := time.Now()
+			require.NoError(t, client.SetReadDeadline(start.Add(time.Second)))
+			_, _, err := client.ReadFrom(make([]byte, 64))
+			require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+			requireNetOpError(t, err, "read")
+			require.Equal(t, time.Second, time.Since(start))
+		})
+	})
+
+	t.Run("fails with net.ErrClosed once the socket closes", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			client := dialPacketConn(t, h, "dns:53")
+			require.NoError(t, client.Close())
+
+			_, _, err := client.ReadFrom(make([]byte, 64))
+			require.ErrorIs(t, err, net.ErrClosed)
+			requireNetOpError(t, err, "read")
+		})
+	})
+}
+
+func TestHost_Dial_udp_WriteTo(t *testing.T) {
+	t.Run("fails with net.ErrWriteToConnected and sends nothing, whatever the address", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			dialled := listenPacket(t, h, "dns:53")
+			other := listenPacket(t, h, "dns:54")
+			client := dialPacketConn(t, h, "dns:53")
+
+			for _, to := range []net.Addr{dialled.LocalAddr(), other.LocalAddr(), hostAddr("no-port"), nil} {
+				n, err := client.WriteTo([]byte("ping"), to)
+				require.Zero(t, n)
+				require.ErrorIs(t, err, net.ErrWriteToConnected)
+				opErr := asNetOpError(t, err, "write")
+				require.Equal(t, "udp", opErr.Net)
+				require.Equal(t, client.LocalAddr(), opErr.Source)
+				require.Equal(t, to, opErr.Addr)
+			}
+			requireNothingToRead(t, dialled)
+			requireNothingToRead(t, other)
+		})
+	})
+
+	t.Run("reads as a dialled *net.UDPConn's error does", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			server := listenPacket(t, h, "127.0.0.1:49828")
+			client := dialPacketConn(t, h, "127.0.0.1:49828")
+
+			_, err := client.WriteTo([]byte("ping"), server.LocalAddr())
+			require.EqualError(t, err, "write udp "+client.LocalAddr().String()+"->127.0.0.1:49828: use of WriteTo with pre-connected connection")
+		})
+	})
+
+	t.Run("leaves Write sending to the address dialled", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			h := hosttest.New(t)
+			server := listenPacket(t, h, "dns:53")
+			client := dialPacketConn(t, h, "dns:53")
+
+			_, err := client.WriteTo([]byte("refused"), server.LocalAddr())
+			require.Error(t, err)
+			_, err = client.(net.Conn).Write([]byte("sent"))
+			require.NoError(t, err)
+			got, _ := readFrom(t, server)
+			require.Equal(t, "sent", got)
+		})
+	})
+}
+
 func TestHost_udp_ECONNREFUSED(t *testing.T) {
 	t.Run("on the read after a write to an address no socket holds", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
