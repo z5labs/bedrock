@@ -355,8 +355,13 @@ func (c packetConn) WriteTo(b []byte, a net.Addr) (int, error) {
 	return len(b), nil
 }
 
-// udpConn is the net.Conn that Host.Dial returns over UDP.
+// udpConn is the net.Conn that Host.Dial returns over UDP. It is a
+// net.PacketConn too, as a dialled *net.UDPConn is, so a client that
+// frames its messages by that type, such as Go's resolver, sends
+// datagrams on it.
 type udpConn struct{ *socket }
+
+var _ net.PacketConn = udpConn{}
 
 // Read waits for a datagram from the address the socket dialled and
 // copies it into b, truncating it if b is short, as a real socket does.
@@ -366,6 +371,24 @@ func (c udpConn) Read(b []byte) (int, error) {
 		return 0, c.opErr("read", err)
 	}
 	return n, nil
+}
+
+// ReadFrom reads as Read does, and returns the address the datagram is
+// from, which is always the address the socket dialled.
+func (c udpConn) ReadFrom(b []byte) (int, net.Addr, error) {
+	n, from, err := c.recv(b)
+	if err != nil {
+		return 0, nil, c.opErr("read", err)
+	}
+	return n, from.udpAddr(), nil
+}
+
+// WriteTo sends nothing and fails with a *net.OpError wrapping
+// net.ErrWriteToConnected, whatever a is, even the address the socket
+// dialled, as WriteTo on a dialled *net.UDPConn does. Write sends to the
+// address the socket dialled.
+func (c udpConn) WriteTo(_ []byte, a net.Addr) (int, error) {
+	return 0, &net.OpError{Op: "write", Net: c.network, Source: c.LocalAddr(), Addr: a, Err: net.ErrWriteToConnected}
 }
 
 // Write sends b to the address the socket dialled, as one datagram.

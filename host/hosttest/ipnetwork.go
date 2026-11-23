@@ -54,7 +54,8 @@ func (h *Host) ListenUDP(ctx context.Context, network, address string) (net.Pack
 // DialUDP returns a UDP socket connected to the host and port of address,
 // with the rules [Host.Dial] has over UDP: it returns at once, whether or
 // not a socket holds the address, and fails with ctx's error if ctx is
-// already done. network is "udp", "udp4" or "udp6"; any other network
+// already done. The socket is a net.PacketConn that refuses WriteTo, as
+// [Host.Dial] says. network is "udp", "udp4" or "udp6"; any other network
 // fails with a *net.OpError wrapping net.UnknownNetworkError.
 func (h *Host) DialUDP(ctx context.Context, network, address string) (net.Conn, error) {
 	if protocol(network) != "udp" {

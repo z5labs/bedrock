@@ -210,6 +210,48 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 		})
 	})
 
+	t.Run("a dialled socket is a net.PacketConn", func(t *testing.T) {
+		run(t, func(t *testing.T, n ipNetwork) {
+			server := udpListen(t, n, "127.0.0.1:0")
+			client := udpDial(t, n, server.LocalAddr().String())
+
+			require.Implements(t, (*net.PacketConn)(nil), client)
+		})
+	})
+
+	t.Run("a dialled socket's ReadFrom returns a reply and the address it dialled", func(t *testing.T) {
+		run(t, func(t *testing.T, n ipNetwork) {
+			server := udpListen(t, n, "127.0.0.1:0")
+			client := udpDialPacketConn(t, n, server.LocalAddr().String())
+			udpWrite(t, client.(net.Conn), "ping")
+			_, from := udpReadFrom(t, server, 64)
+			_, err := server.WriteTo([]byte("pong"), from)
+			require.NoError(t, err)
+
+			got, addr := udpReadFrom(t, client, 64)
+			require.Equal(t, "pong", got)
+			require.Equal(t, server.LocalAddr().String(), addr.String())
+		})
+	})
+
+	t.Run("a dialled socket's WriteTo fails with net.ErrWriteToConnected", func(t *testing.T) {
+		run(t, func(t *testing.T, n ipNetwork) {
+			dialled := udpListen(t, n, "127.0.0.1:0")
+			other := udpListen(t, n, "127.0.0.1:0")
+			client := udpDialPacketConn(t, n, dialled.LocalAddr().String())
+
+			for _, to := range []net.Addr{dialled.LocalAddr(), other.LocalAddr()} {
+				written, err := client.WriteTo([]byte("ping"), to)
+				require.Zero(t, written)
+				requireOpError(t, err, net.ErrWriteToConnected)
+				opErr, _ := errors.AsType[*net.OpError](err)
+				require.Equal(t, "write", opErr.Op)
+				require.Equal(t, client.LocalAddr().String(), opErr.Source.String())
+				require.Equal(t, to.String(), opErr.Addr.String())
+			}
+		})
+	})
+
 	t.Run("SetReadBuffer and SetWriteBuffer succeed", func(t *testing.T) {
 		run(t, func(t *testing.T, n ipNetwork) {
 			server := udpListen(t, n, "127.0.0.1:0")
@@ -244,6 +286,15 @@ func udpDial(t *testing.T, n ipNetwork, address string) net.Conn {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	return c
+}
+
+// udpDialPacketConn dials address over UDP and returns the socket as the
+// net.PacketConn a dialled socket is, closed when the test ends.
+func udpDialPacketConn(t *testing.T, n ipNetwork, address string) net.PacketConn {
+	t.Helper()
+	pc, ok := udpDial(t, n, address).(net.PacketConn)
+	require.True(t, ok, "a dialled socket is not a net.PacketConn")
+	return pc
 }
 
 func udpWrite(t *testing.T, c net.Conn, msg string) {
