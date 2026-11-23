@@ -29,10 +29,10 @@ func names(names ...string) func() string {
 	}
 }
 
-func TestFS_createTemp(t *testing.T) {
+func TestFilesystem_createTemp(t *testing.T) {
 	t.Run("tries another name when one is taken", func(t *testing.T) {
 		h := New(t, WithFiles(map[string][]byte{"taken": nil}))
-		f, err := h.FS().createTemp(h.Path("."), "", "", names("taken", "free"))
+		f, err := createTemp(h.Filesystem(), h.Path("."), "", "", names("taken", "free"))
 		require.NoError(t, err)
 		require.NoError(t, f.Close())
 		require.Equal(t, h.Path("free"), f.Name())
@@ -42,7 +42,7 @@ func TestFS_createTemp(t *testing.T) {
 		// A pattern with no "*" is reported with one at its end, as
 		// os.CreateTemp reports it, under the dir passed.
 		h := New(t, WithFiles(map[string][]byte{"d/xtaken": nil}))
-		_, err := h.FS().createTemp("d", "x", "", names("taken"))
+		_, err := createTemp(h.Filesystem(), "d", "x", "", names("taken"))
 		var pe *fs.PathError
 		require.ErrorAs(t, err, &pe)
 		require.ErrorIs(t, err, fs.ErrExist)
@@ -51,17 +51,17 @@ func TestFS_createTemp(t *testing.T) {
 	})
 }
 
-func TestFS_mkdirTemp(t *testing.T) {
+func TestFilesystem_mkdirTemp(t *testing.T) {
 	t.Run("tries another name when one is taken", func(t *testing.T) {
 		h := New(t, WithFiles(map[string][]byte{"taken": nil}))
-		name, err := h.FS().mkdirTemp(h.Path("."), "", "", names("taken", "free"))
+		name, err := mkdirTemp(h.Filesystem(), h.Path("."), "", "", names("taken", "free"))
 		require.NoError(t, err)
 		require.Equal(t, h.Path("free"), name)
 	})
 
 	t.Run("gives up when every name it tries is taken", func(t *testing.T) {
 		h := New(t, WithFiles(map[string][]byte{"d/pre-taken.suf": nil}))
-		_, err := h.FS().mkdirTemp("d", "pre-", ".suf", names("taken"))
+		_, err := mkdirTemp(h.Filesystem(), "d", "pre-", ".suf", names("taken"))
 		var pe *fs.PathError
 		require.ErrorAs(t, err, &pe)
 		require.ErrorIs(t, err, fs.ErrExist)
@@ -72,11 +72,10 @@ func TestFS_mkdirTemp(t *testing.T) {
 
 // On Windows filepath.Rel fails for a name on another volume. Everywhere,
 // it fails for an absolute name against a relative directory, which no
-// Host has, but which takes rel down the same path.
-func TestFS_rel_escapes_a_name_it_cannot_make_relative(t *testing.T) {
-	f := &FS{dir: "relative"}
+// Host has, but which takes relative down the same path.
+func TestRelative_escapes_a_name_it_cannot_make_relative(t *testing.T) {
 	name := filepath.Join(t.TempDir(), "x")
-	rel := f.rel(name)
+	rel := relative("relative", name)
 	require.False(t, filepath.IsLocal(rel), rel)
 	require.Equal(t, ".."+string(filepath.Separator)+name, rel)
 }

@@ -32,8 +32,8 @@ import (
 // t.TempDir(): the Host's own, and a sibling standing in for "outside",
 // which every escape attempt aims at and which is checked to be unchanged.
 
-// opener is a filesystem that opens files, such as host.OSFS and
-// *hosttest.FS.
+// opener is a filesystem that opens files, such as host.OSFS,
+// *hosttest.FS and *hosttest.Filesystem.
 type opener interface {
 	Open(name string) (*os.File, error)
 }
@@ -81,7 +81,7 @@ func snapshot(t *testing.T, dir string) map[string]string {
 // holding a file and a directory, for escapes to aim at.
 type world struct {
 	host    *hosttest.Host
-	fs      *hosttest.FS
+	fs      *hosttest.Filesystem
 	outside string
 	before  map[string]string
 }
@@ -103,7 +103,7 @@ func newWorld(t *testing.T) *world {
 	require.NoError(t, err)
 	require.NoError(t, os.Symlink(rel, h.Path("relout")))
 
-	return &world{host: h, fs: h.FS(), outside: outside, before: snapshot(t, outside)}
+	return &world{host: h, fs: h.Filesystem(), outside: outside, before: snapshot(t, outside)}
 }
 
 // escapes returns names for elem outside the Host's directory: through
@@ -248,17 +248,73 @@ func TestFS_is_the_filesystem_of_a_host_Host(t *testing.T) {
 	require.Equal(t, "port: 9090", string(b))
 }
 
-func TestFS_embeds_only_host_FS(t *testing.T) {
-	typ := reflect.TypeFor[hosttest.FS]()
+// embeddedTypes returns the types typ embeds, and requires that it has no
+// exported fields.
+func embeddedTypes(t *testing.T, typ reflect.Type) []reflect.Type {
+	t.Helper()
 	var embedded []reflect.Type
 	for f := range typ.Fields() {
-		require.False(t, f.IsExported(), "FS has no exported fields: %s", f.Name)
+		require.False(t, f.IsExported(), "%s has no exported fields: %s", typ.Name(), f.Name)
 		if f.Anonymous {
 			embedded = append(embedded, f.Type)
 		}
 	}
-	require.Equal(t, []reflect.Type{reflect.TypeFor[host.FS]()}, embedded,
-		"FS gets host.FS's method from host.FS itself, never from host.OSFS, whose methods would escape the directory")
+	return embedded
+}
+
+func TestFS_embeds_only_host_FS_and_Filesystem(t *testing.T) {
+	embedded := embeddedTypes(t, reflect.TypeFor[hosttest.FS]())
+	require.Equal(t, []reflect.Type{reflect.TypeFor[host.FS](), reflect.TypeFor[hosttest.Filesystem]()}, embedded,
+		"FS gets host.FS's method from host.FS itself, and the rest from Filesystem, never from host.OSFS, whose methods would escape the directory")
+}
+
+func TestFilesystem_does_not_satisfy_host_FS(t *testing.T) {
+	_, ok := any((*hosttest.Filesystem)(nil)).(host.FS)
+	require.False(t, ok, "*Filesystem has no seal")
+	_, ok = any(hosttest.Filesystem{}).(host.FS)
+	require.False(t, ok, "Filesystem has no seal")
+	require.Empty(t, embeddedTypes(t, reflect.TypeFor[hosttest.Filesystem]()),
+		"Filesystem embeds nothing, so no method of the real filesystem can reach it")
+}
+
+// methodNames returns the names of the methods of typ, which reflect
+// lists in sorted order.
+func methodNames(typ reflect.Type) []string {
+	var names []string
+	for m := range typ.Methods() {
+		names = append(names, m.Name)
+	}
+	return names
+}
+
+func TestFilesystem_has_the_methods_of_host_OSFilesystem(t *testing.T) {
+	want := methodNames(reflect.TypeFor[host.OSFilesystem]())
+	require.Len(t, want, 26)
+	require.Equal(t, want, methodNames(reflect.TypeFor[*hosttest.Filesystem]()),
+		"*Filesystem has host.OSFilesystem's methods, and not OpenRoot or OpenInRoot")
+	require.Equal(t, methodNames(reflect.TypeFor[host.OSFS]()), methodNames(reflect.TypeFor[*hosttest.FS]()),
+		"*FS keeps host.OSFS's 28 exported methods")
+	require.Len(t, methodNames(reflect.TypeFor[*hosttest.FS]()), 28)
+}
+
+func TestHost_Filesystem_and_FS_see_the_same_files(t *testing.T) {
+	t.Run("written through Filesystem, read through FS", func(t *testing.T) {
+		h := hosttest.New(t)
+		require.NoError(t, h.Filesystem().MkdirAll("etc", 0o755))
+		require.NoError(t, h.Filesystem().WriteFile("etc/a", []byte("a"), 0o600))
+		got, err := readAll(h.FS(), "etc/a")
+		require.NoError(t, err)
+		require.Equal(t, "a", got)
+	})
+
+	t.Run("written through FS, read through Filesystem", func(t *testing.T) {
+		h := hosttest.New(t)
+		require.NoError(t, h.FS().MkdirAll("etc", 0o755))
+		require.NoError(t, h.FS().WriteFile("etc/b", []byte("b"), 0o600))
+		got, err := readAll(h.Filesystem(), "etc/b")
+		require.NoError(t, err)
+		require.Equal(t, "b", got)
+	})
 }
 
 func TestWithFiles(t *testing.T) {
@@ -333,9 +389,9 @@ func TestHost_Path(t *testing.T) {
 	require.True(t, filepath.IsAbs(p))
 	require.Equal(t, filepath.Join(h.Path("."), "etc", "tls", "server.p12"), p)
 
-	got, err := readAll(h.FS(), p)
+	got, err := readAll(h.Filesystem(), p)
 	require.NoError(t, err)
-	require.Equal(t, "p12", got, "FS().Open of the path opens the file WithFiles wrote")
+	require.Equal(t, "p12", got, "Filesystem().Open of the path opens the file WithFiles wrote")
 
 	t.Run("fails the test for a path outside the directory", func(t *testing.T) {
 		for _, name := range []string{"../x", filepath.ToSlash(h.Path("x"))} {
@@ -347,7 +403,7 @@ func TestHost_Path(t *testing.T) {
 	})
 }
 
-func TestFS_Open(t *testing.T) {
+func TestFilesystem_Open(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
 		got, err := readAll(w.fs, name)
 		require.NoError(t, err)
@@ -380,7 +436,7 @@ func TestFS_Open(t *testing.T) {
 	})
 }
 
-func TestFS_OpenFile(t *testing.T) {
+func TestFilesystem_OpenFile(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/new") }, func(t *testing.T, w *world, name string) {
 		f, err := w.fs.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 		require.NoError(t, err)
@@ -411,7 +467,7 @@ func requireInside(t *testing.T, dir, path string) {
 	require.True(t, filepath.IsLocal(rel), "%s is inside %s", path, dir)
 }
 
-func TestFS_CreateTemp(t *testing.T) {
+func TestFilesystem_CreateTemp(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, dir string) {
 		f, err := w.fs.CreateTemp(dir, "pre-*.suf")
 		require.NoError(t, err)
@@ -461,7 +517,7 @@ func TestFS_CreateTemp(t *testing.T) {
 
 	t.Run(`dir == "" when tmp is a file`, func(t *testing.T) {
 		h := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"tmp": []byte("in the way")}))
-		_, err := h.FS().CreateTemp("", "x")
+		_, err := h.Filesystem().CreateTemp("", "x")
 		require.Error(t, err)
 	})
 
@@ -474,7 +530,7 @@ func TestFS_CreateTemp(t *testing.T) {
 	})
 }
 
-func TestFS_MkdirTemp(t *testing.T) {
+func TestFilesystem_MkdirTemp(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, dir string) {
 		name, err := w.fs.MkdirTemp(dir, "pre-*.suf")
 		require.NoError(t, err)
@@ -515,7 +571,7 @@ func TestFS_MkdirTemp(t *testing.T) {
 
 	t.Run(`dir == "" when tmp is a file`, func(t *testing.T) {
 		h := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"tmp": []byte("in the way")}))
-		_, err := h.FS().MkdirTemp("", "x")
+		_, err := h.Filesystem().MkdirTemp("", "x")
 		require.Error(t, err)
 	})
 
@@ -525,7 +581,7 @@ func TestFS_MkdirTemp(t *testing.T) {
 	})
 }
 
-func TestFS_Mkdir(t *testing.T) {
+func TestFilesystem_Mkdir(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/new") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.Mkdir(name, 0o700))
 		fi, err := os.Stat(w.host.Path("dir/new"))
@@ -538,7 +594,7 @@ func TestFS_Mkdir(t *testing.T) {
 	})
 }
 
-func TestFS_MkdirAll(t *testing.T) {
+func TestFilesystem_MkdirAll(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("a/b/c") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.MkdirAll(name, 0o700))
 		fi, err := os.Stat(w.host.Path("a/b/c"))
@@ -565,7 +621,7 @@ func TestFS_MkdirAll(t *testing.T) {
 	})
 }
 
-func TestFS_Remove(t *testing.T) {
+func TestFilesystem_Remove(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.Remove(name))
 		_, err := os.Stat(w.host.Path("dir/file"))
@@ -577,7 +633,7 @@ func TestFS_Remove(t *testing.T) {
 	})
 }
 
-func TestFS_RemoveAll(t *testing.T) {
+func TestFilesystem_RemoveAll(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.RemoveAll(name))
 		_, err := os.Stat(w.host.Path("dir"))
@@ -604,7 +660,7 @@ func TestFS_RemoveAll(t *testing.T) {
 	})
 }
 
-func TestFS_Rename(t *testing.T) {
+func TestFilesystem_Rename(t *testing.T) {
 	forEach(t, func(w *world) map[string]string {
 		return map[string]string{
 			"relative": "dir/file|moved",
@@ -640,7 +696,7 @@ func TestFS_Rename(t *testing.T) {
 	})
 }
 
-func TestFS_Stat(t *testing.T) {
+func TestFilesystem_Stat(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
 		fi, err := w.fs.Stat(name)
 		require.NoError(t, err)
@@ -654,7 +710,7 @@ func TestFS_Stat(t *testing.T) {
 	})
 }
 
-func TestFS_ReadDir(t *testing.T) {
+func TestFilesystem_ReadDir(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, name string) {
 		entries, err := w.fs.ReadDir(name)
 		require.NoError(t, err)
@@ -680,7 +736,7 @@ func TestFS_ReadDir(t *testing.T) {
 	})
 }
 
-func TestFS_DirFS(t *testing.T) {
+func TestFilesystem_DirFS(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, dir string) {
 		var got []string
 		err := fs.WalkDir(w.fs.DirFS(dir), ".", func(path string, d fs.DirEntry, err error) error {
@@ -747,7 +803,7 @@ func TestHost_parallel_Hosts_never_see_each_others_files(t *testing.T) {
 			t.Parallel()
 			mine := fmt.Sprintf("host-%d", i)
 			h := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"shared": []byte(mine)}))
-			fsys := h.FS()
+			fsys := h.Filesystem()
 			for j := range 20 {
 				f, err := fsys.OpenFile(fmt.Sprintf("%s-%d", mine, j), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 				require.NoError(t, err)
@@ -767,7 +823,7 @@ func TestHost_parallel_Hosts_never_see_each_others_files(t *testing.T) {
 	}
 }
 
-func TestFS_Create(t *testing.T) {
+func TestFilesystem_Create(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
 		f, err := w.fs.Create(name)
 		require.NoError(t, err)
@@ -792,7 +848,7 @@ func TestFS_Create(t *testing.T) {
 
 func TestFS_OpenRoot(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, name string) {
-		root, err := w.fs.OpenRoot(name)
+		root, err := w.host.FS().OpenRoot(name)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, root.Close()) }()
 
@@ -805,7 +861,7 @@ func TestFS_OpenRoot(t *testing.T) {
 	})
 
 	escaping(t, "dir", func(t *testing.T, w *world, name string) error {
-		root, err := w.fs.OpenRoot(name)
+		root, err := w.host.FS().OpenRoot(name)
 		if err == nil {
 			_ = root.Close()
 		}
@@ -815,7 +871,7 @@ func TestFS_OpenRoot(t *testing.T) {
 
 func TestFS_OpenInRoot(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, dir string) {
-		f, err := w.fs.OpenInRoot(dir, filepath.Join("sub", "leaf"))
+		f, err := w.host.FS().OpenInRoot(dir, filepath.Join("sub", "leaf"))
 		require.NoError(t, err)
 		defer func() { require.NoError(t, f.Close()) }()
 		b, err := io.ReadAll(f)
@@ -832,7 +888,7 @@ func TestFS_OpenInRoot(t *testing.T) {
 			filepath.Join("up", "file"),
 			filepath.Join("..", "..", "out", "secret"),
 		} {
-			f, err := w.fs.OpenInRoot("dir/sub", name)
+			f, err := w.host.FS().OpenInRoot("dir/sub", name)
 			if err == nil {
 				_ = f.Close()
 			}
@@ -845,7 +901,7 @@ func TestFS_OpenInRoot(t *testing.T) {
 
 	t.Run("an error names the dir passed", func(t *testing.T) {
 		w := newWorld(t)
-		_, err := w.fs.OpenInRoot(w.host.Path("missing"), "file")
+		_, err := w.host.FS().OpenInRoot(w.host.Path("missing"), "file")
 		var pe *fs.PathError
 		require.ErrorAs(t, err, &pe)
 		require.ErrorIs(t, err, fs.ErrNotExist)
@@ -853,7 +909,7 @@ func TestFS_OpenInRoot(t *testing.T) {
 	})
 
 	escaping(t, "dir", func(t *testing.T, w *world, dir string) error {
-		f, err := w.fs.OpenInRoot(dir, ".")
+		f, err := w.host.FS().OpenInRoot(dir, ".")
 		if err == nil {
 			_ = f.Close()
 		}
@@ -861,7 +917,7 @@ func TestFS_OpenInRoot(t *testing.T) {
 	})
 }
 
-func TestFS_ReadFile(t *testing.T) {
+func TestFilesystem_ReadFile(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
 		b, err := w.fs.ReadFile(name)
 		require.NoError(t, err)
@@ -883,7 +939,7 @@ func TestFS_ReadFile(t *testing.T) {
 	})
 }
 
-func TestFS_WriteFile(t *testing.T) {
+func TestFilesystem_WriteFile(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/new") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.WriteFile(name, []byte("new"), 0o600))
 		b, err := os.ReadFile(w.host.Path("dir/new"))
@@ -896,7 +952,7 @@ func TestFS_WriteFile(t *testing.T) {
 	})
 }
 
-func TestFS_Truncate(t *testing.T) {
+func TestFilesystem_Truncate(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.Truncate(name, 2))
 		b, err := os.ReadFile(w.host.Path("dir/file"))
@@ -986,7 +1042,7 @@ func (f failingFile) Read(b []byte) (int, error) {
 	return f.File.Read(b)
 }
 
-func TestFS_CopyFS(t *testing.T) {
+func TestFilesystem_CopyFS(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("copy") }, func(t *testing.T, w *world, dir string) {
 		require.NoError(t, w.fs.CopyFS(dir, fstest.MapFS{
 			"a/b":    {Data: []byte("b")},
@@ -1062,7 +1118,7 @@ func TestFS_CopyFS(t *testing.T) {
 	})
 }
 
-func TestFS_Link(t *testing.T) {
+func TestFilesystem_Link(t *testing.T) {
 	forEach(t, func(w *world) map[string]string {
 		return map[string]string{
 			"relative": "dir/file|hard",
@@ -1096,7 +1152,7 @@ func TestFS_Link(t *testing.T) {
 	})
 }
 
-func TestFS_Symlink(t *testing.T) {
+func TestFilesystem_Symlink(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/link") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.Symlink(filepath.Join("sub", "leaf"), name))
 		got, err := readAll(w.fs, name)
@@ -1151,7 +1207,7 @@ func TestFS_Symlink(t *testing.T) {
 	})
 }
 
-func TestFS_Readlink(t *testing.T) {
+func TestFilesystem_Readlink(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("relout") }, func(t *testing.T, w *world, name string) {
 		target, err := w.fs.Readlink(name)
 		require.NoError(t, err)
@@ -1166,7 +1222,7 @@ func TestFS_Readlink(t *testing.T) {
 	})
 }
 
-func TestFS_Lstat(t *testing.T) {
+func TestFilesystem_Lstat(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("out") }, func(t *testing.T, w *world, name string) {
 		fi, err := w.fs.Lstat(name)
 		require.NoError(t, err)
@@ -1180,7 +1236,7 @@ func TestFS_Lstat(t *testing.T) {
 	})
 }
 
-func TestFS_Chmod(t *testing.T) {
+func TestFilesystem_Chmod(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.Chmod(name, 0o600))
 		fi, err := os.Stat(w.host.Path("dir/file"))
@@ -1193,7 +1249,7 @@ func TestFS_Chmod(t *testing.T) {
 	})
 }
 
-func TestFS_Chown(t *testing.T) {
+func TestFilesystem_Chown(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.Chown(name, os.Getuid(), os.Getgid()))
 	})
@@ -1203,7 +1259,7 @@ func TestFS_Chown(t *testing.T) {
 	})
 }
 
-func TestFS_Lchown(t *testing.T) {
+func TestFilesystem_Lchown(t *testing.T) {
 	forEach(t, func(w *world) map[string]string { return w.names("out") }, func(t *testing.T, w *world, name string) {
 		require.NoError(t, w.fs.Lchown(name, os.Getuid(), os.Getgid()))
 	})
@@ -1213,7 +1269,7 @@ func TestFS_Lchown(t *testing.T) {
 	})
 }
 
-func TestFS_Chtimes(t *testing.T) {
+func TestFilesystem_Chtimes(t *testing.T) {
 	atime := time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)
 	mtime := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
 	forEach(t, func(w *world) map[string]string { return w.names("dir/file") }, func(t *testing.T, w *world, name string) {
@@ -1228,13 +1284,13 @@ func TestFS_Chtimes(t *testing.T) {
 	})
 }
 
-func TestFS_Getwd(t *testing.T) {
+func TestFilesystem_Getwd(t *testing.T) {
 	h := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"dir/file": []byte("file")}))
-	wd, err := h.FS().Getwd()
+	wd, err := h.Filesystem().Getwd()
 	require.NoError(t, err)
 	require.Equal(t, h.Path("."), wd, "the Host's directory")
 
-	got, err := readAll(h.FS(), filepath.Join(wd, "dir", "file"))
+	got, err := readAll(h.Filesystem(), filepath.Join(wd, "dir", "file"))
 	require.NoError(t, err)
 	require.Equal(t, "file", got, "relative names are relative to it")
 }
