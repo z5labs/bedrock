@@ -18,14 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// udpNetwork is the network under test for the UDP scenarios: the Listen,
-// ListenPacket and Dial of a host.Host.
-type udpNetwork struct {
-	listen       listenFunc
-	listenPacket func(network, address string) (net.PacketConn, error)
-	dial         dialFunc
-}
-
 // udpTimeout bounds every wait for a datagram, so a datagram that never
 // arrives fails a loopback scenario rather than hanging it. Inside a
 // synctest bubble it passes only when every goroutine is blocked.
@@ -33,16 +25,17 @@ const udpTimeout = 5 * time.Second
 
 // testConformanceUDP runs the UDP scenarios that the in-memory network
 // must get right exactly as a real one does, on the network that run
-// makes for each, as testConformance does for TCP.
+// makes for each, as testConformance does for TCP. The UDP scenarios call
+// its ListenUDP and DialUDP, and ListenTCP to hold a TCP port.
 //
 // Every scenario sends to 127.0.0.1 or 127.0.0.2 and takes port 0 for its
 // first socket. A socket on every name replies to 127.0.0.1 only: on a
 // real network the reply's source address is the one the route to the
 // peer picks, which over loopback is 127.0.0.1 whatever the peer sent to.
-func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *testing.T, n udpNetwork))) {
+func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *testing.T, n ipNetwork))) {
 	t.Run("TCP and UDP bind the same port", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
-			ln, err := n.listen("tcp", "127.0.0.1:0")
+		run(t, func(t *testing.T, n ipNetwork) {
+			ln, err := n.ListenTCP(t.Context(), "tcp", "127.0.0.1:0")
 			require.NoError(t, err)
 			defer func() { require.NoError(t, ln.Close()) }()
 
@@ -52,7 +45,7 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("two names on one port both receive", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			one := udpListen(t, n, "127.0.0.1:0")
 			port := strconv.Itoa(portOf(t, one.LocalAddr()))
 			two := udpListen(t, n, net.JoinHostPort("127.0.0.2", port))
@@ -68,34 +61,34 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("EADDRINUSE for a name on a port every name holds", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			every := udpListen(t, n, ":0")
 
-			_, err := n.listenPacket("udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(portOf(t, every.LocalAddr()))))
+			_, err := n.ListenUDP(t.Context(), "udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(portOf(t, every.LocalAddr()))))
 			requireOpError(t, err, syscall.EADDRINUSE)
 		})
 	})
 
 	t.Run("EADDRINUSE for every name on a port a name holds", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			one := udpListen(t, n, "127.0.0.1:0")
 
-			_, err := n.listenPacket("udp", ":"+strconv.Itoa(portOf(t, one.LocalAddr())))
+			_, err := n.ListenUDP(t.Context(), "udp", ":"+strconv.Itoa(portOf(t, one.LocalAddr())))
 			requireOpError(t, err, syscall.EADDRINUSE)
 		})
 	})
 
 	t.Run("EADDRINUSE for a name and port taken twice", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			one := udpListen(t, n, "127.0.0.1:0")
 
-			_, err := n.listenPacket("udp", one.LocalAddr().String())
+			_, err := n.ListenUDP(t.Context(), "udp", one.LocalAddr().String())
 			requireOpError(t, err, syscall.EADDRINUSE)
 		})
 	})
 
 	t.Run("datagrams arrive whole and in order", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			server := udpListen(t, n, "127.0.0.1:0")
 			client := udpDial(t, n, server.LocalAddr().String())
 
@@ -111,7 +104,7 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("a read into a short buffer truncates the datagram", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			server := udpListen(t, n, "127.0.0.1:0")
 			client := udpDial(t, n, server.LocalAddr().String())
 			udpWrite(t, client, "0123456789")
@@ -125,7 +118,7 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("EMSGSIZE for a datagram too big for UDP", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			server := udpListen(t, n, "127.0.0.1:0")
 			client := udpDial(t, n, server.LocalAddr().String())
 
@@ -143,7 +136,7 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("a socket on every name replies from the address its peer sent to", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			server := udpListen(t, n, ":0")
 			client := udpDial(t, n, net.JoinHostPort("127.0.0.1", strconv.Itoa(portOf(t, server.LocalAddr()))))
 			udpWrite(t, client, "ping")
@@ -156,7 +149,7 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("a dialled socket takes datagrams only from the address it dialled", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			dialled := udpListen(t, n, "127.0.0.1:0")
 			other := udpListen(t, n, "127.0.0.1:0")
 			client := udpDial(t, n, dialled.LocalAddr().String())
@@ -172,7 +165,7 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("ECONNREFUSED after a write to an address no socket holds", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			gone := udpListen(t, n, "127.0.0.1:0")
 			address := gone.LocalAddr().String()
 			require.NoError(t, gone.Close())
@@ -186,7 +179,7 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("a listening socket's write to an address no socket holds succeeds", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			gone := udpListen(t, n, "127.0.0.1:0")
 			to := gone.LocalAddr()
 			require.NoError(t, gone.Close())
@@ -200,7 +193,7 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("a read or write past its deadline fails", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			server := udpListen(t, n, "127.0.0.1:0")
 			client := udpDial(t, n, server.LocalAddr().String())
 
@@ -218,7 +211,7 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 	})
 
 	t.Run("SetReadBuffer and SetWriteBuffer succeed", func(t *testing.T) {
-		run(t, func(t *testing.T, n udpNetwork) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			server := udpListen(t, n, "127.0.0.1:0")
 			client := udpDial(t, n, server.LocalAddr().String())
 
@@ -236,18 +229,18 @@ func testConformanceUDP(t *testing.T, run func(t *testing.T, scenario func(t *te
 }
 
 // udpListen binds a UDP socket on address, closed when the test ends.
-func udpListen(t *testing.T, n udpNetwork, address string) net.PacketConn {
+func udpListen(t *testing.T, n ipNetwork, address string) net.PacketConn {
 	t.Helper()
-	pc, err := n.listenPacket("udp", address)
+	pc, err := n.ListenUDP(t.Context(), "udp", address)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pc.Close() })
 	return pc
 }
 
 // udpDial dials address over UDP, closed when the test ends.
-func udpDial(t *testing.T, n udpNetwork, address string) net.Conn {
+func udpDial(t *testing.T, n ipNetwork, address string) net.Conn {
 	t.Helper()
-	c, err := n.dial(t.Context(), "udp", address)
+	c, err := n.DialUDP(t.Context(), "udp", address)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	return c

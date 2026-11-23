@@ -9,7 +9,12 @@
 // A test builds a [Host] with [New], and hands the code under test a
 // [github.com/z5labs/bedrock/host.Host] built from the Host's [Host.Listen],
 // [Host.ListenPacket], [Host.Dial] and [Host.FS], in place of the Host of
-// the real machine. The
+// the real machine. A *Host also has the four network methods of
+// [github.com/z5labs/bedrock/host.IPNetwork]: [Host.ListenTCP],
+// [Host.DialTCP], [Host.ListenUDP] and [Host.DialUDP] split Listen,
+// ListenPacket and Dial by protocol, so a test hands the Host itself to
+// code that takes the methods of an IPNetwork, and [Seams] replaces one of
+// them inline. The
 // code under test listens on the Host's network and the test dials it, and
 // every file either opens is inside the test's own temp directory.
 //
@@ -66,7 +71,7 @@
 //
 // # Waiting for a listener
 //
-// [Host.Dial] refuses rather than waits. A Dial with no listener fails at
+// [Host.Dial] and [Host.DialTCP] refuse rather than wait. A Dial with no listener fails at
 // once with ECONNREFUSED, as a real dial does, because a test that dials
 // before the code listens has dialled too early, and waiting would hide
 // that, or turn it into a synctest deadlock report that doesn't name the
@@ -104,8 +109,9 @@
 //
 // # UDP
 //
-// [Host.ListenPacket] binds a UDP socket, and [Host.Dial] over "udp",
-// "udp4" or "udp6" returns a connected one. UDP follows a real network, as
+// [Host.ListenPacket] and [Host.ListenUDP] bind a UDP socket, and
+// [Host.DialUDP], or [Host.Dial] over "udp", "udp4" or "udp6", returns a
+// connected one. UDP follows a real network, as
 // TCP does:
 //
 //   - "udp", "udp4" and "udp6" share one set of ports, apart from TCP's,

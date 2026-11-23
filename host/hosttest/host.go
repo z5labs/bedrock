@@ -20,6 +20,12 @@ import (
 // tb.TempDir(), confined with os.Root. It starts no goroutines, so build
 // it inside the testing/synctest bubble that uses it.
 //
+// A *Host is itself the test network. Its [Host.ListenTCP],
+// [Host.DialTCP], [Host.ListenUDP] and [Host.DialUDP] have the methods of
+// host.IPNetwork, so it goes wherever an IPNetwork does, and [Seams]
+// replaces one of them inline. [Host.Listen], [Host.ListenPacket] and
+// [Host.Dial] are the same network, not split by protocol.
+//
 // Each direction of a TCP connection buffers up to 256 KiB, as a
 // socket's buffers do, so a Write returns once its bytes are buffered and
 // waits only while the buffer is full. A write the peer never reads, such
@@ -45,8 +51,9 @@ type Option func(*Host)
 // removed when the test ends. It is configured by opts, and reports misuse
 // through tb.
 //
-// New starts no goroutines and makes no channels: Listen, ListenPacket,
-// Dial and Listening make theirs when they are called. To use a Host with testing/synctest,
+// New starts no goroutines and makes no channels: ListenTCP, DialTCP,
+// ListenUDP, DialUDP, Listen, ListenPacket, Dial and Listening make theirs
+// when they are called. To use a Host with testing/synctest,
 // call New inside synctest.Test with the bubble's t, so that every
 // channel the Host makes belongs to the bubble that uses it.
 func New(tb testing.TB, opts ...Option) *Host {
@@ -168,7 +175,7 @@ func (h *Host) Dial(ctx context.Context, network, address string) (net.Conn, err
 }
 
 // Listening returns a channel that is closed once a TCP listener exists
-// that a Dial to address would reach. It never waits for a UDP socket: a
+// that a Dial or DialTCP to address would reach. It never waits for a UDP socket: a
 // test that needs one bound waits with synctest.Wait. A test receives from it before dialling, so
 // that it doesn't dial before the App listens. It works like bedrocktest's
 // Process.Notified: once closed, the channel stays closed, and after that
