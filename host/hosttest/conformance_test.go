@@ -30,21 +30,18 @@ import (
 	"github.com/z5labs/bedrock/host/hosttest"
 )
 
-// listenFunc and dialFunc are the network under test, the Listen and Dial
-// of a host.Host.
-type (
-	listenFunc func(network, address string) (net.Listener, error)
-	dialFunc   func(ctx context.Context, network, address string) (net.Conn, error)
-)
+// dialFunc is the shape of a DialTCP or a DialUDP, which the helpers that
+// dial take.
+type dialFunc func(ctx context.Context, network, address string) (net.Conn, error)
 
 // testConformance runs the scenarios that the in-memory network must get
 // right exactly as a real one does. TestConformance_in_memory runs them on
-// a Host, each inside a synctest bubble, and TestConformance_loopback,
-// behind the conformance build tag, runs them on real loopback sockets
-// through host.OS.
+// a Host's four network methods, each inside a synctest bubble, and
+// TestConformance_loopback, behind the conformance build tag, runs them on
+// real loopback sockets through host.IPNetwork and host.OS.
 //
-// run runs one scenario on the Listen and Dial to test, which it makes
-// for that scenario.
+// run runs one scenario on the network to test, which it makes for that
+// scenario. The TCP scenarios call its ListenTCP and DialTCP.
 //
 // The two names are 127.0.0.1 and 127.0.0.2, both on the loopback
 // interface, and every first listener takes port 0, so the scenarios work
@@ -57,80 +54,80 @@ type (
 // be writing the rest of its first flight, and a TLS Close writes
 // close_notify to a peer that may never read it. On a socket both writes
 // land in a buffer and return.
-func testConformance(t *testing.T, run func(t *testing.T, scenario func(t *testing.T, listen listenFunc, dial dialFunc))) {
+func testConformance(t *testing.T, run func(t *testing.T, scenario func(t *testing.T, n ipNetwork))) {
 	t.Run("two names on one port both serve", func(t *testing.T) {
-		run(t, func(t *testing.T, listen listenFunc, dial dialFunc) {
-			one := conformanceListen(t, listen, "127.0.0.1:0")
+		run(t, func(t *testing.T, n ipNetwork) {
+			one := conformanceListen(t, n, "127.0.0.1:0")
 			port := strconv.Itoa(portOf(t, one.Addr()))
-			two := conformanceListen(t, listen, net.JoinHostPort("127.0.0.2", port))
+			two := conformanceListen(t, n, net.JoinHostPort("127.0.0.2", port))
 			serve(t, one, "one")
 			serve(t, two, "two")
 
-			require.Equal(t, "one", dialRead(t, dial, net.JoinHostPort("127.0.0.1", port)))
-			require.Equal(t, "two", dialRead(t, dial, net.JoinHostPort("127.0.0.2", port)))
+			require.Equal(t, "one", dialRead(t, n.DialTCP, net.JoinHostPort("127.0.0.1", port)))
+			require.Equal(t, "two", dialRead(t, n.DialTCP, net.JoinHostPort("127.0.0.2", port)))
 		})
 	})
 
 	t.Run("EADDRINUSE for a name on a port every name holds", func(t *testing.T) {
-		run(t, func(t *testing.T, listen listenFunc, _ dialFunc) {
-			every := conformanceListen(t, listen, ":0")
+		run(t, func(t *testing.T, n ipNetwork) {
+			every := conformanceListen(t, n, ":0")
 			defer func() { require.NoError(t, every.Close()) }()
 
-			_, err := listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(portOf(t, every.Addr()))))
+			_, err := n.ListenTCP(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(portOf(t, every.Addr()))))
 			require.ErrorIs(t, err, syscall.EADDRINUSE)
 		})
 	})
 
 	t.Run("EADDRINUSE for every name on a port a name holds", func(t *testing.T) {
-		run(t, func(t *testing.T, listen listenFunc, _ dialFunc) {
-			one := conformanceListen(t, listen, "127.0.0.1:0")
+		run(t, func(t *testing.T, n ipNetwork) {
+			one := conformanceListen(t, n, "127.0.0.1:0")
 			defer func() { require.NoError(t, one.Close()) }()
 
-			_, err := listen("tcp", ":"+strconv.Itoa(portOf(t, one.Addr())))
+			_, err := n.ListenTCP(t.Context(), "tcp", ":"+strconv.Itoa(portOf(t, one.Addr())))
 			require.ErrorIs(t, err, syscall.EADDRINUSE)
 		})
 	})
 
 	t.Run("ECONNREFUSED for a name no listener holds", func(t *testing.T) {
-		run(t, func(t *testing.T, listen listenFunc, dial dialFunc) {
-			one := conformanceListen(t, listen, "127.0.0.1:0")
+		run(t, func(t *testing.T, n ipNetwork) {
+			one := conformanceListen(t, n, "127.0.0.1:0")
 			serve(t, one, "one")
 
-			_, err := dial(t.Context(), "tcp", net.JoinHostPort("127.0.0.2", strconv.Itoa(portOf(t, one.Addr()))))
+			_, err := n.DialTCP(t.Context(), "tcp", net.JoinHostPort("127.0.0.2", strconv.Itoa(portOf(t, one.Addr()))))
 			require.ErrorIs(t, err, syscall.ECONNREFUSED)
 		})
 	})
 
 	t.Run("ECONNREFUSED after the listener closes", func(t *testing.T) {
-		run(t, func(t *testing.T, listen listenFunc, dial dialFunc) {
-			one := conformanceListen(t, listen, "127.0.0.1:0")
+		run(t, func(t *testing.T, n ipNetwork) {
+			one := conformanceListen(t, n, "127.0.0.1:0")
 			address := one.Addr().String()
 			require.NoError(t, one.Close())
 
-			_, err := dial(t.Context(), "tcp", address)
+			_, err := n.DialTCP(t.Context(), "tcp", address)
 			require.ErrorIs(t, err, syscall.ECONNREFUSED)
 		})
 	})
 
 	t.Run("TLS handshake", func(t *testing.T) {
-		run(t, func(t *testing.T, listen listenFunc, dial dialFunc) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			ca := newTestCA(t)
-			every := conformanceListen(t, listen, ":0")
+			every := conformanceListen(t, n, ":0")
 			port := strconv.Itoa(portOf(t, every.Addr()))
 			serveTLS(t, every, ca.serverConfig(t, "127.0.0.1"), "hello")
 
-			require.Equal(t, "hello", dialTLS(t, dial, ca.pool, net.JoinHostPort("127.0.0.1", port)))
+			require.Equal(t, "hello", dialTLS(t, n.DialTCP, ca.pool, net.JoinHostPort("127.0.0.1", port)))
 		})
 	})
 
 	t.Run("TLS handshake rejects a name the certificate doesn't cover", func(t *testing.T) {
-		run(t, func(t *testing.T, listen listenFunc, dial dialFunc) {
+		run(t, func(t *testing.T, n ipNetwork) {
 			ca := newTestCA(t)
-			every := conformanceListen(t, listen, ":0")
+			every := conformanceListen(t, n, ":0")
 			port := strconv.Itoa(portOf(t, every.Addr()))
 			serveTLS(t, every, ca.serverConfig(t, "127.0.0.1"), "hello")
 
-			c, err := dial(t.Context(), "tcp", net.JoinHostPort("127.0.0.2", port))
+			c, err := n.DialTCP(t.Context(), "tcp", net.JoinHostPort("127.0.0.2", port))
 			require.NoError(t, err)
 			defer func() { _ = c.Close() }()
 			tc := tls.Client(c, &tls.Config{RootCAs: ca.pool, ServerName: "127.0.0.2", MinVersion: tls.VersionTLS12})
@@ -145,16 +142,16 @@ func testConformance(t *testing.T, run func(t *testing.T, scenario func(t *testi
 	})
 
 	t.Run("TLS close while the peer doesn't read", func(t *testing.T) {
-		run(t, func(t *testing.T, listen listenFunc, dial dialFunc) {
-			took, ok := closeNotifyStandoff(t, listen, dial, false)
+		run(t, func(t *testing.T, n ipNetwork) {
+			took, ok := closeNotifyStandoff(t, n, false)
 			require.True(t, ok, "Close hasn't returned after %v", took)
 			require.Less(t, took, 5*time.Second, "Close waited out crypto/tls's write deadline")
 		})
 	})
 
 	t.Run("TLS close whose write deadline is reset while close_notify is written", func(t *testing.T) {
-		run(t, func(t *testing.T, listen listenFunc, dial dialFunc) {
-			took, ok := closeNotifyStandoff(t, listen, dial, true)
+		run(t, func(t *testing.T, n ipNetwork) {
+			took, ok := closeNotifyStandoff(t, n, true)
 			require.True(t, ok, "Close hasn't returned after %v", took)
 		})
 	})
@@ -166,12 +163,12 @@ func testConformance(t *testing.T, run func(t *testing.T, scenario func(t *testi
 // write deadline once crypto/tls is writing close_notify, as franz-go does
 // after a write on the same connection. It returns how long Close took,
 // or false if it hadn't returned after 10s.
-func closeNotifyStandoff(t *testing.T, listen listenFunc, dial dialFunc, reset bool) (time.Duration, bool) {
+func closeNotifyStandoff(t *testing.T, n ipNetwork, reset bool) (time.Duration, bool) {
 	t.Helper()
 	ca := newTestCA(t)
 	config := ca.serverConfig(t, "127.0.0.1")
 	config.SessionTicketsDisabled = true
-	ln := conformanceListen(t, listen, "127.0.0.1:0")
+	ln := conformanceListen(t, n, "127.0.0.1:0")
 	defer func() { _ = ln.Close() }()
 
 	release := make(chan struct{})
@@ -197,7 +194,7 @@ func closeNotifyStandoff(t *testing.T, listen listenFunc, dial dialFunc, reset b
 		<-served
 	}()
 
-	conn, err := dial(t.Context(), "tcp", ln.Addr().String())
+	conn, err := n.DialTCP(t.Context(), "tcp", ln.Addr().String())
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 	w := &alertConn{Conn: conn, alert: make(chan struct{})}
@@ -244,27 +241,27 @@ func (c *alertConn) Write(b []byte) (int, error) {
 	return c.Conn.Write(b)
 }
 
-func conformanceListen(t *testing.T, listen listenFunc, address string) net.Listener {
+func conformanceListen(t *testing.T, n ipNetwork, address string) net.Listener {
 	t.Helper()
-	ln, err := listen("tcp", address)
+	ln, err := n.ListenTCP(t.Context(), "tcp", address)
 	require.NoError(t, err)
 	return ln
 }
 
+// TestConformance_in_memory runs every conformance table on a Host's four
+// network methods, each scenario inside a synctest bubble of its own.
 func TestConformance_in_memory(t *testing.T) {
-	testConformance(t, func(t *testing.T, scenario func(*testing.T, listenFunc, dialFunc)) {
+	inMemory := func(t *testing.T, scenario func(*testing.T, ipNetwork)) {
 		synctest.Test(t, func(t *testing.T) {
-			h := hosttest.New(t)
-			scenario(t, h.Listen, h.Dial)
+			scenario(t, hosttest.New(t))
 		})
-	})
+	}
+	testConformance(t, inMemory)
 	t.Run("udp", func(t *testing.T) {
-		testConformanceUDP(t, func(t *testing.T, scenario func(*testing.T, udpNetwork)) {
-			synctest.Test(t, func(t *testing.T) {
-				h := hosttest.New(t)
-				scenario(t, udpNetwork{listen: h.Listen, listenPacket: h.ListenPacket, dial: h.Dial})
-			})
-		})
+		testConformanceUDP(t, inMemory)
+	})
+	t.Run("networks", func(t *testing.T) {
+		testConformanceNetworks(t, inMemory)
 	})
 }
 
