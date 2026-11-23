@@ -25,16 +25,14 @@ import (
 	"github.com/z5labs/bedrock/host/hosttest"
 )
 
-// conformanceFS lists every method of host.OSFS, which the FS conformance
-// table checks *hosttest.FS has, with the same results as host.OSFS. Getwd
-// is the one whose results it does not compare.
+// conformanceFS lists every method of host.OSFilesystem, which the FS
+// conformance table checks *hosttest.FS has, with the same results as
+// host.OSFilesystem. Getwd is the one whose results it does not compare.
 type conformanceFS interface {
 	Open(name string) (*os.File, error)
 	OpenFile(name string, flag int, perm os.FileMode) (*os.File, error)
 	Create(name string) (*os.File, error)
 	CreateTemp(dir, pattern string) (*os.File, error)
-	OpenRoot(name string) (*os.Root, error)
-	OpenInRoot(dir, name string) (*os.File, error)
 	ReadFile(name string) ([]byte, error)
 	WriteFile(name string, data []byte, perm os.FileMode) error
 	Truncate(name string, size int64) error
@@ -59,11 +57,23 @@ type conformanceFS interface {
 	DirFS(dir string) fs.FS
 }
 
-// Both filesystems have every method conformanceFS lists, so this stops
-// compiling if *hosttest.FS lacks one of host.OSFS's.
+// conformanceRootFS lists the two methods of host.OSFS that
+// host.OSFilesystem leaves out, those that confine to a directory, which
+// the FS root conformance table checks *hosttest.FS has, with the same
+// results as host.OSFS.
+type conformanceRootFS interface {
+	OpenRoot(name string) (*os.Root, error)
+	OpenInRoot(dir, name string) (*os.File, error)
+}
+
+// Each filesystem has every method of the table it is checked by, so this
+// stops compiling if *hosttest.FS lacks one of host.OSFilesystem's or of
+// host.OSFS's.
 var (
-	_ conformanceFS = host.OSFS{}
-	_ conformanceFS = (*hosttest.FS)(nil)
+	_ conformanceFS     = host.OSFilesystem{}
+	_ conformanceFS     = (*hosttest.FS)(nil)
+	_ conformanceRootFS = host.OSFS{}
+	_ conformanceRootFS = (*hosttest.FS)(nil)
 )
 
 // conformanceFiles is the directory every scenario starts from, on both
@@ -74,16 +84,43 @@ var conformanceFiles = map[string][]byte{
 	"empty/.keep":  {},
 }
 
-// fsScenario is one row of the FS conformance table. It runs on fsys, whose
+// fsScenario is one row of a FS conformance table. It runs on fsys, whose
 // directory is dir, an absolute path holding conformanceFiles, and returns
 // what it observed. Every name it passes is absolute under dir, because
-// host.OSFS resolves a relative name against the process's working
-// directory.
-type fsScenario func(t *testing.T, fsys conformanceFS, dir string) any
+// the real filesystem resolves a relative name against the process's
+// working directory.
+type fsScenario[F any] func(t *testing.T, fsys F, dir string) any
 
-// TestConformance_FS runs every scenario on host.OSFS, in a directory from
-// t.TempDir(), and on *hosttest.FS, in its Host's directory, and requires
-// the two to observe the same.
+// runFSConformance runs every scenario on real, the real filesystem named
+// realName, in a directory from t.TempDir(), and on the filesystem fake
+// returns for a hosttest.Host, in its Host's directory, and requires the
+// two to observe the same.
+func runFSConformance[F any](t *testing.T, realName string, real F, fake func(*hosttest.Host) F, testCases map[string]fsScenario[F]) {
+	t.Helper()
+	for name, scenario := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var want, got any
+			t.Run(realName, func(t *testing.T) {
+				dir := t.TempDir()
+				for name, data := range conformanceFiles {
+					p := filepath.Join(dir, filepath.FromSlash(name))
+					require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+					require.NoError(t, os.WriteFile(p, data, 0o644))
+				}
+				want = scenario(t, real, dir)
+			})
+			t.Run("hosttest.FS", func(t *testing.T) {
+				h := hosttest.New(t, hosttest.WithFiles(conformanceFiles))
+				got = scenario(t, fake(h), h.Path("."))
+			})
+			require.Equal(t, want, got, "*hosttest.FS observes what %s does", realName)
+		})
+	}
+}
+
+// TestConformance_FS runs every scenario on host.OSFilesystem, in a
+// directory from t.TempDir(), and on *hosttest.FS, in its Host's
+// directory, and requires the two to observe the same.
 //
 // What a scenario observes is the same when the return values are: file
 // contents, a FileInfo's name, size, mode and IsDir, and sorted directory
@@ -94,7 +131,7 @@ type fsScenario func(t *testing.T, fsys conformanceFS, dir string) any
 // checks that each result is a new entry in the directory passed,
 // matching the pattern's prefix and suffix.
 func TestConformance_FS(t *testing.T) {
-	testCases := map[string]fsScenario{
+	testCases := map[string]fsScenario[conformanceFS]{
 		"Open a file": func(t *testing.T, fsys conformanceFS, dir string) any {
 			return read(t, fsys, filepath.Join(dir, "dir", "file"))
 		},
@@ -306,41 +343,6 @@ func TestConformance_FS(t *testing.T) {
 			return describe(t, dir, err)
 		},
 
-		"OpenRoot a directory": func(t *testing.T, fsys conformanceFS, dir string) any {
-			root, err := fsys.OpenRoot(filepath.Join(dir, "dir"))
-			require.NoError(t, err)
-			defer func() { require.NoError(t, root.Close()) }()
-			b, err := root.ReadFile(filepath.Join("sub", "leaf"))
-			require.NoError(t, err)
-			_, escaped := root.Open(filepath.Join("..", "empty", ".keep"))
-			return []any{string(b), describe(t, dir, escaped)}
-		},
-		"OpenRoot a missing directory": func(t *testing.T, fsys conformanceFS, dir string) any {
-			_, err := fsys.OpenRoot(filepath.Join(dir, "missing"))
-			return describe(t, dir, err)
-		},
-
-		"OpenInRoot a file": func(t *testing.T, fsys conformanceFS, dir string) any {
-			f, err := fsys.OpenInRoot(filepath.Join(dir, "dir"), filepath.Join("sub", "leaf"))
-			require.NoError(t, err)
-			defer func() { require.NoError(t, f.Close()) }()
-			b, err := io.ReadAll(f)
-			require.NoError(t, err)
-			return string(b)
-		},
-		"OpenInRoot a name that leaves dir": func(t *testing.T, fsys conformanceFS, dir string) any {
-			_, err := fsys.OpenInRoot(filepath.Join(dir, "dir", "sub"), filepath.Join("..", "file"))
-			return describe(t, dir, err)
-		},
-		"OpenInRoot a missing dir": func(t *testing.T, fsys conformanceFS, dir string) any {
-			_, err := fsys.OpenInRoot(filepath.Join(dir, "missing"), "file")
-			return describe(t, dir, err)
-		},
-		"OpenInRoot a missing file": func(t *testing.T, fsys conformanceFS, dir string) any {
-			_, err := fsys.OpenInRoot(filepath.Join(dir, "dir"), "missing")
-			return describe(t, dir, err)
-		},
-
 		"ReadFile": func(t *testing.T, fsys conformanceFS, dir string) any {
 			b, err := fsys.ReadFile(filepath.Join(dir, "dir", "sub", "leaf"))
 			require.NoError(t, err)
@@ -546,25 +548,55 @@ func TestConformance_FS(t *testing.T) {
 		},
 	}
 
-	for name, scenario := range testCases {
-		t.Run(name, func(t *testing.T) {
-			var want, got any
-			t.Run("host.OSFS", func(t *testing.T) {
-				dir := t.TempDir()
-				for name, data := range conformanceFiles {
-					p := filepath.Join(dir, filepath.FromSlash(name))
-					require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
-					require.NoError(t, os.WriteFile(p, data, 0o644))
-				}
-				want = scenario(t, host.OSFS{}, dir)
-			})
-			t.Run("hosttest.FS", func(t *testing.T) {
-				h := hosttest.New(t, hosttest.WithFiles(conformanceFiles))
-				got = scenario(t, h.FS(), h.Path("."))
-			})
-			require.Equal(t, want, got, "*hosttest.FS observes what host.OSFS does")
-		})
+	runFSConformance(t, "host.OSFilesystem", conformanceFS(host.OSFilesystem{}),
+		func(h *hosttest.Host) conformanceFS { return h.FS() }, testCases)
+}
+
+// TestConformance_FS_root runs every scenario of the two methods
+// host.OSFilesystem leaves out, those that confine to a directory, on
+// host.OSFS, in a directory from t.TempDir(), and on *hosttest.FS, in its
+// Host's directory, and requires the two to observe the same, as
+// TestConformance_FS does.
+func TestConformance_FS_root(t *testing.T) {
+	testCases := map[string]fsScenario[conformanceRootFS]{
+		"OpenRoot a directory": func(t *testing.T, fsys conformanceRootFS, dir string) any {
+			root, err := fsys.OpenRoot(filepath.Join(dir, "dir"))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, root.Close()) }()
+			b, err := root.ReadFile(filepath.Join("sub", "leaf"))
+			require.NoError(t, err)
+			_, escaped := root.Open(filepath.Join("..", "empty", ".keep"))
+			return []any{string(b), describe(t, dir, escaped)}
+		},
+		"OpenRoot a missing directory": func(t *testing.T, fsys conformanceRootFS, dir string) any {
+			_, err := fsys.OpenRoot(filepath.Join(dir, "missing"))
+			return describe(t, dir, err)
+		},
+
+		"OpenInRoot a file": func(t *testing.T, fsys conformanceRootFS, dir string) any {
+			f, err := fsys.OpenInRoot(filepath.Join(dir, "dir"), filepath.Join("sub", "leaf"))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, f.Close()) }()
+			b, err := io.ReadAll(f)
+			require.NoError(t, err)
+			return string(b)
+		},
+		"OpenInRoot a name that leaves dir": func(t *testing.T, fsys conformanceRootFS, dir string) any {
+			_, err := fsys.OpenInRoot(filepath.Join(dir, "dir", "sub"), filepath.Join("..", "file"))
+			return describe(t, dir, err)
+		},
+		"OpenInRoot a missing dir": func(t *testing.T, fsys conformanceRootFS, dir string) any {
+			_, err := fsys.OpenInRoot(filepath.Join(dir, "missing"), "file")
+			return describe(t, dir, err)
+		},
+		"OpenInRoot a missing file": func(t *testing.T, fsys conformanceRootFS, dir string) any {
+			_, err := fsys.OpenInRoot(filepath.Join(dir, "dir"), "missing")
+			return describe(t, dir, err)
+		},
 	}
+
+	runFSConformance(t, "host.OSFS", conformanceRootFS(host.OSFS{}),
+		func(h *hosttest.Host) conformanceRootFS { return h.FS() }, testCases)
 }
 
 // linkScenario is one row of the FS conformance table's one exception: a
@@ -574,11 +606,11 @@ func TestConformance_FS(t *testing.T) {
 type linkScenario func(t *testing.T, fsys conformanceFS, dir string) (target, name string, err error)
 
 // TestConformance_FS_absolute_symbolic_links is the exception to
-// TestConformance_FS: host.OSFS makes a symbolic link to an absolute
-// target, and *hosttest.FS refuses to, with an *os.LinkError naming both
-// paths whose Err is errors.ErrUnsupported, and creates nothing. Its
-// os.Root would never follow such a link, even to a file inside its
-// directory.
+// TestConformance_FS: host.OSFilesystem makes a symbolic link to an
+// absolute target, and *hosttest.FS refuses to, with an *os.LinkError
+// naming both paths whose Err is errors.ErrUnsupported, and creates
+// nothing. Its os.Root would never follow such a link, even to a file
+// inside its directory.
 func TestConformance_FS_absolute_symbolic_links(t *testing.T) {
 	testCases := map[string]linkScenario{
 		"Symlink to a target inside the directory": func(t *testing.T, fsys conformanceFS, dir string) (string, string, error) {
@@ -598,10 +630,10 @@ func TestConformance_FS_absolute_symbolic_links(t *testing.T) {
 
 	for name, scenario := range testCases {
 		t.Run(name, func(t *testing.T) {
-			t.Run("host.OSFS", func(t *testing.T) {
+			t.Run("host.OSFilesystem", func(t *testing.T) {
 				dir := t.TempDir()
 				require.NoError(t, os.MkdirAll(filepath.Join(dir, "dir"), 0o755))
-				target, link, err := scenario(t, host.OSFS{}, dir)
+				target, link, err := scenario(t, host.OSFilesystem{}, dir)
 				require.NoError(t, err)
 				got, err := os.Readlink(link)
 				require.NoError(t, err)
@@ -623,14 +655,14 @@ func TestConformance_FS_absolute_symbolic_links(t *testing.T) {
 	}
 }
 
-// Getwd is the one method of host.OSFS the table does not compare: OSFS's
-// is the process's working directory, and *hosttest.FS's is its Host's
-// directory.
+// Getwd is the one method of host.OSFilesystem the table does not compare:
+// OSFilesystem's is the process's working directory, and *hosttest.FS's is
+// its Host's directory.
 func TestConformance_FS_Getwd(t *testing.T) {
-	t.Run("host.OSFS", func(t *testing.T) {
+	t.Run("host.OSFilesystem", func(t *testing.T) {
 		want, err := os.Getwd()
 		require.NoError(t, err)
-		got, err := host.OSFS{}.Getwd()
+		got, err := host.OSFilesystem{}.Getwd()
 		require.NoError(t, err)
 		require.Equal(t, want, got)
 	})
