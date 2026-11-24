@@ -38,7 +38,7 @@ type dialFunc func(ctx context.Context, network, address string) (net.Conn, erro
 // right exactly as a real one does. TestConformance_in_memory runs them on
 // a Host's four network methods, each inside a synctest bubble, and
 // TestConformance_loopback, behind the conformance build tag, runs them on
-// real loopback sockets through host.IPNetwork and host.OS.
+// real loopback sockets through the zero host.IPNetwork.
 //
 // run runs one scenario on the network to test, which it makes for that
 // scenario. The TCP scenarios call its ListenTCP and DialTCP.

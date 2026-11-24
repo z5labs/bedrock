@@ -15,7 +15,7 @@ import (
 	"syscall"
 )
 
-// The range from which Listen, ListenPacket and a UDP Dial pick a port
+// The range from which ListenTCP, ListenUDP and DialUDP pick a port
 // when asked for port 0: IANA's dynamic ports.
 const (
 	firstEphemeralPort = 49152
@@ -23,7 +23,7 @@ const (
 )
 
 // errListenerClosed is what connect returns when the listener closes before
-// its Accept takes the connection. Dial turns it into ECONNREFUSED.
+// its Accept takes the connection. DialTCP turns it into ECONNREFUSED.
 var errListenerClosed = errors.New("hosttest: listener closed")
 
 // key is a host and port, with the host as written.
@@ -74,16 +74,10 @@ func protocol(network string) string {
 	return ""
 }
 
-// parse splits address into its host and port for a network of one of
-// the protocols given.
-func parse(network, address string, protocols ...string) (key, error) {
-	p := protocol(network)
-	for _, want := range protocols {
-		if p == want {
-			return parseAddress(address)
-		}
-	}
-	return key{}, net.UnknownNetworkError(network)
+// unknownNetwork is the error a method returns for a network it doesn't
+// serve, the error host.IPNetwork returns.
+func unknownNetwork(op, network string) error {
+	return &net.OpError{Op: op, Net: network, Err: net.UnknownNetworkError(network)}
 }
 
 // parseAddress splits address into its host and port. An empty port is
@@ -193,8 +187,9 @@ type addr string
 func (addr) Network() string  { return "tcp" }
 func (a addr) String() string { return string(a) }
 
-// listener is the net.Listener that Host.Listen returns. Dial hands it the
-// server end of a connection newPipe made over conns, and Accept takes it.
+// listener is the net.Listener that Host.ListenTCP returns. DialTCP hands
+// it the server end of a connection newPipe made over conns, and Accept
+// takes it.
 type listener struct {
 	host  *Host
 	key   key
@@ -204,7 +199,7 @@ type listener struct {
 }
 
 func (l *listener) Accept() (net.Conn, error) {
-	// A closed listener accepts nothing, even a Dial that is still waiting.
+	// A closed listener accepts nothing, even a DialTCP that is still waiting.
 	select {
 	case <-l.done:
 		return nil, l.closedErr("accept")
@@ -218,7 +213,7 @@ func (l *listener) Accept() (net.Conn, error) {
 	}
 }
 
-// Close stops the listener. Accept and every waiting Dial return at once.
+// Close stops the listener. Accept and every waiting DialTCP return at once.
 // Closing it again returns an error wrapping net.ErrClosed, as closing a
 // real listener twice does.
 func (l *listener) Close() error {
@@ -242,7 +237,7 @@ func (l *listener) closedErr(op string) error {
 	return &net.OpError{Op: op, Net: "tcp", Addr: l.Addr(), Err: net.ErrClosed}
 }
 
-// reaches reports whether a Dial to k would reach l.
+// reaches reports whether a DialTCP to k would reach l.
 func (l *listener) reaches(k key) bool {
 	if l.key.everyName() {
 		return k.port == l.key.port

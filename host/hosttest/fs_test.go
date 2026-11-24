@@ -6,10 +6,12 @@
 package hosttest_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -32,8 +34,8 @@ import (
 // t.TempDir(): the Host's own, and a sibling standing in for "outside",
 // which every escape attempt aims at and which is checked to be unchanged.
 
-// opener is a filesystem that opens files, such as host.OSFS,
-// *hosttest.FS and *hosttest.Filesystem.
+// opener is a filesystem that opens files, such as host.OSFilesystem and
+// *hosttest.Filesystem.
 type opener interface {
 	Open(name string) (*os.File, error)
 }
@@ -223,9 +225,8 @@ func TestNew_fails_the_test_when_it_cannot_open_its_directory(t *testing.T) {
 }
 
 // appFS is the filesystem a framework exposes to its Apps: an interface
-// that embeds host.FS and lists the methods it needs.
+// of the methods it needs, and nothing else.
 type appFS interface {
-	host.FS
 	Open(name string) (*os.File, error)
 	ReadFile(name string) ([]byte, error)
 	WriteFile(name string, data []byte, perm os.FileMode) error
@@ -234,16 +235,25 @@ type appFS interface {
 	DirFS(dir string) fs.FS
 }
 
-func TestFS_is_the_filesystem_of_a_host_Host(t *testing.T) {
-	h := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"etc/config.yaml": []byte("port: 8080")}))
-	hh := host.Host[appFS]{Listen: h.Listen, ListenPacket: h.ListenPacket, Dial: h.Dial, FS: h.FS()}
+// appHost is the host struct a framework builds of its own network and
+// filesystem.
+type appHost struct {
+	Network interface {
+		DialTCP(ctx context.Context, network, address string) (net.Conn, error)
+	}
+	Filesystem appFS
+}
 
-	got, err := readAll(hh.FS, "etc/config.yaml")
+func TestFilesystem_is_the_filesystem_of_a_framework_host(t *testing.T) {
+	h := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"etc/config.yaml": []byte("port: 8080")}))
+	hh := appHost{Network: h, Filesystem: h.Filesystem()}
+
+	got, err := readAll(hh.Filesystem, "etc/config.yaml")
 	require.NoError(t, err)
 	require.Equal(t, "port: 8080", got)
 
-	require.NoError(t, hh.FS.WriteFile("etc/other.yaml", []byte("port: 9090"), 0o600))
-	b, err := hh.FS.ReadFile("etc/other.yaml")
+	require.NoError(t, hh.Filesystem.WriteFile("etc/other.yaml", []byte("port: 9090"), 0o600))
+	b, err := hh.Filesystem.ReadFile("etc/other.yaml")
 	require.NoError(t, err)
 	require.Equal(t, "port: 9090", string(b))
 }
@@ -262,17 +272,7 @@ func embeddedTypes(t *testing.T, typ reflect.Type) []reflect.Type {
 	return embedded
 }
 
-func TestFS_embeds_only_host_FS_and_Filesystem(t *testing.T) {
-	embedded := embeddedTypes(t, reflect.TypeFor[hosttest.FS]())
-	require.Equal(t, []reflect.Type{reflect.TypeFor[host.FS](), reflect.TypeFor[hosttest.Filesystem]()}, embedded,
-		"FS gets host.FS's method from host.FS itself, and the rest from Filesystem, never from host.OSFS, whose methods would escape the directory")
-}
-
-func TestFilesystem_does_not_satisfy_host_FS(t *testing.T) {
-	_, ok := any((*hosttest.Filesystem)(nil)).(host.FS)
-	require.False(t, ok, "*Filesystem has no seal")
-	_, ok = any(hosttest.Filesystem{}).(host.FS)
-	require.False(t, ok, "Filesystem has no seal")
+func TestFilesystem_embeds_nothing(t *testing.T) {
 	require.Empty(t, embeddedTypes(t, reflect.TypeFor[hosttest.Filesystem]()),
 		"Filesystem embeds nothing, so no method of the real filesystem can reach it")
 }
@@ -292,29 +292,15 @@ func TestFilesystem_has_the_methods_of_host_OSFilesystem(t *testing.T) {
 	require.Len(t, want, 26)
 	require.Equal(t, want, methodNames(reflect.TypeFor[*hosttest.Filesystem]()),
 		"*Filesystem has host.OSFilesystem's methods, and not OpenRoot or OpenInRoot")
-	require.Equal(t, methodNames(reflect.TypeFor[host.OSFS]()), methodNames(reflect.TypeFor[*hosttest.FS]()),
-		"*FS keeps host.OSFS's 28 exported methods")
-	require.Len(t, methodNames(reflect.TypeFor[*hosttest.FS]()), 28)
 }
 
-func TestHost_Filesystem_and_FS_see_the_same_files(t *testing.T) {
-	t.Run("written through Filesystem, read through FS", func(t *testing.T) {
-		h := hosttest.New(t)
-		require.NoError(t, h.Filesystem().MkdirAll("etc", 0o755))
-		require.NoError(t, h.Filesystem().WriteFile("etc/a", []byte("a"), 0o600))
-		got, err := readAll(h.FS(), "etc/a")
-		require.NoError(t, err)
-		require.Equal(t, "a", got)
-	})
-
-	t.Run("written through FS, read through Filesystem", func(t *testing.T) {
-		h := hosttest.New(t)
-		require.NoError(t, h.FS().MkdirAll("etc", 0o755))
-		require.NoError(t, h.FS().WriteFile("etc/b", []byte("b"), 0o600))
-		got, err := readAll(h.Filesystem(), "etc/b")
-		require.NoError(t, err)
-		require.Equal(t, "b", got)
-	})
+func TestHost_Filesystem_always_sees_the_same_files(t *testing.T) {
+	h := hosttest.New(t)
+	require.NoError(t, h.Filesystem().MkdirAll("etc", 0o755))
+	require.NoError(t, h.Filesystem().WriteFile("etc/a", []byte("a"), 0o600))
+	got, err := readAll(h.Filesystem(), "etc/a")
+	require.NoError(t, err)
+	require.Equal(t, "a", got)
 }
 
 func TestWithFiles(t *testing.T) {
@@ -839,77 +825,6 @@ func TestFilesystem_Create(t *testing.T) {
 
 	escaping(t, "secret", func(t *testing.T, w *world, name string) error {
 		f, err := w.fs.Create(name)
-		if err == nil {
-			_ = f.Close()
-		}
-		return err
-	})
-}
-
-func TestFS_OpenRoot(t *testing.T) {
-	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, name string) {
-		root, err := w.host.FS().OpenRoot(name)
-		require.NoError(t, err)
-		defer func() { require.NoError(t, root.Close()) }()
-
-		b, err := root.ReadFile("file")
-		require.NoError(t, err)
-		require.Equal(t, "file", string(b))
-
-		_, err = root.Open(filepath.Join("..", "dir", "file"))
-		require.Error(t, err, "the root is confined to the directory opened")
-	})
-
-	escaping(t, "dir", func(t *testing.T, w *world, name string) error {
-		root, err := w.host.FS().OpenRoot(name)
-		if err == nil {
-			_ = root.Close()
-		}
-		return err
-	})
-}
-
-func TestFS_OpenInRoot(t *testing.T) {
-	forEach(t, func(w *world) map[string]string { return w.names("dir") }, func(t *testing.T, w *world, dir string) {
-		f, err := w.host.FS().OpenInRoot(dir, filepath.Join("sub", "leaf"))
-		require.NoError(t, err)
-		defer func() { require.NoError(t, f.Close()) }()
-		b, err := io.ReadAll(f)
-		require.NoError(t, err)
-		require.Equal(t, "leaf", string(b))
-	})
-
-	t.Run("name can't leave dir", func(t *testing.T) {
-		w := newWorld(t)
-		require.NoError(t, os.Symlink("..", w.host.Path("dir/sub/up")))
-		for _, name := range []string{
-			filepath.Join("..", "file"),
-			w.host.Path("dir/file"),
-			filepath.Join("up", "file"),
-			filepath.Join("..", "..", "out", "secret"),
-		} {
-			f, err := w.host.FS().OpenInRoot("dir/sub", name)
-			if err == nil {
-				_ = f.Close()
-			}
-			var pe *fs.PathError
-			require.ErrorAs(t, err, &pe, name)
-			require.Equal(t, name, pe.Path, "the error names the path passed")
-		}
-		w.requireUntouched(t)
-	})
-
-	t.Run("an error names the dir passed", func(t *testing.T) {
-		w := newWorld(t)
-		_, err := w.host.FS().OpenInRoot(w.host.Path("missing"), "file")
-		var pe *fs.PathError
-		require.ErrorAs(t, err, &pe)
-		require.ErrorIs(t, err, fs.ErrNotExist)
-		require.Equal(t, w.host.Path("missing"), pe.Path)
-	})
-
-	escaping(t, "dir", func(t *testing.T, w *world, dir string) error {
-		f, err := w.host.FS().OpenInRoot(dir, ".")
 		if err == nil {
 			_ = f.Close()
 		}

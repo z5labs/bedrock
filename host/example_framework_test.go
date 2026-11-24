@@ -6,18 +6,24 @@
 package host_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 
 	"github.com/z5labs/bedrock/host"
 )
 
+// Network is the network a command sees.
+type Network interface {
+	ListenTCP(ctx context.Context, network, address string) (net.Listener, error)
+	DialTCP(ctx context.Context, network, address string) (net.Conn, error)
+}
+
 // FS is the filesystem a command sees.
 type FS interface {
-	host.FS
-
 	Open(name string) (*os.File, error)
 	OpenFile(name string, flag int, perm os.FileMode) (*os.File, error)
 	MkdirAll(name string, perm os.FileMode) error
@@ -26,23 +32,25 @@ type FS interface {
 }
 
 // Host is what the framework hands a command.
-type Host = host.Host[FS]
+type Host struct {
+	Network    Network
+	Filesystem FS
+}
 
 // OSHost returns the Host of the real machine.
 func OSHost() Host {
-	h := host.OS()
-	return Host{Listen: h.Listen, ListenPacket: h.ListenPacket, Dial: h.Dial, FS: h.FS}
+	return Host{Network: host.IPNetwork{}, Filesystem: host.OSFilesystem{}}
 }
 
-// A CLI framework declares the filesystem its commands see as an interface
-// that embeds host.FS and lists the methods it hands them, and aliases
-// host.Host of it, so a command never writes the type parameter. OSHost
-// copies the fields of host.OS into it, and the compiler checks that OSFS
-// has every method FS lists.
+// A CLI framework declares the network and the filesystem its commands see
+// as interfaces of its own, listing the methods it hands them, and builds
+// its own host struct of the two. OSHost fills it from an IPNetwork and an
+// OSFilesystem, and the compiler checks that each has every method its
+// interface lists. bedrock defines the two types and never passes one.
 //
-// The command itself reaches the filesystem only through h.FS, and only
-// through the methods FS lists. Only the example's setup, which stands in
-// for the command's configuration, goes around it.
+// The command itself reaches the filesystem only through h.Filesystem, and
+// only through the methods FS lists. Only the example's setup, which
+// stands in for the command's configuration, goes around it.
 func Example() {
 	h := OSHost()
 
@@ -56,11 +64,11 @@ func Example() {
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	state := filepath.Join(dir, "state")
-	if err := h.FS.MkdirAll(state, 0o755); err != nil {
+	if err := h.Filesystem.MkdirAll(state, 0o755); err != nil {
 		fmt.Println(err)
 		return
 	}
-	f, err := h.FS.OpenFile(filepath.Join(state, "token"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	f, err := h.Filesystem.OpenFile(filepath.Join(state, "token"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -70,19 +78,19 @@ func Example() {
 		fmt.Println(err)
 		return
 	}
-	if err := h.FS.Chmod(f.Name(), 0o600); err != nil {
+	if err := h.Filesystem.Chmod(f.Name(), 0o600); err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	wd, err := h.FS.Getwd()
+	wd, err := h.Filesystem.Getwd()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Println("Getwd is absolute:", filepath.IsAbs(wd))
 
-	g, err := h.FS.Open(f.Name())
+	g, err := h.Filesystem.Open(f.Name())
 	if err != nil {
 		fmt.Println(err)
 		return

@@ -23,8 +23,8 @@ import (
 // A *Host is itself the test network. Its [Host.ListenTCP],
 // [Host.DialTCP], [Host.ListenUDP] and [Host.DialUDP] have the methods of
 // host.IPNetwork, so it goes wherever an IPNetwork does, and [Seams]
-// replaces one of them inline. [Host.Listen], [Host.ListenPacket] and
-// [Host.Dial] are the same network, not split by protocol.
+// replaces one of them inline. Like IPNetwork, it refuses unix sockets.
+// Its [Host.Filesystem] goes wherever a host.OSFilesystem does.
 //
 // Each direction of a TCP connection buffers up to 256 KiB, as a
 // socket's buffers do, so a Write returns once its bytes are buffered and
@@ -52,8 +52,7 @@ type Option func(*Host)
 // through tb.
 //
 // New starts no goroutines and makes no channels: ListenTCP, DialTCP,
-// ListenUDP, DialUDP, Listen, ListenPacket, Dial and Listening make theirs
-// when they are called. To use a Host with testing/synctest,
+// ListenUDP, DialUDP and Listening make theirs when they are called. To use a Host with testing/synctest,
 // call New inside synctest.Test with the bubble's t, so that every
 // channel the Host makes belongs to the bubble that uses it.
 func New(tb testing.TB, opts ...Option) *Host {
@@ -81,16 +80,25 @@ func New(tb testing.TB, opts ...Option) *Host {
 	return h
 }
 
-// Listen listens on the host and port of address. An empty host, 0.0.0.0
-// or :: listens on every name. Port 0 picks a free port. Listen fails with
-// EADDRINUSE when a listener already holds the same name and port, or
-// when one of the two listens on every name for that port.
+// ListenTCP listens on the host and port of address. An empty host,
+// 0.0.0.0 or :: listens on every name. Port 0 picks a free port from
+// IANA's dynamic range, 49152 to 65535. ListenTCP fails with EADDRINUSE
+// when a listener already holds the same name and port, or when one of the
+// two listens on every name for that port.
 //
 // The network is "tcp", "tcp4" or "tcp6", which share one set of ports,
-// apart from UDP's. Every error is a *net.OpError. The listener's Addr
-// reports the host as written in address and the port it holds.
-func (h *Host) Listen(network, address string) (net.Listener, error) {
-	k, err := parse(network, address, "tcp")
+// apart from UDP's; any other network fails with a *net.OpError wrapping
+// net.UnknownNetworkError. Every error is a *net.OpError. The listener's
+// Addr reports the host as written in address and the port it holds.
+//
+// Names are compared as written and never resolved, so ctx bounds
+// nothing: a listen that has begun never waits, and a done ctx doesn't
+// stop it, as it doesn't stop a real listen on a literal address.
+func (h *Host) ListenTCP(ctx context.Context, network, address string) (net.Listener, error) {
+	if protocol(network) != "tcp" {
+		return nil, unknownNetwork("listen", network)
+	}
+	k, err := parseAddress(address)
 	if err != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Err: err}
 	}
@@ -119,44 +127,28 @@ func (h *Host) Listen(network, address string) (net.Listener, error) {
 	return l, nil
 }
 
-// Dial connects to the host and port of address over "tcp", "tcp4" or
-// "tcp6", or over "udp", "udp4" or "udp6". Every error is a *net.OpError.
+// DialTCP connects to the host and port of address over "tcp", "tcp4" or
+// "tcp6"; any other network fails with a *net.OpError wrapping
+// net.UnknownNetworkError. Every error is a *net.OpError. The method value
+// fits http.Transport.DialContext.
 //
-// Over TCP, Dial connects to the listener for the address: one bound to
-// that exact name, or else one that listens on every name for that port.
-// It fails with ECONNREFUSED when there is none. It never waits for a
-// listener. A Dial that finds its listener returns once the listener's
-// Accept takes the connection. If ctx is done first, Dial closes both ends
-// of the connection and returns ctx's error.
-//
-// Over UDP, Dial returns a connected socket at once, whether or not a
-// socket holds the address, as a real one does. The socket is bound to the
-// name it dials, as written, and a port from IANA's dynamic range, as a
-// socket dialled over loopback is bound to the loopback address. It sends
-// only to the address it dialled, and takes datagrams only from that
-// address, dropping every other. A write to an address no socket holds
-// succeeds, and the socket's next read or write fails with ECONNREFUSED,
-// as Linux reports the ICMP port unreachable that answers it. The socket
-// is a net.PacketConn, as a dialled *net.UDPConn is: its ReadFrom reads as
-// Read does and returns the address it dialled, and its WriteTo sends
-// nothing and fails with an error wrapping net.ErrWriteToConnected,
-// whatever the address. The package documentation says what else the
-// socket does.
-func (h *Host) Dial(ctx context.Context, network, address string) (net.Conn, error) {
-	k, err := parse(network, address, "tcp", "udp")
+// DialTCP connects to the listener for the address: one bound to that
+// exact name, as written, or else one that listens on every name for that
+// port. Names are compared as written and never resolved. DialTCP fails
+// with ECONNREFUSED when there is no such listener. It never waits for a
+// listener. A DialTCP that finds its listener returns once the listener's
+// Accept takes the connection. If ctx is done first, DialTCP closes both
+// ends of the connection and returns ctx's error.
+func (h *Host) DialTCP(ctx context.Context, network, address string) (net.Conn, error) {
+	if protocol(network) != "tcp" {
+		return nil, unknownNetwork("dial", network)
+	}
+	k, err := parseAddress(address)
 	if err != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Err: err}
 	}
-	udp := protocol(network) == "udp"
 	if err := ctx.Err(); err != nil {
-		a := k.addr()
-		if udp {
-			a = k.udpAddr()
-		}
-		return nil, &net.OpError{Op: "dial", Net: network, Addr: a, Err: err}
-	}
-	if udp {
-		return h.dialUDP(network, k)
+		return nil, &net.OpError{Op: "dial", Net: network, Addr: k.addr(), Err: err}
 	}
 
 	h.mu.Lock()
@@ -179,8 +171,8 @@ func (h *Host) Dial(ctx context.Context, network, address string) (net.Conn, err
 }
 
 // Listening returns a channel that is closed once a TCP listener exists
-// that a Dial or DialTCP to address would reach. It never waits for a UDP socket: a
-// test that needs one bound waits with synctest.Wait. A test receives from it before dialling, so
+// that a DialTCP to address would reach. It never waits for a UDP socket:
+// a test that needs one bound waits with synctest.Wait. A test receives from it before dialling, so
 // that it doesn't dial before the App listens. It works like bedrocktest's
 // Process.Notified: once closed, the channel stays closed, and after that
 // listener closes, Listening returns a new channel, closed when the next
@@ -218,12 +210,12 @@ func (h *Host) Listening(address string) <-chan struct{} {
 	return ch
 }
 
-// reachableLocked returns the listener a Dial to k reaches, or nil.
+// reachableLocked returns the listener a DialTCP to k reaches, or nil.
 func (h *Host) reachableLocked(k key) *listener {
 	return h.tcp.holder(k)
 }
 
-// remove forgets l, and every closed Listening channel that a Dial no
+// remove forgets l, and every closed Listening channel that a DialTCP no
 // longer reaches, so the next Listening call makes a new one.
 func (h *Host) remove(l *listener) {
 	h.mu.Lock()

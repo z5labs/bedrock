@@ -18,9 +18,7 @@ import (
 // testConformanceNetworks runs the scenarios about the network argument,
 // which the four methods of a Host must get right exactly as
 // host.IPNetwork does. TestConformance_in_memory runs them on a Host, and
-// TestConformance_loopback on the zero host.IPNetwork. Neither runs them
-// on host.OS or on a Host's Listen, ListenPacket and Dial, which pass
-// every network through by design.
+// TestConformance_loopback on the zero host.IPNetwork, every row on both.
 //
 // Each method refuses the other protocol's networks, and the two listens
 // ignore a done ctx: a listen on a literal address resolves nothing for

@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -697,86 +696,6 @@ func TestOSFilesystem_follows_an_absolute_symlink(t *testing.T) {
 	})
 }
 
-// OSFS keeps the two methods OSFilesystem leaves out, the ones that confine
-// to a directory.
-func TestOSFS(t *testing.T) {
-	var fsys host.OSFS
-
-	t.Run("OpenRoot", func(t *testing.T) {
-		t.Run("opens a directory as a root", func(t *testing.T) {
-			dir := t.TempDir()
-			writeFile(t, filepath.Join(dir, "a.txt"), "in the root")
-
-			root, err := fsys.OpenRoot(dir)
-			require.NoError(t, err)
-			defer func() { require.NoError(t, root.Close()) }()
-
-			require.Equal(t, dir, root.Name())
-			b, err := root.ReadFile("a.txt")
-			require.NoError(t, err)
-			require.Equal(t, "in the root", string(b))
-		})
-
-		t.Run("fails for a missing directory", func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "missing")
-
-			_, err := fsys.OpenRoot(dir)
-			requirePathError(t, err, dir, fs.ErrNotExist)
-		})
-	})
-
-	t.Run("OpenInRoot", func(t *testing.T) {
-		t.Run("opens a file in dir", func(t *testing.T) {
-			dir := t.TempDir()
-			writeFile(t, filepath.Join(dir, "a.txt"), "in the root")
-
-			f, err := fsys.OpenInRoot(dir, "a.txt")
-			require.NoError(t, err)
-			defer closeFile(t, f)
-
-			require.Equal(t, "in the root", readAll(t, f))
-		})
-
-		t.Run("fails for a missing file", func(t *testing.T) {
-			dir := t.TempDir()
-
-			_, err := fsys.OpenInRoot(dir, "missing")
-			requirePathError(t, err, "missing", fs.ErrNotExist)
-		})
-
-		t.Run("fails for a name that escapes dir", func(t *testing.T) {
-			parent := t.TempDir()
-			dir := filepath.Join(parent, "root")
-			require.NoError(t, os.Mkdir(dir, 0o700))
-			writeFile(t, filepath.Join(parent, "outside.txt"), "")
-
-			name := filepath.Join("..", "outside.txt")
-			_, err := fsys.OpenInRoot(dir, name)
-			require.IsType(t, &fs.PathError{}, err)
-			require.Equal(t, name, err.(*fs.PathError).Path)
-		})
-	})
-}
-
-func TestOSFS_is_sealed(t *testing.T) {
-	require.True(t, reflect.TypeFor[host.OSFS]().Implements(reflect.TypeFor[host.FS]()),
-		"OSFS satisfies host.FS")
-}
-
-func TestOSFS_has_OSFilesystem_methods(t *testing.T) {
-	name := filepath.Join(t.TempDir(), "a.txt")
-	writeFile(t, name, "promoted")
-
-	b, err := host.OSFS{}.ReadFile(name)
-	require.NoError(t, err)
-	require.Equal(t, "promoted", string(b))
-}
-
-func TestOSFilesystem_is_not_sealed(t *testing.T) {
-	require.False(t, reflect.TypeFor[host.OSFilesystem]().Implements(reflect.TypeFor[host.FS]()),
-		"OSFilesystem does not satisfy host.FS")
-}
-
 // configFS is the filesystem a configuration loader takes: an interface of
 // the two methods it calls, and nothing else.
 type configFS interface {
@@ -819,9 +738,6 @@ func (m mapFS) ReadFile(name string) ([]byte, error) {
 }
 
 func TestOSFilesystem_is_one_of_many_filesystems_a_consumer_takes(t *testing.T) {
-	require.False(t, reflect.TypeFor[mapFS]().Implements(reflect.TypeFor[host.FS]()),
-		"a filesystem written from scratch needs no seal")
-
 	t.Run("OSFilesystem", func(t *testing.T) {
 		dir := t.TempDir()
 		name := filepath.Join(dir, "config.yaml")

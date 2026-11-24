@@ -19,8 +19,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/z5labs/bedrock/host"
 )
 
 // tempDirName is the directory inside a Host's directory that CreateTemp
@@ -76,14 +74,9 @@ func local(name string) (string, error) {
 	return p, nil
 }
 
-// FS returns the Host's filesystem.
-func (h *Host) FS() *FS {
-	return &FS{filesystem: filesystem{dir: h.dir, root: h.root}}
-}
-
-// Filesystem returns the Host's filesystem, without the seal. It is over
-// the same directory, with the same os.Root, as [Host.FS], so the two see
-// the same files.
+// Filesystem returns the Host's filesystem. Every Filesystem it returns
+// is over the same directory, with the same os.Root, so they all see the
+// same files.
 func (h *Host) Filesystem() *Filesystem {
 	return &Filesystem{dir: h.dir, root: h.root}
 }
@@ -104,71 +97,11 @@ func (h *Host) Path(name string) string {
 	return filepath.Join(h.dir, rel)
 }
 
-// sealed is host.FS under a name that is not exported, so that embedding
-// it gives FS host.FS's method without a field in FS's docs.
-type sealed = host.FS //nolint:unused // used only as FS's embedded field
-
-// filesystem is Filesystem under a name that is not exported, so that FS
-// embeds it for its methods without a field in FS's docs.
-type filesystem = Filesystem
-
-// FS is a filesystem confined to a Host's directory with os.Root. It has
-// every method of host.OSFS, with the same results, except that a name
-// that leaves the directory fails, and that Symlink and CopyFS refuse a
-// symbolic link to an absolute target, which os.Root would never follow.
-// Its Getwd is the Host's directory.
-//
-// It is confined with os.Root, so ".." and symbolic links can't leave the
-// directory. FS accepts absolute names under the directory, so that a
-// file's Name() can be passed back in, as with host.OSFS. Relative names
-// are relative to the Host's directory. Files are opened under its
-// absolute path, so a file's Name() is an absolute OS path, and MkdirTemp
-// returns one. CreateTemp and MkdirTemp with dir == "" use "tmp" inside
-// the directory, created when it is first needed. Every error names the
-// path the caller passed.
-//
-// FS satisfies host.FS, so it is the filesystem of a host.Host whose
-// filesystem is an interface that embeds host.FS and lists methods of FS.
-type FS struct {
-	// sealed is never set and its method is never called: it is embedded
-	// only for the method set. FS must not embed host.OSFS for it, since
-	// every method FS lacked would then be the real filesystem's, and
-	// would compile, and would escape the directory.
-	sealed //nolint:unused // embedded for its method set, never set or called
-
-	// filesystem has every method of FS but the seal, OpenRoot and
-	// OpenInRoot, and holds the directory and its os.Root.
-	filesystem
-}
-
-// OpenRoot is host.OSFS's OpenRoot, confined to the Host's directory. The
-// *os.Root it returns is confined to the directory name.
-func (f *FS) OpenRoot(name string) (*os.Root, error) {
-	rel := relative(f.dir, name)
-	root, err := f.root.OpenRoot(rel)
-	return root, renamed(err, rel, name)
-}
-
-// OpenInRoot is host.OSFS's OpenInRoot, confined to the Host's directory:
-// dir may not leave the Host's directory, and name may not leave dir.
-func (f *FS) OpenInRoot(dir, name string) (*os.File, error) {
-	root, err := f.OpenRoot(dir)
-	if err != nil {
-		return nil, err
-	}
-	file, err := root.Open(name)
-	// The file holds a descriptor of its own, so closing the root can't
-	// change it, and os.OpenInRoot does not report the close either.
-	_ = root.Close()
-	return file, err
-}
-
 // Filesystem is a filesystem confined to a Host's directory with
-// os.Root, with host.OSFilesystem's 26 methods. It is FS without the
-// seal, and without OpenRoot and OpenInRoot. Its methods have the same
+// os.Root, with host.OSFilesystem's 26 methods. Its methods have the same
 // results as host.OSFilesystem's, except that a name that leaves the
-// directory fails, and that Symlink and CopyFS refuse a
-// symbolic link to an absolute target, which os.Root would never follow.
+// directory fails, and that Symlink and CopyFS refuse a symbolic link to
+// an absolute target, which os.Root would never follow.
 // Its Getwd is the Host's directory.
 //
 // It is confined with os.Root, so ".." and symbolic links can't leave the
@@ -211,28 +144,28 @@ func renamed(err error, rel, name string) error {
 	return err
 }
 
-// Open is host.OSFS's Open, confined to the Host's directory.
+// Open is host.OSFilesystem's Open, confined to the Host's directory.
 func (f *Filesystem) Open(name string) (*os.File, error) {
 	rel := relative(f.dir, name)
 	file, err := f.root.Open(rel)
 	return file, renamed(err, rel, name)
 }
 
-// OpenFile is host.OSFS's OpenFile, confined to the Host's directory.
+// OpenFile is host.OSFilesystem's OpenFile, confined to the Host's directory.
 func (f *Filesystem) OpenFile(name string, flag int, perm os.FileMode) (*os.File, error) {
 	rel := relative(f.dir, name)
 	file, err := f.root.OpenFile(rel, flag, perm)
 	return file, renamed(err, rel, name)
 }
 
-// Create is host.OSFS's Create, confined to the Host's directory.
+// Create is host.OSFilesystem's Create, confined to the Host's directory.
 func (f *Filesystem) Create(name string) (*os.File, error) {
 	rel := relative(f.dir, name)
 	file, err := f.root.Create(rel)
 	return file, renamed(err, rel, name)
 }
 
-// ReadFile is host.OSFS's ReadFile, confined to the Host's directory.
+// ReadFile is host.OSFilesystem's ReadFile, confined to the Host's directory.
 func (f *Filesystem) ReadFile(name string) ([]byte, error) {
 	rel := relative(f.dir, name)
 	data, err := f.root.ReadFile(rel)
@@ -241,14 +174,14 @@ func (f *Filesystem) ReadFile(name string) ([]byte, error) {
 	return data, renamed(renamed(err, rel, name), joinPath(f.dir, rel), name)
 }
 
-// WriteFile is host.OSFS's WriteFile, confined to the Host's directory.
+// WriteFile is host.OSFilesystem's WriteFile, confined to the Host's directory.
 func (f *Filesystem) WriteFile(name string, data []byte, perm os.FileMode) error {
 	rel := relative(f.dir, name)
 	err := f.root.WriteFile(rel, data, perm)
 	return renamed(renamed(err, rel, name), joinPath(f.dir, rel), name)
 }
 
-// Truncate is host.OSFS's Truncate, confined to the Host's directory. It
+// Truncate is host.OSFilesystem's Truncate, confined to the Host's directory. It
 // opens the file to truncate it, so it fails, as os.Truncate does, for a
 // directory. It opens without blocking, so a named pipe fails rather than
 // waiting for a reader. Every error is a *fs.PathError whose Op is
@@ -268,7 +201,7 @@ func (f *Filesystem) Truncate(name string, size int64) error {
 	return err
 }
 
-// CopyFS is host.OSFS's CopyFS, confined to the Host's directory. Like
+// CopyFS is host.OSFilesystem's CopyFS, confined to the Host's directory. Like
 // os.CopyFS it never overwrites a file, failing with fs.ErrExist. It
 // copies a symbolic link with Symlink, so an fsys holding a symbolic link
 // to an absolute target fails as Symlink does.
@@ -323,14 +256,14 @@ func copyFile(f *Filesystem, fsys fs.FS, path, target string) error {
 	return renamed(w.Close(), w.Name(), target)
 }
 
-// Link is host.OSFS's Link, confined to the Host's directory: neither name
+// Link is host.OSFilesystem's Link, confined to the Host's directory: neither name
 // may leave it.
 func (f *Filesystem) Link(oldname, newname string) error {
 	oldrel, newrel := relative(f.dir, oldname), relative(f.dir, newname)
 	return relinked(f.root.Link(oldrel, newrel), oldrel, oldname, newrel, newname)
 }
 
-// Symlink is host.OSFS's Symlink, confined to the Host's directory, except
+// Symlink is host.OSFilesystem's Symlink, confined to the Host's directory, except
 // that it refuses an absolute oldname, creating nothing, with an
 // *os.LinkError whose Err is errors.ErrUnsupported. The directory is
 // confined with os.Root, which won't follow an absolute symbolic link even
@@ -347,7 +280,7 @@ func (f *Filesystem) Symlink(oldname, newname string) error {
 	return relinked(f.root.Symlink(oldname, newrel), oldname, oldname, newrel, newname)
 }
 
-// Readlink is host.OSFS's Readlink, confined to the Host's directory. It
+// Readlink is host.OSFilesystem's Readlink, confined to the Host's directory. It
 // returns the target as it was written.
 func (f *Filesystem) Readlink(name string) (string, error) {
 	rel := relative(f.dir, name)
@@ -355,32 +288,32 @@ func (f *Filesystem) Readlink(name string) (string, error) {
 	return target, renamed(err, rel, name)
 }
 
-// Lstat is host.OSFS's Lstat, confined to the Host's directory.
+// Lstat is host.OSFilesystem's Lstat, confined to the Host's directory.
 func (f *Filesystem) Lstat(name string) (os.FileInfo, error) {
 	rel := relative(f.dir, name)
 	fi, err := f.root.Lstat(rel)
 	return fi, renamed(err, rel, name)
 }
 
-// Chmod is host.OSFS's Chmod, confined to the Host's directory.
+// Chmod is host.OSFilesystem's Chmod, confined to the Host's directory.
 func (f *Filesystem) Chmod(name string, mode os.FileMode) error {
 	rel := relative(f.dir, name)
 	return renamed(f.root.Chmod(rel, mode), rel, name)
 }
 
-// Chown is host.OSFS's Chown, confined to the Host's directory.
+// Chown is host.OSFilesystem's Chown, confined to the Host's directory.
 func (f *Filesystem) Chown(name string, uid, gid int) error {
 	rel := relative(f.dir, name)
 	return renamed(f.root.Chown(rel, uid, gid), rel, name)
 }
 
-// Lchown is host.OSFS's Lchown, confined to the Host's directory.
+// Lchown is host.OSFilesystem's Lchown, confined to the Host's directory.
 func (f *Filesystem) Lchown(name string, uid, gid int) error {
 	rel := relative(f.dir, name)
 	return renamed(f.root.Lchown(rel, uid, gid), rel, name)
 }
 
-// Chtimes is host.OSFS's Chtimes, confined to the Host's directory.
+// Chtimes is host.OSFilesystem's Chtimes, confined to the Host's directory.
 func (f *Filesystem) Chtimes(name string, atime, mtime time.Time) error {
 	rel := relative(f.dir, name)
 	return renamed(f.root.Chtimes(rel, atime, mtime), rel, name)
@@ -436,7 +369,7 @@ func joinPath(dir, name string) string {
 // up, as package os does.
 const tempTries = 10000
 
-// CreateTemp is host.OSFS's CreateTemp, confined to the Host's directory.
+// CreateTemp is host.OSFilesystem's CreateTemp, confined to the Host's directory.
 // With dir == "" it creates the file in "tmp" inside the directory.
 func (f *Filesystem) CreateTemp(dir, pattern string) (*os.File, error) {
 	prefix, suffix, err := tempPattern("createtemp", pattern)
@@ -464,7 +397,7 @@ func createTemp(f *Filesystem, dir, prefix, suffix string, random func() string)
 	return nil, &fs.PathError{Op: "createtemp", Path: joinPath(shown, prefix) + "*" + suffix, Err: fs.ErrExist}
 }
 
-// MkdirTemp is host.OSFS's MkdirTemp, confined to the Host's directory.
+// MkdirTemp is host.OSFilesystem's MkdirTemp, confined to the Host's directory.
 // With dir == "" it creates the directory in "tmp" inside the Host's
 // directory. It returns an absolute OS path.
 func (f *Filesystem) MkdirTemp(dir, pattern string) (string, error) {
@@ -503,13 +436,13 @@ func mkdirTemp(f *Filesystem, dir, prefix, suffix string, random func() string) 
 	return "", &fs.PathError{Op: "mkdirtemp", Path: joinPath(shown, prefix) + "*" + suffix, Err: fs.ErrExist}
 }
 
-// Mkdir is host.OSFS's Mkdir, confined to the Host's directory.
+// Mkdir is host.OSFilesystem's Mkdir, confined to the Host's directory.
 func (f *Filesystem) Mkdir(name string, perm os.FileMode) error {
 	rel := relative(f.dir, name)
 	return renamed(f.root.Mkdir(rel, perm), rel, name)
 }
 
-// MkdirAll is host.OSFS's MkdirAll, confined to the Host's directory.
+// MkdirAll is host.OSFilesystem's MkdirAll, confined to the Host's directory.
 func (f *Filesystem) MkdirAll(name string, perm os.FileMode) error {
 	rel := relative(f.dir, name)
 	err := f.root.MkdirAll(rel, perm)
@@ -530,20 +463,20 @@ func (f *Filesystem) MkdirAll(name string, perm os.FileMode) error {
 	return renamed(err, rel, name)
 }
 
-// Remove is host.OSFS's Remove, confined to the Host's directory.
+// Remove is host.OSFilesystem's Remove, confined to the Host's directory.
 func (f *Filesystem) Remove(name string) error {
 	rel := relative(f.dir, name)
 	return renamed(f.root.Remove(rel), rel, name)
 }
 
-// RemoveAll is host.OSFS's RemoveAll, confined to the Host's directory. A
+// RemoveAll is host.OSFilesystem's RemoveAll, confined to the Host's directory. A
 // symbolic link is removed, not followed.
 func (f *Filesystem) RemoveAll(name string) error {
 	rel := relative(f.dir, name)
 	return renamed(f.root.RemoveAll(rel), rel, name)
 }
 
-// Rename is host.OSFS's Rename, confined to the Host's directory: neither
+// Rename is host.OSFilesystem's Rename, confined to the Host's directory: neither
 // name may leave it.
 func (f *Filesystem) Rename(oldname, newname string) error {
 	oldrel, newrel := relative(f.dir, oldname), relative(f.dir, newname)
@@ -566,14 +499,14 @@ func relinked(err error, oldrel, oldname, newrel, newname string) error {
 	return renamed(err, oldrel, oldname)
 }
 
-// Stat is host.OSFS's Stat, confined to the Host's directory.
+// Stat is host.OSFilesystem's Stat, confined to the Host's directory.
 func (f *Filesystem) Stat(name string) (os.FileInfo, error) {
 	rel := relative(f.dir, name)
 	fi, err := f.root.Stat(rel)
 	return fi, renamed(err, rel, name)
 }
 
-// ReadDir is host.OSFS's ReadDir, confined to the Host's directory. Its
+// ReadDir is host.OSFilesystem's ReadDir, confined to the Host's directory. Its
 // entries are sorted by filename.
 func (f *Filesystem) ReadDir(name string) ([]os.DirEntry, error) {
 	rel := relative(f.dir, name)
@@ -594,7 +527,7 @@ func (f *Filesystem) ReadDir(name string) ([]os.DirEntry, error) {
 	return entries, err
 }
 
-// DirFS is host.OSFS's DirFS, confined to the Host's directory. For a dir
+// DirFS is host.OSFilesystem's DirFS, confined to the Host's directory. For a dir
 // outside it, every Open of the fs.FS fails, since DirFS cannot.
 func (f *Filesystem) DirFS(dir string) fs.FS {
 	name := relative(f.dir, dir)

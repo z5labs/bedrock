@@ -28,7 +28,7 @@ import (
 
 func listenPacket(t *testing.T, h *hosttest.Host, address string) net.PacketConn {
 	t.Helper()
-	pc, err := h.ListenPacket("udp", address)
+	pc, err := h.ListenUDP(t.Context(), "udp", address)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pc.Close() })
 	return pc
@@ -36,7 +36,7 @@ func listenPacket(t *testing.T, h *hosttest.Host, address string) net.PacketConn
 
 func dialUDP(t *testing.T, h *hosttest.Host, address string) net.Conn {
 	t.Helper()
-	c, err := h.Dial(t.Context(), "udp", address)
+	c, err := h.DialUDP(t.Context(), "udp", address)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	return c
@@ -93,7 +93,7 @@ func requireNetOpError(t *testing.T, err error, op string) {
 	require.Equal(t, op, opErr.Op)
 }
 
-func TestHost_ListenPacket_EADDRINUSE(t *testing.T) {
+func TestHost_ListenUDP_EADDRINUSE(t *testing.T) {
 	testCases := []struct {
 		name          string
 		first, second string
@@ -112,7 +112,7 @@ func TestHost_ListenPacket_EADDRINUSE(t *testing.T) {
 				h := hosttest.New(t)
 				listenPacket(t, h, tc.first)
 
-				pc, err := h.ListenPacket("udp", tc.second)
+				pc, err := h.ListenUDP(t.Context(), "udp", tc.second)
 				require.Nil(t, pc)
 				require.ErrorIs(t, err, syscall.EADDRINUSE)
 				opErr := asNetOpError(t, err, "listen")
@@ -123,7 +123,7 @@ func TestHost_ListenPacket_EADDRINUSE(t *testing.T) {
 	}
 }
 
-func TestHost_ListenPacket_binds(t *testing.T) {
+func TestHost_ListenUDP_binds(t *testing.T) {
 	t.Run("two names on one port", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
@@ -172,7 +172,7 @@ func TestHost_ListenPacket_binds(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			for _, host := range []string{"", "0.0.0.0", "::"} {
-				pc, err := h.ListenPacket("udp", net.JoinHostPort(host, "0"))
+				pc, err := h.ListenUDP(t.Context(), "udp", net.JoinHostPort(host, "0"))
 				require.NoError(t, err)
 				require.Equal(t, net.JoinHostPort(host, strconv.Itoa(portOf(t, pc.LocalAddr()))), pc.LocalAddr().String())
 				require.NoError(t, pc.Close())
@@ -185,7 +185,7 @@ func TestHost_ListenPacket_binds(t *testing.T) {
 			h := hosttest.New(t)
 			var pcs []net.PacketConn
 			for {
-				pc, err := h.ListenPacket("udp", ":0")
+				pc, err := h.ListenUDP(t.Context(), "udp", ":0")
 				if err != nil {
 					require.ErrorIs(t, err, syscall.EADDRINUSE)
 					requireNetOpError(t, err, "listen")
@@ -195,7 +195,7 @@ func TestHost_ListenPacket_binds(t *testing.T) {
 			}
 			require.Len(t, pcs, 65535-49152+1)
 
-			_, err := h.Dial(t.Context(), "udp", "api:53")
+			_, err := h.DialUDP(t.Context(), "udp", "api:53")
 			require.ErrorIs(t, err, syscall.EADDRINUSE, "a dialled socket needs a port too")
 			opErr := asNetOpError(t, err, "dial")
 			require.Equal(t, "api:53", opErr.Addr.String())
@@ -209,12 +209,12 @@ func TestHost_ListenPacket_binds(t *testing.T) {
 	t.Run("udp4 and udp6 share udp's ports", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
-			pc, err := h.ListenPacket("udp4", "api:53")
+			pc, err := h.ListenUDP(t.Context(), "udp4", "api:53")
 			require.NoError(t, err)
 			defer func() { require.NoError(t, pc.Close()) }()
 
 			for _, network := range []string{"udp", "udp6"} {
-				_, err := h.ListenPacket(network, "api:53")
+				_, err := h.ListenUDP(t.Context(), network, "api:53")
 				require.ErrorIs(t, err, syscall.EADDRINUSE, network)
 			}
 		})
@@ -236,7 +236,7 @@ func TestHost_ListenPacket_binds(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			for _, address := range []string{"api:53", ":53", "api:53"} {
-				pc, err := h.ListenPacket("udp", address)
+				pc, err := h.ListenUDP(t.Context(), "udp", address)
 				require.NoError(t, err)
 				require.NoError(t, pc.Close())
 			}
@@ -260,28 +260,28 @@ func TestHost_udp_malformed_addresses(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				h := hosttest.New(t)
 
-				pc, err := h.ListenPacket(tc.network, tc.address)
+				pc, err := h.ListenUDP(t.Context(), tc.network, tc.address)
 				require.Nil(t, pc)
 				opErr := asNetOpError(t, err, "listen")
 				require.Equal(t, tc.network, opErr.Net)
 
-				c, err := h.Dial(t.Context(), tc.network, tc.address)
+				c, err := h.DialUDP(t.Context(), tc.network, tc.address)
 				require.Nil(t, c)
 				requireNetOpError(t, err, "dial")
 			})
 		})
 	}
 
-	t.Run("ListenPacket does not listen over TCP, nor Listen over UDP", func(t *testing.T) {
+	t.Run("ListenUDP does not listen over TCP, nor ListenTCP over UDP", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 
-			_, err := h.ListenPacket("tcp", "api:53")
+			_, err := h.ListenUDP(t.Context(), "tcp", "api:53")
 			var unknown net.UnknownNetworkError
 			require.ErrorAs(t, err, &unknown)
 			requireNetOpError(t, err, "listen")
 
-			_, err = h.Listen("udp", "api:53")
+			_, err = h.ListenTCP(t.Context(), "udp", "api:53")
 			require.ErrorAs(t, err, &unknown)
 			requireNetOpError(t, err, "listen")
 		})
@@ -439,7 +439,7 @@ func TestHost_udp_datagrams(t *testing.T) {
 			var wg sync.WaitGroup
 			for i := range writers {
 				wg.Go(func() {
-					c, err := h.Dial(t.Context(), "udp", "dns:53")
+					c, err := h.DialUDP(t.Context(), "udp", "dns:53")
 					if err != nil {
 						t.Error(err)
 						return
@@ -585,7 +585,7 @@ func TestHost_udp_replies(t *testing.T) {
 	})
 }
 
-func TestHost_Dial_udp(t *testing.T) {
+func TestHost_DialUDP_socket(t *testing.T) {
 	t.Run("binds the name it dials and a port from IANA's dynamic range", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
@@ -601,7 +601,7 @@ func TestHost_Dial_udp(t *testing.T) {
 			require.GreaterOrEqual(t, port, 49152)
 			require.LessOrEqual(t, port, 65535)
 
-			_, err = h.ListenPacket("udp", c.LocalAddr().String())
+			_, err = h.ListenUDP(t.Context(), "udp", c.LocalAddr().String())
 			require.ErrorIs(t, err, syscall.EADDRINUSE, "the dialled socket holds its port")
 		})
 	})
@@ -610,7 +610,7 @@ func TestHost_Dial_udp(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			for _, network := range []string{"udp", "udp4", "udp6"} {
-				c, err := h.Dial(t.Context(), network, "dns:53")
+				c, err := h.DialUDP(t.Context(), network, "dns:53")
 				require.NoError(t, err, network)
 				require.NoError(t, c.Close())
 			}
@@ -643,7 +643,7 @@ func TestHost_Dial_udp(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 
-			c, err := h.Dial(ctx, "udp", "dns:53")
+			c, err := h.DialUDP(ctx, "udp", "dns:53")
 			require.Nil(t, c)
 			require.ErrorIs(t, err, context.Canceled)
 			opErr := asNetOpError(t, err, "dial")
@@ -652,8 +652,8 @@ func TestHost_Dial_udp(t *testing.T) {
 	})
 }
 
-func TestHost_Dial_udp_is_a_PacketConn(t *testing.T) {
-	t.Run("from DialUDP, and from Dial over udp, udp4 and udp6", func(t *testing.T) {
+func TestHost_DialUDP_is_a_PacketConn(t *testing.T) {
+	t.Run("over udp, udp4 and udp6", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			c, err := h.DialUDP(t.Context(), "udp", "dns:53")
@@ -662,7 +662,7 @@ func TestHost_Dial_udp_is_a_PacketConn(t *testing.T) {
 			require.NoError(t, c.Close())
 
 			for _, network := range []string{"udp", "udp4", "udp6"} {
-				c, err := h.Dial(t.Context(), network, "dns:53")
+				c, err := h.DialUDP(t.Context(), network, "dns:53")
 				require.NoError(t, err, network)
 				require.Implements(t, (*net.PacketConn)(nil), c, network)
 				require.NoError(t, c.Close())
@@ -680,7 +680,7 @@ func dialPacketConn(t *testing.T, h *hosttest.Host, address string) net.PacketCo
 	return pc
 }
 
-func TestHost_Dial_udp_ReadFrom(t *testing.T) {
+func TestHost_DialUDP_ReadFrom(t *testing.T) {
 	t.Run("returns the datagram and the address dialled", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
@@ -779,7 +779,7 @@ func TestHost_Dial_udp_ReadFrom(t *testing.T) {
 	})
 }
 
-func TestHost_Dial_udp_WriteTo(t *testing.T) {
+func TestHost_DialUDP_WriteTo(t *testing.T) {
 	t.Run("fails with net.ErrWriteToConnected and sends nothing, whatever the address", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
@@ -902,7 +902,7 @@ func TestHost_udp_ECONNREFUSED(t *testing.T) {
 		})
 	})
 
-	t.Run("never for a socket from ListenPacket", func(t *testing.T) {
+	t.Run("never for a socket from ListenUDP", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			pc := listenPacket(t, h, "client:9")
