@@ -107,14 +107,14 @@ func TestHost_ListenTCP(t *testing.T) {
 		})
 	})
 
-	t.Run("shares its ports with Listen", func(t *testing.T) {
+	t.Run("shares one set of ports across its calls", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			ln, err := h.ListenTCP(t.Context(), "tcp", "api:80")
 			require.NoError(t, err)
 			defer func() { require.NoError(t, ln.Close()) }()
 
-			_, err = h.Listen("tcp", "api:80")
+			_, err = h.ListenTCP(t.Context(), "tcp", "api:80")
 			require.ErrorIs(t, err, syscall.EADDRINUSE)
 		})
 	})
@@ -176,7 +176,7 @@ func TestHost_ListenTCP(t *testing.T) {
 }
 
 func TestHost_DialTCP(t *testing.T) {
-	t.Run("reaches a listener from Listen, and falls back to the every-name listener", func(t *testing.T) {
+	t.Run("reaches a listener from ListenTCP, and falls back to the every-name listener", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			serve(t, listen(t, h, "api:80"), "api")
@@ -299,14 +299,14 @@ func TestHost_ListenUDP(t *testing.T) {
 		})
 	})
 
-	t.Run("shares its ports with ListenPacket, and not with ListenTCP", func(t *testing.T) {
+	t.Run("shares one set of ports across its calls, and not with ListenTCP", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			pc, err := h.ListenUDP(t.Context(), "udp", "dns:53")
 			require.NoError(t, err)
 			defer func() { require.NoError(t, pc.Close()) }()
 
-			_, err = h.ListenPacket("udp", "dns:53")
+			_, err = h.ListenUDP(t.Context(), "udp", "dns:53")
 			require.ErrorIs(t, err, syscall.EADDRINUSE)
 
 			ln, err := h.ListenTCP(t.Context(), "tcp", "dns:53")

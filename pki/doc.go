@@ -27,8 +27,8 @@
 // requires each client to present a certificate signed by a CA in the file
 // that TLS_CLIENT_CA_FILE names:
 //
-//	// FS is what serverTLS reads files through: host's OSFS in production
-//	// and hosttest's FS in a test.
+//	// FS is what serverTLS reads files through: host's OSFilesystem in production
+//	// and hosttest's Filesystem in a test.
 //	type FS interface {
 //		ReadFile(name string) ([]byte, error)
 //	}

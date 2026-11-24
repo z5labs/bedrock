@@ -57,25 +57,12 @@ type conformanceFS interface {
 	DirFS(dir string) fs.FS
 }
 
-// conformanceRootFS lists the two methods of host.OSFS that
-// host.OSFilesystem leaves out, those that confine to a directory, which
-// the FS root conformance table checks *hosttest.FS has, with the same
-// results as host.OSFS.
-type conformanceRootFS interface {
-	OpenRoot(name string) (*os.Root, error)
-	OpenInRoot(dir, name string) (*os.File, error)
-}
-
 // Each filesystem has every method of the table it is checked by, so this
 // stops compiling if *hosttest.Filesystem lacks one of
-// host.OSFilesystem's, or *hosttest.FS one of host.OSFilesystem's or of
-// host.OSFS's.
+// host.OSFilesystem's.
 var (
-	_ conformanceFS     = host.OSFilesystem{}
-	_ conformanceFS     = (*hosttest.Filesystem)(nil)
-	_ conformanceFS     = (*hosttest.FS)(nil)
-	_ conformanceRootFS = host.OSFS{}
-	_ conformanceRootFS = (*hosttest.FS)(nil)
+	_ conformanceFS = host.OSFilesystem{}
+	_ conformanceFS = (*hosttest.Filesystem)(nil)
 )
 
 // conformanceFiles is the directory every scenario starts from, on both
@@ -552,53 +539,6 @@ func TestConformance_FS(t *testing.T) {
 
 	runFSConformance(t, "host.OSFilesystem", conformanceFS(host.OSFilesystem{}),
 		"hosttest.Filesystem", func(h *hosttest.Host) conformanceFS { return h.Filesystem() }, testCases)
-}
-
-// TestConformance_FS_root runs every scenario of the two methods
-// host.OSFilesystem leaves out, those that confine to a directory, on
-// host.OSFS, in a directory from t.TempDir(), and on *hosttest.FS, in its
-// Host's directory, and requires the two to observe the same, as
-// TestConformance_FS does.
-func TestConformance_FS_root(t *testing.T) {
-	testCases := map[string]fsScenario[conformanceRootFS]{
-		"OpenRoot a directory": func(t *testing.T, fsys conformanceRootFS, dir string) any {
-			root, err := fsys.OpenRoot(filepath.Join(dir, "dir"))
-			require.NoError(t, err)
-			defer func() { require.NoError(t, root.Close()) }()
-			b, err := root.ReadFile(filepath.Join("sub", "leaf"))
-			require.NoError(t, err)
-			_, escaped := root.Open(filepath.Join("..", "empty", ".keep"))
-			return []any{string(b), describe(t, dir, escaped)}
-		},
-		"OpenRoot a missing directory": func(t *testing.T, fsys conformanceRootFS, dir string) any {
-			_, err := fsys.OpenRoot(filepath.Join(dir, "missing"))
-			return describe(t, dir, err)
-		},
-
-		"OpenInRoot a file": func(t *testing.T, fsys conformanceRootFS, dir string) any {
-			f, err := fsys.OpenInRoot(filepath.Join(dir, "dir"), filepath.Join("sub", "leaf"))
-			require.NoError(t, err)
-			defer func() { require.NoError(t, f.Close()) }()
-			b, err := io.ReadAll(f)
-			require.NoError(t, err)
-			return string(b)
-		},
-		"OpenInRoot a name that leaves dir": func(t *testing.T, fsys conformanceRootFS, dir string) any {
-			_, err := fsys.OpenInRoot(filepath.Join(dir, "dir", "sub"), filepath.Join("..", "file"))
-			return describe(t, dir, err)
-		},
-		"OpenInRoot a missing dir": func(t *testing.T, fsys conformanceRootFS, dir string) any {
-			_, err := fsys.OpenInRoot(filepath.Join(dir, "missing"), "file")
-			return describe(t, dir, err)
-		},
-		"OpenInRoot a missing file": func(t *testing.T, fsys conformanceRootFS, dir string) any {
-			_, err := fsys.OpenInRoot(filepath.Join(dir, "dir"), "missing")
-			return describe(t, dir, err)
-		},
-	}
-
-	runFSConformance(t, "host.OSFS", conformanceRootFS(host.OSFS{}),
-		"hosttest.FS", func(h *hosttest.Host) conformanceRootFS { return h.FS() }, testCases)
 }
 
 // linkScenario is one row of the FS conformance table's one exception: a

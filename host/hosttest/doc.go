@@ -6,41 +6,42 @@
 // Package hosttest is a host for tests: an in-memory network and a
 // filesystem confined to the test's directory.
 //
-// A test builds a [Host] with [New], and hands the code under test a
-// [github.com/z5labs/bedrock/host.Host] built from the Host's [Host.Listen],
-// [Host.ListenPacket], [Host.Dial] and [Host.FS], in place of the Host of
-// the real machine. A *Host also has the four network methods of
-// [github.com/z5labs/bedrock/host.IPNetwork]: [Host.ListenTCP],
-// [Host.DialTCP], [Host.ListenUDP] and [Host.DialUDP] split Listen,
-// ListenPacket and Dial by protocol, so a test hands the Host itself to
-// code that takes the methods of an IPNetwork, and [Seams] replaces one of
-// them inline. Code that takes a filesystem of its own declared methods,
-// as it takes host.OSFilesystem on the real machine, is handed
-// [Host.Filesystem], which is [Host.FS] without the seal. The
-// code under test listens on the Host's network and the test dials it, and
-// every file either opens is inside the test's own temp directory.
+// A test builds a [Host] with [New], and hands the code under test the
+// Host and its [Host.Filesystem] in place of a host.IPNetwork and a
+// host.OSFilesystem. A *Host has the four network methods of
+// [github.com/z5labs/bedrock/host.IPNetwork], [Host.ListenTCP],
+// [Host.DialTCP], [Host.ListenUDP] and [Host.DialUDP], so it goes wherever
+// the code takes the methods of an IPNetwork, and [Seams] replaces one of
+// them inline. [Host.Filesystem] has the methods of
+// [github.com/z5labs/bedrock/host.OSFilesystem], so it goes wherever the
+// code takes a filesystem of its own declared methods. bedrock defines
+// these types and never passes one: a framework builds its own host
+// struct of a network and a filesystem, and the test builds the same
+// struct from the Host. The code under test listens on the Host's network
+// and the test dials it, and every file either opens is inside the test's
+// own temp directory.
 //
 // The network opens no real socket, starts no goroutines and blocks only
 // on channels, so the code can run inside a testing/synctest bubble, with
 // no real time, and the filesystem is confined with os.Root to the test's
-// temp directory. Build the Host inside the bubble that uses it, with the bubble's t, so that every channel it makes belongs to
-// that bubble. Here serve is the code under test, which serves hello over
-// HTTP on ":8080" of the host.Host it is given, and the test dials it:
+// temp directory. Build the Host inside the bubble that uses it, with the
+// bubble's t, so that every channel it makes belongs to that bubble. Here
+// serve is the code under test, which serves hello over HTTP on ":8080" of
+// the network it is given, and the test dials it:
 //
 //	func TestServe_serves_hello(t *testing.T) {
 //		synctest.Test(t, func(t *testing.T) {
 //			h := hosttest.New(t)
-//			hh := host.Host[FS]{Listen: h.Listen, ListenPacket: h.ListenPacket, Dial: h.Dial, FS: h.FS()}
 //			ctx, cancel := context.WithCancel(t.Context())
 //			defer cancel()
 //			done := make(chan error, 1)
-//			go func() { done <- serve(ctx, hh) }()
+//			go func() { done <- serve(ctx, h, h.Filesystem()) }()
 //
 //			// Wait until every goroutine in the bubble is blocked, which
 //			// includes serve blocked in Accept on :8080.
 //			synctest.Wait()
 //
-//			tr := &http.Transport{DialContext: h.Dial}
+//			tr := &http.Transport{DialContext: h.DialTCP}
 //			defer tr.CloseIdleConnections()
 //			resp, err := (&http.Client{Transport: tr}).Get("http://localhost:8080/")
 //			if err != nil {
@@ -55,12 +56,12 @@
 //		})
 //	}
 //
-// The code reaches the network and the filesystem only through the
-// host.Host it is given: it listens with Listen or ListenPacket, dials
-// with Dial, and opens files with FS.
-// net.Listen would open a real socket, whose Accept is not durably blocked,
-// so synctest.Wait would never return, and os.Open would reach files
-// outside the test's directory.
+// The code reaches the network and the filesystem only through what it is
+// given: it listens with ListenTCP or ListenUDP, dials with DialTCP or
+// DialUDP, and opens files with the filesystem. net.Listen would open a
+// real socket, whose Accept is not durably blocked, so synctest.Wait would
+// never return, and os.Open would reach files outside the test's
+// directory. Like host.IPNetwork, the Host refuses unix sockets.
 //
 // # Names
 //
@@ -73,8 +74,8 @@
 //
 // # Waiting for a listener
 //
-// [Host.Dial] and [Host.DialTCP] refuse rather than wait. A Dial with no listener fails at
-// once with ECONNREFUSED, as a real dial does, because a test that dials
+// [Host.DialTCP] refuses rather than waits. A DialTCP with no listener
+// fails at once with ECONNREFUSED, as a real dial does, because a test that dials
 // before the code listens has dialled too early, and waiting would hide
 // that, or turn it into a synctest deadlock report that doesn't name the
 // cause. A test waits for the listener itself, before it dials, in one of
@@ -89,8 +90,8 @@
 //
 // # TCP connections
 //
-// A connection that [Host.Dial] makes over TCP, and that the listener's
-// Accept takes, is a stream like a socket's. Each direction buffers up to
+// A connection that [Host.DialTCP] makes, and that the listener's Accept
+// takes, is a stream like a socket's. Each direction buffers up to
 // 256 KiB, about what a loopback socket's buffers hold, so a Write returns
 // once its bytes are buffered and waits only while the buffer is full, not
 // until the peer reads them. A write the peer never reads, such as the
@@ -111,10 +112,8 @@
 //
 // # UDP
 //
-// [Host.ListenPacket] and [Host.ListenUDP] bind a UDP socket, and
-// [Host.DialUDP], or [Host.Dial] over "udp", "udp4" or "udp6", returns a
-// connected one. UDP follows a real network, as
-// TCP does:
+// [Host.ListenUDP] binds a UDP socket, and [Host.DialUDP] returns a
+// connected one. UDP follows a real network, as TCP does:
 //
 //   - "udp", "udp4" and "udp6" share one set of ports, apart from TCP's,
 //     so a UDP socket and a TCP listener can hold the same port.
@@ -138,7 +137,7 @@
 //     address it dialled. A write to an address no socket holds succeeds,
 //     and the socket's next read or write fails with ECONNREFUSED, as Linux
 //     reports the ICMP port unreachable that answers it. A socket from
-//     ListenPacket is never told.
+//     ListenUDP is never told.
 //   - A dialled socket is a net.PacketConn, as a dialled *net.UDPConn is,
 //     so a client that frames its messages by that type, such as Go's
 //     resolver, sends datagrams on it. Its ReadFrom reads as Read does and
@@ -156,7 +155,7 @@
 // client that dials 127.0.0.2 on a real machine never takes the reply.
 //
 // [Host.Listening] waits for TCP listeners only. A UDP socket is bound
-// once ListenPacket returns, so a test whose code under test binds one
+// once ListenUDP returns, so a test whose code under test binds one
 // waits with synctest.Wait, which returns once that code is blocked
 // reading it, before the test sends. A datagram sent before then is
 // dropped, as on a real network.
@@ -165,33 +164,34 @@
 //
 // The filesystem is real. [New] takes a directory from t.TempDir(), which
 // is removed when the test ends, and [WithFiles] writes the files a test
-// sets up before the code starts. The [FS] that [Host.FS] returns, and the
-// [Filesystem] that [Host.Filesystem] returns, open files with the same
-// os.Root on that directory, so ".." and symbolic links can't leave it,
-// and the two see the same files. Filesystem is FS without the seal of
-// host.FS, and without OpenRoot and OpenInRoot. [Host.Path] gives the
-// absolute path of a file in the directory to put in an argument or a
-// setting. Relative names are relative to the directory, which is what
-// the filesystem's [Filesystem.Getwd] returns.
+// sets up before the code starts. The [Filesystem] that [Host.Filesystem]
+// returns opens files with an os.Root on that directory, so ".." and
+// symbolic links can't leave it, and every Filesystem of one Host sees the
+// same files. [Host.Path] gives the absolute path of a file in the
+// directory to put in an argument or a setting. Relative names are
+// relative to the directory, which is what the filesystem's
+// [Filesystem.Getwd] returns.
 //
 // Real files are what let libraries that need an *os.File or a path keep
 // working in a test, and they cost two things. A test can't inject an I/O
 // error, such as a full disk, from the filesystem alone, so a test that
-// needs one embeds *FS or *Filesystem in a type of its own and overrides
-// the method that fails. And a file's ModTime is real even inside a synctest bubble, whose
-// clock is fake, so code that compares ModTime with time.Now needs Chtimes
-// in its tests.
+// needs one embeds *Filesystem in a type of its own and overrides the
+// method that fails. And a file's ModTime is real even inside a synctest
+// bubble, whose clock is fake, so code that compares ModTime with time.Now
+// needs Chtimes in its tests.
 //
 // # Absolute symbolic links
 //
 // os.Root never follows a symbolic link to an absolute target, even one
 // inside the directory, so such a link would fail at its first use rather
-// than where it was made. [Filesystem.Symlink], and so FS's, refuses an
-// absolute target instead, creating nothing, with an *os.LinkError whose
+// than where it was made. [Filesystem.Symlink] refuses an absolute target
+// instead, creating nothing, with an *os.LinkError whose
 // Err is errors.ErrUnsupported, and [Filesystem.CopyFS] fails the same way
 // on an fsys that holds one. Code that makes symbolic links makes relative
 // ones, which work the same on the real machine and under hosttest.
 //
 // The design is discussion #614,
-// https://github.com/z5labs/bedrock/discussions/614.
+// https://github.com/z5labs/bedrock/discussions/614, and discussion #653,
+// https://github.com/z5labs/bedrock/discussions/653, which replaced its
+// generic Host with host.IPNetwork and host.OSFilesystem.
 package hosttest

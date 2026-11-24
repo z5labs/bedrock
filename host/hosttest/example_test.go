@@ -20,14 +20,14 @@ import (
 // A test waits for a listener before it dials. Inside a synctest bubble,
 // synctest.Wait does that for every listener at once; Listening waits for
 // one, and works outside a bubble too. A listener on every name, such as
-// ":8080", is reached by a Dial to any name on its port.
+// ":8080", is reached by a DialTCP to any name on its port.
 func ExampleHost_Listening() {
 	t := new(exampleTB)
 	defer t.runCleanups()
 
 	h := hosttest.New(t)
-	_, err := h.Dial(context.Background(), "tcp", "localhost:8080")
-	fmt.Println("before Listen, refused:", errors.Is(err, syscall.ECONNREFUSED))
+	_, err := h.DialTCP(context.Background(), "tcp", "localhost:8080")
+	fmt.Println("before ListenTCP, refused:", errors.Is(err, syscall.ECONNREFUSED))
 
 	// The goroutine stands in for the code under test, which listens when
 	// it gets to it, and closes its listener once it has served. Listening
@@ -38,7 +38,7 @@ func ExampleHost_Listening() {
 	served := make(chan struct{})
 	go func() {
 		defer close(served)
-		ln, err := h.Listen("tcp", ":8080")
+		ln, err := h.ListenTCP(context.Background(), "tcp", ":8080")
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -54,10 +54,10 @@ func ExampleHost_Listening() {
 
 	select {
 	case <-listening:
-	case <-served: // Listen failed, and the goroutine said why
+	case <-served: // ListenTCP failed, and the goroutine said why
 		return
 	}
-	conn, err := h.Dial(context.Background(), "tcp", "localhost:8080")
+	conn, err := h.DialTCP(context.Background(), "tcp", "localhost:8080")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -71,14 +71,14 @@ func ExampleHost_Listening() {
 	fmt.Println(string(b))
 	<-served
 	// Output:
-	// before Listen, refused: true
+	// before ListenTCP, refused: true
 	// hello from every name
 }
 
 // WithFiles writes the files a test sets up into the Host's directory
 // before the code under test starts, and Path gives the absolute OS path
-// of one, to put in an argument or a setting. The Host's FS opens it
-// there, and refuses a file that exists outside the directory.
+// of one, to put in an argument or a setting. The Host's Filesystem
+// opens it there, and refuses a file that exists outside the directory.
 func ExampleWithFiles() {
 	t := new(exampleTB)
 	defer t.runCleanups()
@@ -89,7 +89,7 @@ func ExampleWithFiles() {
 	path := h.Path("etc/app/greeting.txt")
 	fmt.Println("absolute:", filepath.IsAbs(path))
 
-	f, err := h.FS().Open(path)
+	f, err := h.Filesystem().Open(path)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -109,7 +109,7 @@ func ExampleWithFiles() {
 	}
 	_, err = os.Stat(outside)
 	fmt.Println("outside exists:", err == nil)
-	_, err = h.FS().Open(outside)
+	_, err = h.Filesystem().Open(outside)
 	fmt.Println("outside the directory refused:", err != nil)
 	// Output:
 	// absolute: true
@@ -118,24 +118,24 @@ func ExampleWithFiles() {
 	// outside the directory refused: true
 }
 
-// A UDP server binds a socket with ListenPacket and a client dials it with
-// Dial, which binds the client's socket to the name it dials and a port of
+// A UDP server binds a socket with ListenUDP and a client dials it with
+// DialUDP, which binds the client's socket to the name it dials and a port of
 // its own. Datagrams wait for a read, so neither side needs a goroutine.
 // The server replies to the address ReadFrom returns, and the reply comes
 // from the address the client sent to, so the dialled socket takes it.
-func ExampleHost_ListenPacket() {
+func ExampleHost_ListenUDP() {
 	t := new(exampleTB)
 	defer t.runCleanups()
 
 	h := hosttest.New(t)
-	server, err := h.ListenPacket("udp", ":5353")
+	server, err := h.ListenUDP(context.Background(), "udp", ":5353")
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	defer func() { _ = server.Close() }()
 
-	client, err := h.Dial(context.Background(), "udp", "dns.internal:5353")
+	client, err := h.DialUDP(context.Background(), "udp", "dns.internal:5353")
 	if err != nil {
 		fmt.Println(err)
 		return

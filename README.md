@@ -178,28 +178,43 @@ framework built on it. The design is discussed in
 ## host
 
 [host](https://pkg.go.dev/github.com/z5labs/bedrock/host) is the network and
-the filesystem that a framework hands an App beyond its process. bedrock
-defines the contract and never passes a `Host`; each framework declares the
-filesystem its users see as an interface that embeds `host.FS` and lists the
-methods it needs, and hides the type parameter behind an alias:
+the filesystem that a framework hands an App beyond its process:
+`host.IPNetwork{}`, the machine's TCP and UDP, and `host.OSFilesystem{}`, its
+filesystem. bedrock defines the two types and never passes one. Each framework
+builds its own host struct from them, and every consumer declares the methods
+it calls as an interface of its own:
 
 ```go
-type FS interface {
-	host.FS
+type Network interface {
+	ListenTCP(ctx context.Context, network, address string) (net.Listener, error)
+	DialTCP(ctx context.Context, network, address string) (net.Conn, error)
+}
 
+type FS interface {
 	Open(name string) (*os.File, error)
 	Getwd() (string, error)
 }
 
-type Host = host.Host[FS]
+type Host struct {
+	Network    Network
+	Filesystem FS
+}
+
+h := Host{Network: host.IPNetwork{}, Filesystem: host.OSFilesystem{}}
 ```
 
-`host.OS()` is the Host of the real machine, and
-[hosttest](https://pkg.go.dev/github.com/z5labs/bedrock/host/hosttest) is the
-Host of a test: an in-memory network, over TCP and UDP, that can run inside a
-`testing/synctest` bubble, and a real filesystem confined to the test's temp
-directory. A server listens with `Listen` over TCP and `ListenPacket` over UDP,
-and a client connects over either with `Dial`.
+A server listens with `ListenTCP` over TCP and `ListenUDP` over UDP, and a
+client connects with `DialTCP` over TCP and `DialUDP` over UDP. Each method
+refuses any other network, unix sockets included.
+[hosttest](https://pkg.go.dev/github.com/z5labs/bedrock/host/hosttest) is what
+a test hands in their place: a `*hosttest.Host`, an in-memory network with the
+same four methods that can run inside a `testing/synctest` bubble, and its
+`Filesystem()`, a real filesystem confined to the test's temp directory:
+
+```go
+th := hosttest.New(t, hosttest.WithFiles(map[string][]byte{"etc/app.yaml": cfg}))
+h := Host{Network: th, Filesystem: th.Filesystem()}
+```
 
 It is a nested module with its own `go.mod`, and its library code imports only
 the standard library and the module's own packages:
@@ -208,10 +223,10 @@ the standard library and the module's own packages:
 go get github.com/z5labs/bedrock/host
 ```
 
-`FS` is sealed, so nothing outside the module implements it except by
-embedding `host.OSFS`, hosttest's `*FS` or `host.FS` itself, and a framework
-can rely on every filesystem being one of the two or a wrapper around one. The design is discussed in
-[discussion #614](https://github.com/z5labs/bedrock/discussions/614).
+A filesystem written from scratch is a filesystem: any type with the methods
+an interface lists satisfies it. The design is discussed in
+[discussion #614](https://github.com/z5labs/bedrock/discussions/614) and
+[discussion #653](https://github.com/z5labs/bedrock/discussions/653).
 
 ## pki
 

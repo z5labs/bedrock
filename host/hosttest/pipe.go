@@ -52,7 +52,7 @@ func (s *stream) notifyLocked() {
 }
 
 // pipeEnd is one end of a connection made by newPipe. local and remote are
-// the addresses it reports: Dial sets the listener's address as the
+// the addresses it reports: DialTCP sets the listener's address as the
 // server's local address and the client's remote one.
 type pipeEnd struct {
 	in, out       *stream
@@ -218,7 +218,7 @@ func (p *pipeEnd) closed() bool {
 	return p.out.wclosed
 }
 
-// pipeAddr is the address an end reports when Dial sets none: the
+// pipeAddr is the address an end reports when DialTCP sets none: the
 // client's local address and the server's remote one.
 type pipeAddr struct{}
 

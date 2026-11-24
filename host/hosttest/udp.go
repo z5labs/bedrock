@@ -7,6 +7,7 @@ package hosttest
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"net/netip"
 	"os"
@@ -23,22 +24,30 @@ const (
 	maxDatagram6 = 65535 - 8
 )
 
-// ListenPacket binds a UDP socket to the host and port of address. An
-// empty host, 0.0.0.0 or :: binds every name. Port 0 picks a free port.
-// ListenPacket fails with EADDRINUSE when a socket already holds the same
-// name and port, or when one of the two binds every name for that port.
+// ListenUDP binds a UDP socket to the host and port of address. An empty
+// host, 0.0.0.0 or :: binds every name. Port 0 picks a free port from
+// IANA's dynamic range, 49152 to 65535. ListenUDP fails with EADDRINUSE
+// when a socket already holds the same name and port, or when one of the
+// two binds every name for that port.
 //
 // The network is "udp", "udp4" or "udp6", which share one set of ports,
 // apart from TCP's, so a UDP socket and a TCP listener can hold the same
-// port. Every error is a *net.OpError. The socket's LocalAddr reports the
-// host as written in address and the port it holds.
+// port; any other network fails with a *net.OpError wrapping
+// net.UnknownNetworkError. Every error is a *net.OpError. The socket's
+// LocalAddr reports the host as written in address and the port it holds.
+//
+// Names are compared as written and never resolved, so ctx bounds
+// nothing, as in [Host.ListenTCP].
 //
 // The socket takes every datagram sent to an address it holds, and the
 // package documentation says what else it does. Like every socket the
 // Host makes, it starts no goroutine; a test that needs it bound before
 // the test sends to it waits with synctest.Wait.
-func (h *Host) ListenPacket(network, address string) (net.PacketConn, error) {
-	k, err := parse(network, address, "udp")
+func (h *Host) ListenUDP(ctx context.Context, network, address string) (net.PacketConn, error) {
+	if protocol(network) != "udp" {
+		return nil, unknownNetwork("listen", network)
+	}
+	k, err := parseAddress(address)
 	if err != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Err: err}
 	}
@@ -53,6 +62,40 @@ func (h *Host) ListenPacket(network, address string) (net.PacketConn, error) {
 	s := newSocket(h, network, k)
 	h.udp.add(k, s)
 	return packetConn{s}, nil
+}
+
+// DialUDP returns a UDP socket connected to the host and port of address,
+// over "udp", "udp4" or "udp6"; any other network fails with a
+// *net.OpError wrapping net.UnknownNetworkError. Every error is a
+// *net.OpError, and if ctx is already done DialUDP fails with ctx's error.
+//
+// DialUDP returns at once, whether or not a socket holds the address, as
+// a real one does: it never waits. The socket is bound to the name it
+// dials, as written, and a port from IANA's dynamic range, as a socket
+// dialled over loopback is bound to the loopback address. Names are
+// compared as written and never resolved. The socket sends only to the
+// address it dialled, and takes datagrams only from that address,
+// dropping every other. A write to an address no socket holds succeeds,
+// and the socket's next read or write fails with ECONNREFUSED, as Linux
+// reports the ICMP port unreachable that answers it.
+//
+// The socket is a net.PacketConn, as a dialled *net.UDPConn is: its
+// ReadFrom reads as Read does and returns the address it dialled, and its
+// WriteTo sends nothing and fails with an error wrapping
+// net.ErrWriteToConnected, whatever the address. The package
+// documentation says what else the socket does.
+func (h *Host) DialUDP(ctx context.Context, network, address string) (net.Conn, error) {
+	if protocol(network) != "udp" {
+		return nil, unknownNetwork("dial", network)
+	}
+	k, err := parseAddress(address)
+	if err != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Err: err}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Addr: k.udpAddr(), Err: err}
+	}
+	return h.dialUDP(network, k)
 }
 
 // dialUDP binds a socket to remote's name and a free port, connected to
@@ -111,14 +154,14 @@ type datagram struct {
 	from, to key
 }
 
-// socket is a UDP socket of a Host. ListenPacket returns it as a
-// packetConn, and Dial as a udpConn.
+// socket is a UDP socket of a Host. ListenUDP returns it as a
+// packetConn, and DialUDP as a udpConn.
 type socket struct {
 	host    *Host
 	network string
 	local   key  // as written, with the port it holds
 	remote  key  // the address it dialled
-	dialled bool // whether Dial made it
+	dialled bool // whether DialUDP made it
 
 	ready  chan struct{} // holds a token when a read may have something to return
 	done   chan struct{}
@@ -324,7 +367,7 @@ func (s *socket) setErr() error {
 	return &net.OpError{Op: "set", Net: s.network, Addr: s.LocalAddr(), Err: net.ErrClosed}
 }
 
-// packetConn is the net.PacketConn that Host.ListenPacket returns.
+// packetConn is the net.PacketConn that Host.ListenUDP returns.
 type packetConn struct{ *socket }
 
 // ReadFrom waits for a datagram sent to an address the socket holds and
@@ -355,7 +398,7 @@ func (c packetConn) WriteTo(b []byte, a net.Addr) (int, error) {
 	return len(b), nil
 }
 
-// udpConn is the net.Conn that Host.Dial returns over UDP. It is a
+// udpConn is the net.Conn that Host.DialUDP returns. It is a
 // net.PacketConn too, as a dialled *net.UDPConn is, so a client that
 // frames its messages by that type, such as Go's resolver, sends
 // datagrams on it.

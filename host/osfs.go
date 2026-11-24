@@ -27,10 +27,9 @@ import (
 // anything that takes an OS file or a path. OSFilesystem gains a method
 // when package os gains a function.
 //
-// OSFilesystem has no unexported method, so it does not satisfy [FS]. A
-// consumer declares the methods it calls as an interface of its own, and
-// any type with those methods is a filesystem it takes, OSFilesystem or
-// one written from scratch.
+// A consumer declares the methods it calls as an interface of its own,
+// and any type with those methods is a filesystem it takes, OSFilesystem
+// or one written from scratch.
 type OSFilesystem struct{}
 
 // Open is os.Open.
@@ -119,29 +118,3 @@ func (OSFilesystem) Getwd() (string, error) { return os.Getwd() }
 // DirFS returns an fs.FS view of dir, for fs.WalkDir, fs.Glob,
 // template.ParseFS and the other std helpers.
 func (OSFilesystem) DirFS(dir string) fs.FS { return os.DirFS(dir) }
-
-// OSFS is the filesystem of the real machine. It embeds OSFilesystem,
-// and its zero value is ready to use:
-//
-//	var fsys host.OSFS
-//
-// It has one method for every function of package os that names a file,
-// except those that read or change process-wide state, and each method is
-// the os function of the same name. CreateTemp and MkdirTemp with
-// dir == "" use os.TempDir.
-//
-// Names are OS paths, and a relative name is relative to Getwd. Files are
-// *os.File, so a file opened through OSFS can be handed to anything that
-// takes an OS file or a path. OSFS gains a method when package os gains a
-// function.
-type OSFS struct {
-	OSFilesystem
-}
-
-func (OSFS) fs() {}
-
-// OpenRoot is os.OpenRoot.
-func (OSFS) OpenRoot(name string) (*os.Root, error) { return os.OpenRoot(name) }
-
-// OpenInRoot is os.OpenInRoot.
-func (OSFS) OpenInRoot(dir, name string) (*os.File, error) { return os.OpenInRoot(dir, name) }

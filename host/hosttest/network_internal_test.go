@@ -15,14 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The connection Dial makes is not visible to a test once Dial has
+// The connection DialTCP makes is not visible to a test once DialTCP has
 // failed, so these tests hand connect one of their own and check both of
 // its ends.
 
 func TestListener_connect_closes_both_ends_when_ctx_is_done(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := New(t)
-		ln, err := h.Listen("tcp", "api:80")
+		ln, err := h.ListenTCP(t.Context(), "tcp", "api:80")
 		require.NoError(t, err)
 		defer func() { require.NoError(t, ln.Close()) }()
 
@@ -38,7 +38,7 @@ func TestListener_connect_closes_both_ends_when_ctx_is_done(t *testing.T) {
 func TestListener_connect_closes_both_ends_when_the_listener_closes(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := New(t)
-		ln, err := h.Listen("tcp", "api:80")
+		ln, err := h.ListenTCP(t.Context(), "tcp", "api:80")
 		require.NoError(t, err)
 		require.NoError(t, ln.Close())
 

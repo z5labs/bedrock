@@ -65,7 +65,7 @@ func dialRead(t *testing.T, dial func(context.Context, string, string) (net.Conn
 
 func listen(t *testing.T, h *hosttest.Host, address string) net.Listener {
 	t.Helper()
-	ln, err := h.Listen("tcp", address)
+	ln, err := h.ListenTCP(t.Context(), "tcp", address)
 	require.NoError(t, err)
 	return ln
 }
@@ -103,25 +103,25 @@ func TestNew_applies_its_options(t *testing.T) {
 func TestHost_starts_no_goroutines(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := hosttest.New(t)
-		_, err := h.Listen("tcp", "api:80")
+		_, err := h.ListenTCP(t.Context(), "tcp", "api:80")
 		require.NoError(t, err)
-		_, err = h.Dial(t.Context(), "tcp", "api:81")
+		_, err = h.DialTCP(t.Context(), "tcp", "api:81")
 		require.ErrorIs(t, err, syscall.ECONNREFUSED)
 		require.True(t, isClosed(h.Listening("api:80")))
 		require.False(t, isClosed(h.Listening("api:81")))
 
-		_, err = h.ListenPacket("udp", "api:53")
+		_, err = h.ListenUDP(t.Context(), "udp", "api:53")
 		require.NoError(t, err)
-		c, err := h.Dial(t.Context(), "udp", "api:53")
+		c, err := h.DialUDP(t.Context(), "udp", "api:53")
 		require.NoError(t, err)
 		_, err = c.Write([]byte("ping"))
 		require.NoError(t, err)
-		_, err = h.Dial(t.Context(), "udp", "api:54")
+		_, err = h.DialUDP(t.Context(), "udp", "api:54")
 		require.NoError(t, err)
 	})
 }
 
-// TestHost_channels_belong_to_the_bubble shows that Accept, Dial and
+// TestHost_channels_belong_to_the_bubble shows that Accept, DialTCP and
 // Listening block durably inside a bubble: synctest.Wait returns only once
 // every goroutine in the bubble is blocked on a channel of the bubble.
 func TestHost_channels_belong_to_the_bubble(t *testing.T) {
@@ -142,14 +142,14 @@ func TestHost_channels_belong_to_the_bubble(t *testing.T) {
 
 		dialed := make(chan error, 1)
 		go func() {
-			c, err := h.Dial(t.Context(), "tcp", "api:80")
+			c, err := h.DialTCP(t.Context(), "tcp", "api:80")
 			if err == nil {
 				err = c.Close()
 			}
 			dialed <- err
 		}()
 		synctest.Wait()
-		require.Empty(t, dialed, "Dial returns only once Accept takes the connection")
+		require.Empty(t, dialed, "DialTCP returns only once Accept takes the connection")
 
 		c, err := ln.Accept()
 		require.NoError(t, err)
@@ -174,12 +174,12 @@ func TestHost_two_names_on_one_port_both_serve(t *testing.T) {
 		serve(t, listen(t, h, "api.internal:8080"), "api")
 		serve(t, listen(t, h, "admin.internal:8080"), "admin")
 
-		require.Equal(t, "api", dialRead(t, h.Dial, "api.internal:8080"))
-		require.Equal(t, "admin", dialRead(t, h.Dial, "admin.internal:8080"))
+		require.Equal(t, "api", dialRead(t, h.DialTCP, "api.internal:8080"))
+		require.Equal(t, "admin", dialRead(t, h.DialTCP, "admin.internal:8080"))
 	})
 }
 
-func TestHost_Listen_EADDRINUSE(t *testing.T) {
+func TestHost_ListenTCP_EADDRINUSE(t *testing.T) {
 	testCases := []struct {
 		name          string
 		first, second string
@@ -199,7 +199,7 @@ func TestHost_Listen_EADDRINUSE(t *testing.T) {
 				ln := listen(t, h, tc.first)
 				defer func() { require.NoError(t, ln.Close()) }()
 
-				_, err := h.Listen("tcp", tc.second)
+				_, err := h.ListenTCP(t.Context(), "tcp", tc.second)
 				require.ErrorIs(t, err, syscall.EADDRINUSE)
 				opErr, ok := errors.AsType[*net.OpError](err)
 				require.True(t, ok, "%T is not a *net.OpError", err)
@@ -210,7 +210,7 @@ func TestHost_Listen_EADDRINUSE(t *testing.T) {
 	}
 }
 
-func TestHost_Listen_port_0(t *testing.T) {
+func TestHost_ListenTCP_port_0(t *testing.T) {
 	t.Run("picks distinct free ports and Addr reports them", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
@@ -225,8 +225,8 @@ func TestHost_Listen_port_0(t *testing.T) {
 
 			serve(t, a, "a")
 			serve(t, b, "b")
-			require.Equal(t, "a", dialRead(t, h.Dial, a.Addr().String()))
-			require.Equal(t, "b", dialRead(t, h.Dial, b.Addr().String()))
+			require.Equal(t, "a", dialRead(t, h.DialTCP, a.Addr().String()))
+			require.Equal(t, "b", dialRead(t, h.DialTCP, b.Addr().String()))
 		})
 	})
 
@@ -286,7 +286,7 @@ func TestHost_Listen_port_0(t *testing.T) {
 			h := hosttest.New(t)
 			var lns []net.Listener
 			for {
-				ln, err := h.Listen("tcp", ":0")
+				ln, err := h.ListenTCP(t.Context(), "tcp", ":0")
 				if err != nil {
 					require.ErrorIs(t, err, syscall.EADDRINUSE)
 					break
@@ -301,15 +301,15 @@ func TestHost_Listen_port_0(t *testing.T) {
 	})
 }
 
-func TestHost_Dial(t *testing.T) {
+func TestHost_DialTCP_reaches_its_listener(t *testing.T) {
 	t.Run("falls back to the every-name listener", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
 			serve(t, listen(t, h, ":80"), "every")
 
-			require.Equal(t, "every", dialRead(t, h.Dial, "api:80"))
-			require.Equal(t, "every", dialRead(t, h.Dial, "localhost:80"))
-			require.Equal(t, "every", dialRead(t, h.Dial, ":80"))
+			require.Equal(t, "every", dialRead(t, h.DialTCP, "api:80"))
+			require.Equal(t, "every", dialRead(t, h.DialTCP, "localhost:80"))
+			require.Equal(t, "every", dialRead(t, h.DialTCP, ":80"))
 		})
 	})
 
@@ -333,7 +333,7 @@ func TestHost_Dial(t *testing.T) {
 					defer func() { require.NoError(t, ln.Close()) }()
 				}
 
-				c, err := h.Dial(t.Context(), "tcp", tc.dial)
+				c, err := h.DialTCP(t.Context(), "tcp", tc.dial)
 				require.Nil(t, c)
 				require.ErrorIs(t, err, syscall.ECONNREFUSED)
 				opErr, ok := errors.AsType[*net.OpError](err)
@@ -350,11 +350,11 @@ func TestHost_Dial(t *testing.T) {
 			ln := listen(t, h, "api:80")
 			require.NoError(t, ln.Close())
 
-			_, err := h.Dial(t.Context(), "tcp", "api:80")
+			_, err := h.DialTCP(t.Context(), "tcp", "api:80")
 			require.ErrorIs(t, err, syscall.ECONNREFUSED)
 
 			serve(t, listen(t, h, "api:80"), "again")
-			require.Equal(t, "again", dialRead(t, h.Dial, "api:80"))
+			require.Equal(t, "again", dialRead(t, h.DialTCP, "api:80"))
 		})
 	})
 
@@ -374,7 +374,7 @@ func TestHost_Dial(t *testing.T) {
 
 			dialed := make(chan error, 1)
 			go func() {
-				_, err := h.Dial(t.Context(), "tcp", "api:80")
+				_, err := h.DialTCP(t.Context(), "tcp", "api:80")
 				dialed <- err
 			}()
 			synctest.Wait()
@@ -392,7 +392,7 @@ func TestHost_Dial(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
 			start := time.Now()
-			c, err := h.Dial(ctx, "tcp", "api:80")
+			c, err := h.DialTCP(ctx, "tcp", "api:80")
 			require.Nil(t, c)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			_, ok := errors.AsType[*net.OpError](err)
@@ -409,7 +409,7 @@ func TestHost_Dial(t *testing.T) {
 
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
-			_, err := h.Dial(ctx, "tcp", "api:80")
+			_, err := h.DialTCP(ctx, "tcp", "api:80")
 			require.ErrorIs(t, err, context.Canceled)
 		})
 	})
@@ -429,7 +429,7 @@ func TestHost_Dial(t *testing.T) {
 				close(accepted)
 			}()
 
-			client, err := h.Dial(t.Context(), "tcp", "api:80")
+			client, err := h.DialTCP(t.Context(), "tcp", "api:80")
 			require.NoError(t, err)
 			server := <-accepted
 			require.NotNil(t, server)
@@ -466,17 +466,17 @@ func TestHost_malformed_addresses(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				h := hosttest.New(t)
 
-				ln, err := h.Listen(tc.network, tc.address)
+				ln, err := h.ListenTCP(t.Context(), tc.network, tc.address)
 				require.Nil(t, ln)
 				opErr, ok := errors.AsType[*net.OpError](err)
-				require.True(t, ok, "Listen: %T is not a *net.OpError", err)
+				require.True(t, ok, "ListenTCP: %T is not a *net.OpError", err)
 				require.Equal(t, "listen", opErr.Op)
 				require.Equal(t, tc.network, opErr.Net)
 
-				c, err := h.Dial(t.Context(), tc.network, tc.address)
+				c, err := h.DialTCP(t.Context(), tc.network, tc.address)
 				require.Nil(t, c)
 				opErr, ok = errors.AsType[*net.OpError](err)
-				require.True(t, ok, "Dial: %T is not a *net.OpError", err)
+				require.True(t, ok, "DialTCP: %T is not a *net.OpError", err)
 				require.Equal(t, "dial", opErr.Op)
 			})
 		})
@@ -494,12 +494,12 @@ func TestHost_malformed_addresses(t *testing.T) {
 	t.Run("tcp4 and tcp6 share tcp's ports", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := hosttest.New(t)
-			ln, err := h.Listen("tcp4", "api:80")
+			ln, err := h.ListenTCP(t.Context(), "tcp4", "api:80")
 			require.NoError(t, err)
 			defer func() { require.NoError(t, ln.Close()) }()
-			_, err = h.Listen("tcp6", "api:80")
+			_, err = h.ListenTCP(t.Context(), "tcp6", "api:80")
 			require.ErrorIs(t, err, syscall.EADDRINUSE)
-			_, err = h.Listen("tcp", "api:80")
+			_, err = h.ListenTCP(t.Context(), "tcp", "api:80")
 			require.ErrorIs(t, err, syscall.EADDRINUSE)
 		})
 	})
@@ -537,7 +537,7 @@ func (tb *fakeTB) Errorf(format string, args ...any) {
 }
 
 func TestHost_Listening(t *testing.T) {
-	t.Run("closes when a listener a Dial would reach is made", func(t *testing.T) {
+	t.Run("closes when a listener a DialTCP would reach is made", func(t *testing.T) {
 		testCases := []struct {
 			name, wait, listen string
 		}{
@@ -560,7 +560,7 @@ func TestHost_Listening(t *testing.T) {
 		}
 	})
 
-	t.Run("stays open for a listener a Dial would not reach", func(t *testing.T) {
+	t.Run("stays open for a listener a DialTCP would not reach", func(t *testing.T) {
 		testCases := []struct {
 			name, wait, listen string
 		}{
@@ -645,7 +645,7 @@ func TestHost_Listening(t *testing.T) {
 			tb := &fakeTB{TB: t}
 			h := hosttest.New(tb)
 			ch := h.Listening("api")
-			require.True(t, isClosed(ch), "a closed channel, so the test goes on to the Dial that reports it")
+			require.True(t, isClosed(ch), "a closed channel, so the test goes on to the DialTCP that reports it")
 			require.Len(t, tb.errors, 1)
 			require.Contains(t, tb.errors[0], `hosttest: Listening("api")`)
 		})
@@ -682,7 +682,7 @@ func TestHost_Listening_before_dialling_an_App(t *testing.T) {
 
 		served := make(chan error, 1)
 		go func() {
-			ln, err := h.Listen("tcp", ":8080")
+			ln, err := h.ListenTCP(t.Context(), "tcp", ":8080")
 			if err != nil {
 				served <- err
 				return
@@ -703,7 +703,7 @@ func TestHost_Listening_before_dialling_an_App(t *testing.T) {
 
 		<-h.Listening(":8080")
 		client := &http.Client{Transport: &http.Transport{
-			DialContext:       h.Dial,
+			DialContext:       h.DialTCP,
 			DisableKeepAlives: true,
 		}}
 		resp, err := client.Get("http://localhost:8080/")
@@ -717,7 +717,7 @@ func TestHost_Listening_before_dialling_an_App(t *testing.T) {
 		stop()
 		require.NoError(t, <-served)
 
-		_, err = h.Dial(t.Context(), "tcp", "localhost:8080")
+		_, err = h.DialTCP(t.Context(), "tcp", "localhost:8080")
 		require.ErrorIs(t, err, syscall.ECONNREFUSED, "the server's listener is closed with the App")
 	})
 }
